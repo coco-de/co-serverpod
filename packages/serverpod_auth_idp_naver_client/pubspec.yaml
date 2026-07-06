@@ -9,10 +9,10 @@ environment:
   sdk: ">=3.8.0 <4.0.0"
 
 dependencies:
-  serverpod_client: 3.5.0-beta.12
-  serverpod_auth_core_client: 3.5.0-beta.12
+  serverpod_client: 4.0.0-beta.0
+  serverpod_auth_core_client: 4.0.0-beta.0
   # The generated protocol references the parent idp module's client.
-  serverpod_auth_idp_client: 3.5.0-beta.12
+  serverpod_auth_idp_client: 4.0.0-beta.0
 
 dev_dependencies:
   lints: ^5.0.0

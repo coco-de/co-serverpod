@@ -462,16 +462,22 @@ class NaverAccountRepository {
   /// If [ignoreConflicts] is set to `true`, rows that conflict with existing
   /// rows are silently skipped, and only the successfully inserted rows are
   /// returned.
+  ///
+  /// If [noReturn] is set to `true`, the inserted rows are not read back from
+  /// the database and an empty list is returned. This avoids the overhead of
+  /// transferring and deserializing the rows when the result is not needed.
   Future<List<NaverAccount>> insert(
     _i1.DatabaseSession session,
     List<NaverAccount> rows, {
     _i1.Transaction? transaction,
     bool ignoreConflicts = false,
+    bool noReturn = false,
   }) async {
     return session.db.insert<NaverAccount>(
       rows,
       transaction: transaction,
       ignoreConflicts: ignoreConflicts,
+      noReturn: noReturn,
     );
   }
 
@@ -505,6 +511,10 @@ class NaverAccountRepository {
   ///
   /// This is an atomic operation, meaning that if one of the rows fails,
   /// none of the rows will be affected.
+  ///
+  /// If [noReturn] is set to `true`, the resulting rows are not read back from
+  /// the database and an empty list is returned. This avoids the overhead of
+  /// transferring and deserializing the rows when the result is not needed.
   Future<List<NaverAccount>> upsert(
     _i1.DatabaseSession session,
     List<NaverAccount> rows, {
@@ -512,6 +522,7 @@ class NaverAccountRepository {
     _i1.ColumnSelections<NaverAccountTable>? updateColumns,
     _i1.WhereExpressionBuilder<NaverAccountTable>? updateWhere,
     _i1.Transaction? transaction,
+    bool noReturn = false,
   }) async {
     return session.db.upsert<NaverAccount>(
       rows,
@@ -519,6 +530,7 @@ class NaverAccountRepository {
       updateColumns: updateColumns?.call(NaverAccount.t),
       updateWhere: updateWhere?.call(NaverAccount.t),
       transaction: transaction,
+      noReturn: noReturn,
     );
   }
 
@@ -557,16 +569,22 @@ class NaverAccountRepository {
   /// all columns.
   /// This is an atomic operation, meaning that if one of the rows fails to
   /// update, none of the rows will be updated.
+  ///
+  /// If [noReturn] is set to `true`, the updated rows are not read back from
+  /// the database and an empty list is returned. This avoids the overhead of
+  /// transferring and deserializing the rows when the result is not needed.
   Future<List<NaverAccount>> update(
     _i1.DatabaseSession session,
     List<NaverAccount> rows, {
     _i1.ColumnSelections<NaverAccountTable>? columns,
     _i1.Transaction? transaction,
+    bool noReturn = false,
   }) async {
     return session.db.update<NaverAccount>(
       rows,
       columns: columns?.call(NaverAccount.t),
       transaction: transaction,
+      noReturn: noReturn,
     );
   }
 
@@ -603,6 +621,10 @@ class NaverAccountRepository {
 
   /// Updates all [NaverAccount]s matching the [where] expression with the specified [columnValues].
   /// Returns the list of updated rows.
+  ///
+  /// If [noReturn] is set to `true`, the updated rows are not read back from
+  /// the database and an empty list is returned. This avoids the overhead of
+  /// transferring and deserializing the rows when the result is not needed.
   Future<List<NaverAccount>> updateWhere(
     _i1.DatabaseSession session, {
     required _i1.ColumnValueListBuilder<NaverAccountUpdateTable> columnValues,
@@ -614,6 +636,7 @@ class NaverAccountRepository {
     @Deprecated('Use desc() on the orderBy column instead.')
     bool orderDescending = false,
     _i1.Transaction? transaction,
+    bool noReturn = false,
   }) async {
     return session.db.updateWhere<NaverAccount>(
       columnValues: columnValues(NaverAccount.t.updateTable),
@@ -625,6 +648,7 @@ class NaverAccountRepository {
       orderDescending: // ignore: deprecated_member_use
           orderDescending,
       transaction: transaction,
+      noReturn: noReturn,
     );
   }
 
@@ -635,6 +659,10 @@ class NaverAccountRepository {
   ///
   /// This is an atomic operation, meaning that if one of the rows fail to
   /// be deleted, none of the rows will be deleted.
+  ///
+  /// If [noReturn] is set to `true`, the deleted rows are not read back from
+  /// the database and an empty list is returned. This avoids the overhead of
+  /// transferring and deserializing the rows when the result is not needed.
   Future<List<NaverAccount>> delete(
     _i1.DatabaseSession session,
     List<NaverAccount> rows, {
@@ -643,6 +671,7 @@ class NaverAccountRepository {
     bool orderDescending = false,
     _i1.OrderByListBuilder<NaverAccountTable>? orderByList,
     _i1.Transaction? transaction,
+    bool noReturn = false,
   }) async {
     return session.db.delete<NaverAccount>(
       rows,
@@ -651,6 +680,7 @@ class NaverAccountRepository {
       orderDescending: // ignore: deprecated_member_use
           orderDescending,
       transaction: transaction,
+      noReturn: noReturn,
     );
   }
 
@@ -670,6 +700,10 @@ class NaverAccountRepository {
   ///
   /// To specify the order of the returned rows use [orderBy] or [orderByList]
   /// when sorting by multiple columns.
+  ///
+  /// If [noReturn] is set to `true`, the deleted rows are not read back from
+  /// the database and an empty list is returned. This avoids the overhead of
+  /// transferring and deserializing the rows when the result is not needed.
   Future<List<NaverAccount>> deleteWhere(
     _i1.DatabaseSession session, {
     required _i1.WhereExpressionBuilder<NaverAccountTable> where,
@@ -678,6 +712,7 @@ class NaverAccountRepository {
     bool orderDescending = false,
     _i1.OrderByListBuilder<NaverAccountTable>? orderByList,
     _i1.Transaction? transaction,
+    bool noReturn = false,
   }) async {
     return session.db.deleteWhere<NaverAccount>(
       where: where(NaverAccount.t),
@@ -686,6 +721,7 @@ class NaverAccountRepository {
       orderDescending: // ignore: deprecated_member_use
           orderDescending,
       transaction: transaction,
+      noReturn: noReturn,
     );
   }
 
