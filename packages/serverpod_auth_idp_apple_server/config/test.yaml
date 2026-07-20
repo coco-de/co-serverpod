@@ -1,0 +1,35 @@
+# Test environment configuration for withServerpod integration tests.
+# Ports are 0 so the test server picks free ports (concurrent test safe).
+
+apiServer:
+  port: 0
+  publicHost: localhost
+  publicPort: 0
+  publicScheme: http
+
+insightsServer:
+  port: 0
+  publicHost: localhost
+  publicPort: 0
+  publicScheme: http
+
+webServer:
+  port: 0
+  publicHost: localhost
+  publicPort: 0
+  publicScheme: http
+
+database:
+  host: localhost
+  port: 9092
+  name: serverpod_auth_idp_kakao_test
+  user: postgres
+
+redis:
+  enabled: false
+  host: localhost
+  port: 9093
+
+sessionLogs:
+  persistentEnabled: true
+  consoleEnabled: true

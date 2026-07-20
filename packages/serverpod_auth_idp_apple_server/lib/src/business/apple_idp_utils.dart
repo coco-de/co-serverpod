@@ -1,0 +1,254 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:clock/clock.dart';
+import 'package:serverpod/serverpod.dart';
+// Hide the official provider's AppleAccount model (bundled in
+// serverpod_auth_idp_server) so it doesn't clash with this package's own
+// AppleAccount from the generated protocol.
+import 'package:serverpod_auth_idp_server/core.dart' hide AppleAccount;
+import 'package:sign_in_with_apple_server/sign_in_with_apple_server.dart';
+
+import 'apple_idp.dart';
+import 'apple_idp_config.dart';
+
+// AppleAccount 는 `serverpod generate` 후 생성되는 모델이다.
+import '../generated/protocol.dart';
+
+/// Details of the Apple account.
+typedef AppleAccountDetails = ({
+  /// Apple's permanent user identifier for this account
+  String userIdentifier,
+  String? email,
+  bool? isVerifiedEmail,
+  bool? isPrivateEmail,
+  String? firstName,
+  String? lastName,
+});
+
+/// Details of a successful Apple-based authentication.
+typedef AppleAuthSuccess = ({
+  UuidValue appleAccountId,
+  UuidValue authUserId,
+  AppleAccountDetails details,
+  bool newAccount,
+  Set<Scope> scopes,
+});
+
+/// Utility functions for the Apple identity provider.
+///
+/// Ported from the official `serverpod_auth_idp_server` Apple provider. The
+/// only behavioural change is that [authenticate] threads a [nonce] through to
+/// [SignInWithApple.verifyIdentityToken] so the identity token's `nonce` claim
+/// is verified (replay protection), instead of the official provider's
+/// hard-coded `nonce: null`.
+class AppleIdpUtils {
+  /// Configuration for the Apple identity provider.
+  final AppleIdpConfig? config;
+
+  final TokenManager _tokenManager;
+  final SignInWithApple _signInWithApple;
+  final AuthUsers _authUsers;
+
+  /// Creates a new instance of [AppleIdpUtils].
+  AppleIdpUtils({
+    this.config,
+    required final TokenManager tokenManager,
+    required final SignInWithApple signInWithApple,
+    required final AuthUsers authUsers,
+  }) : _tokenManager = tokenManager,
+       _signInWithApple = signInWithApple,
+       _authUsers = authUsers;
+
+  /// Authenticates a user using an [identityToken] and [authorizationCode].
+  ///
+  /// If the external user ID is not yet known in the system, a new `AuthUser`
+  /// is created for it.
+  ///
+  /// When [nonce] is non-null, it is verified against the identity token's
+  /// `nonce` claim (which Apple echoes back from the value the client sent in
+  /// the authorization request). The client is expected to send exactly the
+  /// value that was put into the Apple authorization request — following the
+  /// standard `sign_in_with_apple` pattern, that is `SHA256(rawNonce)`. A
+  /// mismatch throws (from `sign_in_with_apple_server`). When [nonce] is null,
+  /// the nonce claim is ignored (backwards-compatible with the official
+  /// provider), so existing clients keep working during the migration.
+  Future<AppleAuthSuccess> authenticate(
+    final Session session, {
+    required final String identityToken,
+    required final String authorizationCode,
+
+    /// Whether the sign-in was triggered from a native Apple platform app.
+    ///
+    /// Pass `false` for web sign-ins or 3rd party platforms like Android.
+    required final bool isNativeApplePlatformSignIn,
+    required final String? nonce,
+    final String? firstName,
+    final String? lastName,
+    required final Transaction? transaction,
+  }) async {
+    final verifiedIdentityToken = await _signInWithApple.verifyIdentityToken(
+      identityToken,
+      useBundleIdentifier: isNativeApplePlatformSignIn,
+      nonce: nonce,
+    );
+
+    // TODO(https://github.com/serverpod/serverpod/issues/4105):
+    // Handle the edge-case where we already know the user, but they
+    // disconnected and now "registered" again, in which case we need to
+    // receive and store the new refresh token.
+
+    var appleAccount = await AppleAccount.db.findFirstRow(
+      session,
+      where: (final t) => t.userIdentifier.equals(verifiedIdentityToken.userId),
+      transaction: transaction,
+    );
+
+    final createNewAccount = appleAccount == null;
+
+    final AuthUserModel authUser = switch (createNewAccount) {
+      true => await _authUsers.create(session, transaction: transaction),
+      false => await _authUsers.get(
+        session,
+        authUserId: appleAccount!.authUserId,
+      ),
+    };
+
+    if (createNewAccount) {
+      final refreshToken = await _signInWithApple.exchangeAuthorizationCode(
+        authorizationCode,
+        useBundleIdentifier: isNativeApplePlatformSignIn,
+      );
+
+      appleAccount = await AppleAccount.db.insertRow(
+        session,
+        AppleAccount(
+          userIdentifier: verifiedIdentityToken.userId,
+          refreshToken: refreshToken.refreshToken,
+          refreshTokenRequestedWithBundleIdentifier:
+              isNativeApplePlatformSignIn,
+          email: verifiedIdentityToken.email?.toLowerCase(),
+          isEmailVerified: verifiedIdentityToken.emailVerified,
+          isPrivateEmail: verifiedIdentityToken.isPrivateEmail,
+          authUserId: authUser.id,
+          firstName: firstName,
+          lastName: lastName,
+        ),
+        transaction: transaction,
+      );
+
+      await config?.onAfterAppleAccountCreated?.call(
+        session,
+        authUser,
+        appleAccount,
+        transaction: transaction,
+      );
+    }
+
+    final AppleAccountDetails details = (
+      userIdentifier: appleAccount.userIdentifier,
+      email: appleAccount.email,
+      isVerifiedEmail: appleAccount.isEmailVerified,
+      isPrivateEmail: appleAccount.isPrivateEmail,
+      firstName: appleAccount.firstName,
+      lastName: appleAccount.lastName,
+    );
+
+    return (
+      appleAccountId: appleAccount.id!,
+      authUserId: appleAccount.authUserId,
+      details: details,
+      newAccount: createNewAccount,
+      scopes: authUser.scopes,
+    );
+  }
+
+  /// Returns the possible [AppleAccount] associated with a session.
+  Future<AppleAccount?> getAccount(final Session session) {
+    return switch (session.authenticated) {
+      null => Future.value(null),
+      _ => AppleAccount.db.findFirstRow(
+        session,
+        where: (final t) =>
+            t.authUserId.equals(session.authenticated!.authUserId),
+      ),
+    };
+  }
+
+  /// Refreshes the Apple [appleAccount]'s refresh token to ensure it is still
+  /// valid.
+  ///
+  /// If the token has been revoked, the [onExpiredUserAuthentication] callback
+  /// is invoked with the associated auth user's ID.
+  Future<void> refreshToken(
+    final Session session, {
+    required final AppleAccount appleAccount,
+    required final void Function(UuidValue authUserId)
+    onExpiredUserAuthentication,
+  }) async {
+    await AppleAccount.db.updateRow(
+      session,
+      appleAccount.copyWith(lastRefreshedAt: clock.now()),
+    );
+
+    try {
+      await _signInWithApple.validateRefreshToken(
+        appleAccount.refreshToken,
+        useBundleIdentifier:
+            appleAccount.refreshTokenRequestedWithBundleIdentifier,
+      );
+    } on RevokedTokenException catch (_) {
+      onExpiredUserAuthentication(appleAccount.authUserId);
+    }
+  }
+
+  /// Handler for revoking sessions based on server-to-server notifications
+  /// coming from Apple.
+  ///
+  /// If the notification is of type [AppleServerNotificationConsentRevoked] or
+  /// [AppleServerNotificationAccountDelete], all sessions based on the Apple
+  /// authentication for that account will be revoked.
+  Future<Result> serverNotificationHandler(
+    final Session session,
+    final Request req,
+  ) async {
+    final body = await utf8.decodeStream(req.body.read());
+    final payload = (jsonDecode(body) as Map)['payload'] as String;
+
+    final notification = await _signInWithApple.decodeAppleServerNotification(
+      payload,
+    );
+
+    final userIdentifier = switch (notification) {
+      AppleServerNotificationConsentRevoked() => notification.userIdentifier,
+      AppleServerNotificationAccountDelete() => notification.userIdentifier,
+      _ => null,
+    };
+
+    if (userIdentifier != null) {
+      final appleAccount = await AppleAccount.db.findFirstRow(
+        session,
+        where: (final t) => t.userIdentifier.equals(userIdentifier),
+      );
+
+      if (appleAccount != null) {
+        await _signInWithApple.revokeAuthorization(
+          refreshToken: appleAccount.refreshToken,
+          useBundleIdentifier:
+              appleAccount.refreshTokenRequestedWithBundleIdentifier,
+        );
+
+        await _tokenManager.revokeAllTokens(
+          session,
+          authUserId: appleAccount.authUserId,
+          method: AppleIdp.method,
+        );
+
+        if (notification is AppleServerNotificationAccountDelete) {
+          await AppleAccount.db.deleteRow(session, appleAccount);
+        }
+      }
+    }
+    return Response.ok();
+  }
+}

@@ -1,0 +1,18 @@
+name: serverpod_auth_idp_apple_client
+description: >-
+  Client library for the serverpod_auth_idp_apple Serverpod module. Generated
+  protocol + endpoint callers for Apple login (Sign in with Apple, with nonce).
+version: 0.1.0
+repository: https://github.com/coco-de/serverpod-auth-kr
+
+environment:
+  sdk: ">=3.8.0 <4.0.0"
+
+dependencies:
+  serverpod_client: 4.0.0-beta.0
+  serverpod_auth_core_client: 4.0.0-beta.0
+  # The generated protocol references the parent idp module's client.
+  serverpod_auth_idp_client: 4.0.0-beta.0
+
+dev_dependencies:
+  lints: ^5.0.0

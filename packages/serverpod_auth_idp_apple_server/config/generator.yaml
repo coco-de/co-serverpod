@@ -1,0 +1,11 @@
+type: module
+nickname: serverpod_auth_idp_apple
+
+# AuthUser is defined in the serverpod_auth_core module, referenced as
+# `module:auth:AuthUser` in the model files.
+modules:
+  serverpod_auth_core:
+    nickname: auth
+
+client_package_path: ../serverpod_auth_idp_apple_client
+server_test_tools_path: test/integration/test_tools
