@@ -17,8 +17,8 @@ import 'dart:io' as _i3;
 import 'dart:async' as _i4;
 import 'package:serverpod_auth_core_server/serverpod_auth_core_server.dart'
     as _i5;
-import 'package:serverpod_auth_idp_kakao_server/src/generated/protocol.dart';
-import 'package:serverpod_auth_idp_kakao_server/src/generated/endpoints.dart';
+import 'package:serverpod_auth_idp_apple_server/src/generated/protocol.dart';
+import 'package:serverpod_auth_idp_apple_server/src/generated/endpoints.dart';
 export 'package:serverpod_test/serverpod_test_public_exports.dart';
 
 /// Creates a new test group that takes a callback that can be used to write tests.
@@ -140,7 +140,7 @@ void withServerpod(
 }
 
 class TestEndpoints {
-  late final _KakaoIdpEndpoint kakaoIdp;
+  late final _AppleIdpEndpoint appleIdp;
 }
 
 class _InternalTestEndpoints extends TestEndpoints
@@ -150,15 +150,15 @@ class _InternalTestEndpoints extends TestEndpoints
     _i2.SerializationManager serializationManager,
     _i2.EndpointDispatch endpoints,
   ) {
-    kakaoIdp = _KakaoIdpEndpoint(
+    appleIdp = _AppleIdpEndpoint(
       endpoints,
       serializationManager,
     );
   }
 }
 
-class _KakaoIdpEndpoint {
-  _KakaoIdpEndpoint(
+class _AppleIdpEndpoint {
+  _AppleIdpEndpoint(
     this._endpointDispatch,
     this._serializationManager,
   );
@@ -169,57 +169,32 @@ class _KakaoIdpEndpoint {
 
   _i4.Future<_i5.AuthSuccess> login(
     _i1.TestSessionBuilder sessionBuilder, {
-    required String code,
-    required String codeVerifier,
-    required String redirectUri,
+    required String identityToken,
+    required String authorizationCode,
+    required bool isNativeApplePlatformSignIn,
+    String? nonce,
+    String? firstName,
+    String? lastName,
   }) async {
     return _i1.callAwaitableFunctionAndHandleExceptions(() async {
       var _localUniqueSession =
           (sessionBuilder as _i1.InternalTestSessionBuilder).internalBuild(
-            endpoint: 'kakaoIdp',
+            endpoint: 'appleIdp',
             method: 'login',
           );
       try {
         var _localCallContext = await _endpointDispatch.getMethodCallContext(
           createSessionCallback: (_) => _localUniqueSession,
-          endpointPath: 'kakaoIdp',
+          endpointPath: 'appleIdp',
           methodName: 'login',
           parameters: _i1.testObjectToJson({
-            'code': code,
-            'codeVerifier': codeVerifier,
-            'redirectUri': redirectUri,
+            'identityToken': identityToken,
+            'authorizationCode': authorizationCode,
+            'isNativeApplePlatformSignIn': isNativeApplePlatformSignIn,
+            'nonce': nonce,
+            'firstName': firstName,
+            'lastName': lastName,
           }),
-          serializationManager: _serializationManager,
-        );
-        var _localReturnValue =
-            await (_localCallContext.method.call(
-                  _localUniqueSession,
-                  _localCallContext.arguments,
-                )
-                as _i4.Future<_i5.AuthSuccess>);
-        return _localReturnValue;
-      } finally {
-        await _localUniqueSession.close();
-      }
-    });
-  }
-
-  _i4.Future<_i5.AuthSuccess> loginWithAccessToken(
-    _i1.TestSessionBuilder sessionBuilder, {
-    required String accessToken,
-  }) async {
-    return _i1.callAwaitableFunctionAndHandleExceptions(() async {
-      var _localUniqueSession =
-          (sessionBuilder as _i1.InternalTestSessionBuilder).internalBuild(
-            endpoint: 'kakaoIdp',
-            method: 'loginWithAccessToken',
-          );
-      try {
-        var _localCallContext = await _endpointDispatch.getMethodCallContext(
-          createSessionCallback: (_) => _localUniqueSession,
-          endpointPath: 'kakaoIdp',
-          methodName: 'loginWithAccessToken',
-          parameters: _i1.testObjectToJson({'accessToken': accessToken}),
           serializationManager: _serializationManager,
         );
         var _localReturnValue =
@@ -239,13 +214,13 @@ class _KakaoIdpEndpoint {
     return _i1.callAwaitableFunctionAndHandleExceptions(() async {
       var _localUniqueSession =
           (sessionBuilder as _i1.InternalTestSessionBuilder).internalBuild(
-            endpoint: 'kakaoIdp',
+            endpoint: 'appleIdp',
             method: 'hasAccount',
           );
       try {
         var _localCallContext = await _endpointDispatch.getMethodCallContext(
           createSessionCallback: (_) => _localUniqueSession,
-          endpointPath: 'kakaoIdp',
+          endpointPath: 'appleIdp',
           methodName: 'hasAccount',
           parameters: _i1.testObjectToJson({}),
           serializationManager: _serializationManager,

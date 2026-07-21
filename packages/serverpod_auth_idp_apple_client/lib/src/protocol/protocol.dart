@@ -37,7 +37,7 @@ class Protocol extends _i1.SerializationManager {
     if (data is! Map) return null;
     final className = data['__className__'] as String?;
     if (className == null) return null;
-    if (!className.startsWith('serverpod_auth_idp_naver.')) return className;
+    if (!className.startsWith('serverpod_auth_idp_apple.')) return className;
     return className.substring(25);
   }
 
@@ -84,7 +84,7 @@ class Protocol extends _i1.SerializationManager {
 
     if (data is Map<String, dynamic> && data['__className__'] is String) {
       return (data['__className__'] as String).replaceFirst(
-        'serverpod_auth_idp_naver.',
+        'serverpod_auth_idp_apple.',
         '',
       );
     }
@@ -161,7 +161,7 @@ class Protocol extends _i1.SerializationManager {
   }
 
   @override
-  String getModuleName() => 'serverpod_auth_idp_naver';
+  String getModuleName() => 'serverpod_auth_idp_apple';
 
   /// Maps any `Record`s known to this [Protocol] to their JSON representation
   ///

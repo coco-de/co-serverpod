@@ -16,8 +16,8 @@ import 'package:serverpod_auth_idp_server/serverpod_auth_idp_server.dart'
     as _i3;
 import 'package:serverpod_auth_core_server/serverpod_auth_core_server.dart'
     as _i4;
-import 'naver_account.dart' as _i5;
-export 'naver_account.dart';
+import 'apple_account.dart' as _i5;
+export 'apple_account.dart';
 
 class Protocol extends _i1.DatabaseSerializationManager {
   Protocol._();
@@ -28,10 +28,10 @@ class Protocol extends _i1.DatabaseSerializationManager {
 
   static final List<_i2.TableDefinition> targetTableDefinitions = [
     _i2.TableDefinition(
-      name: 'serverpod_auth_idp_naver_account',
-      dartName: 'NaverAccount',
+      name: 'serverpod_auth_idp_apple_kr_account',
+      dartName: 'AppleKrAccount',
       schema: 'public',
-      module: 'serverpod_auth_idp_naver',
+      module: 'serverpod_auth_idp_apple',
       columns: [
         _i2.ColumnDefinition(
           name: 'id',
@@ -41,16 +41,41 @@ class Protocol extends _i1.DatabaseSerializationManager {
           columnDefault: 'random_v7',
         ),
         _i2.ColumnDefinition(
+          name: 'userIdentifier',
+          columnType: _i2.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _i2.ColumnDefinition(
+          name: 'refreshToken',
+          columnType: _i2.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _i2.ColumnDefinition(
+          name: 'refreshTokenRequestedWithBundleIdentifier',
+          columnType: _i2.ColumnType.boolean,
+          isNullable: false,
+          dartType: 'bool',
+        ),
+        _i2.ColumnDefinition(
+          name: 'lastRefreshedAt',
+          columnType: _i2.ColumnType.timestampWithoutTimeZone,
+          isNullable: false,
+          dartType: 'DateTime',
+          columnDefault: 'now',
+        ),
+        _i2.ColumnDefinition(
           name: 'authUserId',
           columnType: _i2.ColumnType.uuid,
           isNullable: false,
           dartType: 'UuidValue',
         ),
         _i2.ColumnDefinition(
-          name: 'userIdentifier',
-          columnType: _i2.ColumnType.text,
+          name: 'createdAt',
+          columnType: _i2.ColumnType.timestampWithoutTimeZone,
           isNullable: false,
-          dartType: 'String',
+          dartType: 'DateTime',
         ),
         _i2.ColumnDefinition(
           name: 'email',
@@ -59,15 +84,33 @@ class Protocol extends _i1.DatabaseSerializationManager {
           dartType: 'String?',
         ),
         _i2.ColumnDefinition(
-          name: 'created',
-          columnType: _i2.ColumnType.timestampWithoutTimeZone,
-          isNullable: false,
-          dartType: 'DateTime',
+          name: 'isEmailVerified',
+          columnType: _i2.ColumnType.boolean,
+          isNullable: true,
+          dartType: 'bool?',
+        ),
+        _i2.ColumnDefinition(
+          name: 'isPrivateEmail',
+          columnType: _i2.ColumnType.boolean,
+          isNullable: true,
+          dartType: 'bool?',
+        ),
+        _i2.ColumnDefinition(
+          name: 'firstName',
+          columnType: _i2.ColumnType.text,
+          isNullable: true,
+          dartType: 'String?',
+        ),
+        _i2.ColumnDefinition(
+          name: 'lastName',
+          columnType: _i2.ColumnType.text,
+          isNullable: true,
+          dartType: 'String?',
         ),
       ],
       foreignKeys: [
         _i2.ForeignKeyDefinition(
-          constraintName: 'serverpod_auth_idp_naver_account_fk_0',
+          constraintName: 'serverpod_auth_idp_apple_kr_account_fk_0',
           columns: ['authUserId'],
           referenceTable: 'serverpod_auth_core_user',
           referenceTableSchema: 'public',
@@ -79,7 +122,7 @@ class Protocol extends _i1.DatabaseSerializationManager {
       ],
       indexes: [
         _i2.IndexDefinition(
-          indexName: 'serverpod_auth_naver_account_user_identifier',
+          indexName: 'serverpod_auth_idp_apple_kr_identifier',
           tableSpace: null,
           elements: [
             _i2.IndexElementDefinition(
@@ -111,15 +154,12 @@ class Protocol extends _i1.DatabaseSerializationManager {
     if (data is! Map) return null;
     final className = data['__className__'] as String?;
     if (className == null) return null;
-    if (!className.startsWith('serverpod_auth_idp_naver.')) return className;
+    if (!className.startsWith('serverpod_auth_idp_apple.')) return className;
     return className.substring(25);
   }
 
   @override
-  T deserialize<T>(
-    dynamic data, [
-    Type? t,
-  ]) {
+  T deserialize<T>(dynamic data, [Type? t]) {
     t ??= T;
 
     final dataClassName = getClassNameFromObjectJson(data);
@@ -136,11 +176,11 @@ class Protocol extends _i1.DatabaseSerializationManager {
       }
     }
 
-    if (t == _i5.NaverAccount) {
-      return _i5.NaverAccount.fromJson(data) as T;
+    if (t == _i5.AppleKrAccount) {
+      return _i5.AppleKrAccount.fromJson(data) as T;
     }
-    if (t == _i1.getType<_i5.NaverAccount?>()) {
-      return (data != null ? _i5.NaverAccount.fromJson(data) : null) as T;
+    if (t == _i1.getType<_i5.AppleKrAccount?>()) {
+      return (data != null ? _i5.AppleKrAccount.fromJson(data) : null) as T;
     }
     try {
       return _i3.Protocol().deserialize<T>(data, t);
@@ -156,7 +196,7 @@ class Protocol extends _i1.DatabaseSerializationManager {
 
   static String? getClassNameForType(Type type) {
     return switch (type) {
-      _i5.NaverAccount => 'NaverAccount',
+      _i5.AppleKrAccount => 'AppleKrAccount',
       _ => null,
     };
   }
@@ -168,14 +208,14 @@ class Protocol extends _i1.DatabaseSerializationManager {
 
     if (data is Map<String, dynamic> && data['__className__'] is String) {
       return (data['__className__'] as String).replaceFirst(
-        'serverpod_auth_idp_naver.',
+        'serverpod_auth_idp_apple.',
         '',
       );
     }
 
     switch (data) {
-      case _i5.NaverAccount():
-        return 'NaverAccount';
+      case _i5.AppleKrAccount():
+        return 'AppleKrAccount';
     }
     className = _i2.Protocol().getClassNameForObject(data);
     if (className != null) {
@@ -190,8 +230,8 @@ class Protocol extends _i1.DatabaseSerializationManager {
     if (dataClassName is! String) {
       return super.deserializeByClassName(data);
     }
-    if (dataClassName == 'NaverAccount') {
-      return deserialize<_i5.NaverAccount>(data['data']);
+    if (dataClassName == 'AppleKrAccount') {
+      return deserialize<_i5.AppleKrAccount>(data['data']);
     }
     if (dataClassName.startsWith('serverpod.')) {
       data['className'] = dataClassName.substring(10);
@@ -201,10 +241,7 @@ class Protocol extends _i1.DatabaseSerializationManager {
   }
 
   @override
-  Object? dynamicFieldToJson(
-    Object? object, {
-    bool forProtocol = false,
-  }) {
+  Object? dynamicFieldToJson(Object? object, {bool forProtocol = false}) {
     if ((object is List || object is Set || object is Map) ||
         getClassNameForObject(object) != null) {
       return super.dynamicFieldToJson(object, forProtocol: forProtocol);
@@ -280,8 +317,8 @@ class Protocol extends _i1.DatabaseSerializationManager {
       }
     }
     switch (t) {
-      case _i5.NaverAccount:
-        return _i5.NaverAccount.t;
+      case _i5.AppleKrAccount:
+        return _i5.AppleKrAccount.t;
     }
     return null;
   }
@@ -291,7 +328,7 @@ class Protocol extends _i1.DatabaseSerializationManager {
       targetTableDefinitions;
 
   @override
-  String getModuleName() => 'serverpod_auth_idp_naver';
+  String getModuleName() => 'serverpod_auth_idp_apple';
 
   /// Maps any `Record`s known to this [Protocol] to their JSON representation
   ///

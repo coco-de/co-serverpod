@@ -1,7 +1,7 @@
-name: serverpod_auth_idp_kakao_client
+name: serverpod_auth_idp_apple_client
 description: >-
-  Client library for the serverpod_auth_idp_kakao Serverpod module. Generated
-  protocol + endpoint callers for Kakao login.
+  Client library for the serverpod_auth_idp_apple Serverpod module. Generated
+  protocol + endpoint callers for Apple login (Sign in with Apple, with nonce).
 version: 0.1.0
 repository: https://github.com/coco-de/serverpod-auth-kr
 
