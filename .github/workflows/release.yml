@@ -1,0 +1,44 @@
+name: Release
+
+# main 머지 시 Release PR 을 생성/갱신하고, 그 PR 이 머지되면 버전 확정 + 태그 +
+# GitHub Release(릴리즈 노트) 발행까지 한 번에 수행한다.
+#
+# 동작:
+#   main 머지 (feat/fix/BREAKING)
+#     └→ [Release PR] chore(main): release ...  ← 계속 누적·갱신됨
+#          └→ (머지) → pubspec.yaml version 확정 + CHANGELOG.md + 태그 + GitHub Release
+#
+# ⚠️ runs-on 은 반드시 ubuntu-latest 로 유지할 것.
+#    self-hosted 러너 풀에는 macOS(BSD) 머신과 Linux 머신이 섞여 있어 GNU 전용
+#    셸 문법이 어느 러너가 잡히느냐에 따라 복불복으로 깨진다. coui 의 구
+#    version.yaml 이 `sed -i "s/..."` 때문에 40회 중 39회 실패한 원인이었다.
+#
+# ℹ️ 버전이 오르는 커밋 타입은 Conventional Commits 규격을 따른다:
+#      feat:      → minor
+#      fix:       → patch
+#      <type>!: / BREAKING CHANGE → major
+#    refactor/docs/chore/style/test/ci 는 CHANGELOG 에는 실리지만 버전을 올리지
+#    않는다. 소비자에게 영향이 가는 변경(공개 API 제거·시그니처 변경 등)은
+#    refactor 가 아니라 fix/feat 또는 `!` 접미사를 써야 릴리즈가 나간다.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Release PR / Tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
