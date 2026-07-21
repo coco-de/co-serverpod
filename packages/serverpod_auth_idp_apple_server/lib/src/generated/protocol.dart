@@ -29,7 +29,7 @@ class Protocol extends _i1.DatabaseSerializationManager {
   static final List<_i2.TableDefinition> targetTableDefinitions = [
     _i2.TableDefinition(
       name: 'serverpod_auth_idp_apple_kr_account',
-      dartName: 'AppleAccount',
+      dartName: 'AppleKrAccount',
       schema: 'public',
       module: 'serverpod_auth_idp_apple',
       columns: [
@@ -176,11 +176,11 @@ class Protocol extends _i1.DatabaseSerializationManager {
       }
     }
 
-    if (t == _i5.AppleAccount) {
-      return _i5.AppleAccount.fromJson(data) as T;
+    if (t == _i5.AppleKrAccount) {
+      return _i5.AppleKrAccount.fromJson(data) as T;
     }
-    if (t == _i1.getType<_i5.AppleAccount?>()) {
-      return (data != null ? _i5.AppleAccount.fromJson(data) : null) as T;
+    if (t == _i1.getType<_i5.AppleKrAccount?>()) {
+      return (data != null ? _i5.AppleKrAccount.fromJson(data) : null) as T;
     }
     try {
       return _i3.Protocol().deserialize<T>(data, t);
@@ -196,7 +196,7 @@ class Protocol extends _i1.DatabaseSerializationManager {
 
   static String? getClassNameForType(Type type) {
     return switch (type) {
-      _i5.AppleAccount => 'AppleAccount',
+      _i5.AppleKrAccount => 'AppleKrAccount',
       _ => null,
     };
   }
@@ -214,8 +214,8 @@ class Protocol extends _i1.DatabaseSerializationManager {
     }
 
     switch (data) {
-      case _i5.AppleAccount():
-        return 'AppleAccount';
+      case _i5.AppleKrAccount():
+        return 'AppleKrAccount';
     }
     className = _i2.Protocol().getClassNameForObject(data);
     if (className != null) {
@@ -230,8 +230,8 @@ class Protocol extends _i1.DatabaseSerializationManager {
     if (dataClassName is! String) {
       return super.deserializeByClassName(data);
     }
-    if (dataClassName == 'AppleAccount') {
-      return deserialize<_i5.AppleAccount>(data['data']);
+    if (dataClassName == 'AppleKrAccount') {
+      return deserialize<_i5.AppleKrAccount>(data['data']);
     }
     if (dataClassName.startsWith('serverpod.')) {
       data['className'] = dataClassName.substring(10);
@@ -317,8 +317,8 @@ class Protocol extends _i1.DatabaseSerializationManager {
       }
     }
     switch (t) {
-      case _i5.AppleAccount:
-        return _i5.AppleAccount.t;
+      case _i5.AppleKrAccount:
+        return _i5.AppleKrAccount.t;
     }
     return null;
   }

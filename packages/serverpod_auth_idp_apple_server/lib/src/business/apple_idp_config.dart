@@ -1,14 +1,12 @@
 import 'dart:async';
 
 import 'package:serverpod/serverpod.dart';
-// Hide the official provider's AppleAccount model so this package's own
-// AppleAccount (from the generated protocol) is unambiguous.
-import 'package:serverpod_auth_idp_server/core.dart' hide AppleAccount;
+import 'package:serverpod_auth_idp_server/core.dart';
 import 'package:sign_in_with_apple_server/sign_in_with_apple_server.dart';
 
 import 'apple_idp.dart';
 
-// AppleAccount 는 `serverpod generate` 후 생성되는 모델이다.
+// AppleKrAccount 는 `serverpod generate` 후 생성되는 모델이다.
 // 생성 전까지는 아래 import 가 분석 에러를 일으킬 수 있으나 정상이다.
 import '../generated/protocol.dart';
 
@@ -19,7 +17,7 @@ typedef AfterAppleAccountCreatedFunction =
     FutureOr<void> Function(
       Session session,
       AuthUserModel authUser,
-      AppleAccount appleAccount, {
+      AppleKrAccount appleAccount, {
       required Transaction? transaction,
     });
 

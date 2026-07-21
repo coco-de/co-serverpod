@@ -3,16 +3,13 @@ import 'dart:convert';
 
 import 'package:clock/clock.dart';
 import 'package:serverpod/serverpod.dart';
-// Hide the official provider's AppleAccount model (bundled in
-// serverpod_auth_idp_server) so it doesn't clash with this package's own
-// AppleAccount from the generated protocol.
-import 'package:serverpod_auth_idp_server/core.dart' hide AppleAccount;
+import 'package:serverpod_auth_idp_server/core.dart';
 import 'package:sign_in_with_apple_server/sign_in_with_apple_server.dart';
 
 import 'apple_idp.dart';
 import 'apple_idp_config.dart';
 
-// AppleAccount 는 `serverpod generate` 후 생성되는 모델이다.
+// AppleKrAccount 는 `serverpod generate` 후 생성되는 모델이다.
 import '../generated/protocol.dart';
 
 /// Details of the Apple account.
@@ -98,7 +95,7 @@ class AppleIdpUtils {
     // disconnected and now "registered" again, in which case we need to
     // receive and store the new refresh token.
 
-    var appleAccount = await AppleAccount.db.findFirstRow(
+    var appleAccount = await AppleKrAccount.db.findFirstRow(
       session,
       where: (final t) => t.userIdentifier.equals(verifiedIdentityToken.userId),
       transaction: transaction,
@@ -120,9 +117,9 @@ class AppleIdpUtils {
         useBundleIdentifier: isNativeApplePlatformSignIn,
       );
 
-      appleAccount = await AppleAccount.db.insertRow(
+      appleAccount = await AppleKrAccount.db.insertRow(
         session,
-        AppleAccount(
+        AppleKrAccount(
           userIdentifier: verifiedIdentityToken.userId,
           refreshToken: refreshToken.refreshToken,
           refreshTokenRequestedWithBundleIdentifier:
@@ -163,11 +160,11 @@ class AppleIdpUtils {
     );
   }
 
-  /// Returns the possible [AppleAccount] associated with a session.
-  Future<AppleAccount?> getAccount(final Session session) {
+  /// Returns the possible [AppleKrAccount] associated with a session.
+  Future<AppleKrAccount?> getAccount(final Session session) {
     return switch (session.authenticated) {
       null => Future.value(null),
-      _ => AppleAccount.db.findFirstRow(
+      _ => AppleKrAccount.db.findFirstRow(
         session,
         where: (final t) =>
             t.authUserId.equals(session.authenticated!.authUserId),
@@ -182,11 +179,11 @@ class AppleIdpUtils {
   /// is invoked with the associated auth user's ID.
   Future<void> refreshToken(
     final Session session, {
-    required final AppleAccount appleAccount,
+    required final AppleKrAccount appleAccount,
     required final void Function(UuidValue authUserId)
     onExpiredUserAuthentication,
   }) async {
-    await AppleAccount.db.updateRow(
+    await AppleKrAccount.db.updateRow(
       session,
       appleAccount.copyWith(lastRefreshedAt: clock.now()),
     );
@@ -226,7 +223,7 @@ class AppleIdpUtils {
     };
 
     if (userIdentifier != null) {
-      final appleAccount = await AppleAccount.db.findFirstRow(
+      final appleAccount = await AppleKrAccount.db.findFirstRow(
         session,
         where: (final t) => t.userIdentifier.equals(userIdentifier),
       );
@@ -245,7 +242,7 @@ class AppleIdpUtils {
         );
 
         if (notification is AppleServerNotificationAccountDelete) {
-          await AppleAccount.db.deleteRow(session, appleAccount);
+          await AppleKrAccount.db.deleteRow(session, appleAccount);
         }
       }
     }

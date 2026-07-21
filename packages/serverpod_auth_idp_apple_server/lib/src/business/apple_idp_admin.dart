@@ -2,7 +2,7 @@ import 'package:serverpod/serverpod.dart';
 
 import 'apple_idp_utils.dart';
 
-// AppleAccount 는 `serverpod generate` 후 생성되는 모델이다.
+// AppleKrAccount 는 `serverpod generate` 후 생성되는 모델이다.
 import '../generated/protocol.dart';
 
 /// Collection of Apple-account admin methods.
@@ -28,7 +28,7 @@ class AppleIdpAdmin {
     final int databaseBatchSize = 100,
   }) async {
     while (true) {
-      final appleAccounts = await AppleAccount.db.find(
+      final appleAccounts = await AppleKrAccount.db.find(
         session,
         where: (final t) =>
             t.lastRefreshedAt <

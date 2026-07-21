@@ -10,7 +10,7 @@
 ### migrating kobic to this provider, copy existing rows from
 ### `serverpod_auth_idp_apple_account` into `serverpod_auth_idp_apple_kr_account`
 ### (keyed by `userIdentifier`) so existing Apple users keep their `AuthUser`.
-class: AppleAccount
+class: AppleKrAccount
 serverOnly: true
 table: serverpod_auth_idp_apple_kr_account
 fields:

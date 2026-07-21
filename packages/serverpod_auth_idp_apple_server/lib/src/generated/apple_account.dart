@@ -29,9 +29,9 @@ import 'package:serverpod_auth_idp_apple_server/src/generated/protocol.dart'
 /// migrating kobic to this provider, copy existing rows from
 /// `serverpod_auth_idp_apple_account` into `serverpod_auth_idp_apple_kr_account`
 /// (keyed by `userIdentifier`) so existing Apple users keep their `AuthUser`.
-abstract class AppleAccount
+abstract class AppleKrAccount
     implements _i1.TableRow<_i1.UuidValue?>, _i1.ProtocolSerialization {
-  AppleAccount._({
+  AppleKrAccount._({
     this.id,
     required this.userIdentifier,
     required this.refreshToken,
@@ -48,7 +48,7 @@ abstract class AppleAccount
   }) : lastRefreshedAt = lastRefreshedAt ?? DateTime.now(),
        createdAt = createdAt ?? DateTime.now();
 
-  factory AppleAccount({
+  factory AppleKrAccount({
     _i1.UuidValue? id,
     required String userIdentifier,
     required String refreshToken,
@@ -62,10 +62,10 @@ abstract class AppleAccount
     bool? isPrivateEmail,
     String? firstName,
     String? lastName,
-  }) = _AppleAccountImpl;
+  }) = _AppleKrAccountImpl;
 
-  factory AppleAccount.fromJson(Map<String, dynamic> jsonSerialization) {
-    return AppleAccount(
+  factory AppleKrAccount.fromJson(Map<String, dynamic> jsonSerialization) {
+    return AppleKrAccount(
       id: jsonSerialization['id'] == null
           ? null
           : _i1.UuidValueJsonExtension.fromJson(jsonSerialization['id']),
@@ -104,9 +104,9 @@ abstract class AppleAccount
     );
   }
 
-  static final t = AppleAccountTable();
+  static final t = AppleKrAccountTable();
 
-  static const db = AppleAccountRepository._();
+  static const db = AppleKrAccountRepository._();
 
   @override
   _i1.UuidValue? id;
@@ -166,10 +166,10 @@ abstract class AppleAccount
   @override
   _i1.Table<_i1.UuidValue?> get table => t;
 
-  /// Returns a shallow copy of this [AppleAccount]
+  /// Returns a shallow copy of this [AppleKrAccount]
   /// with some or all fields replaced by the given arguments.
   @_i1.useResult
-  AppleAccount copyWith({
+  AppleKrAccount copyWith({
     _i1.UuidValue? id,
     String? userIdentifier,
     String? refreshToken,
@@ -187,7 +187,7 @@ abstract class AppleAccount
   @override
   Map<String, dynamic> toJson() {
     return {
-      '__className__': 'serverpod_auth_idp_apple.AppleAccount',
+      '__className__': 'serverpod_auth_idp_apple.AppleKrAccount',
       if (id != null) 'id': id?.toJson(),
       'userIdentifier': userIdentifier,
       'refreshToken': refreshToken,
@@ -210,28 +210,28 @@ abstract class AppleAccount
     return {};
   }
 
-  static AppleAccountInclude include({_i2.AuthUserInclude? authUser}) {
-    return AppleAccountInclude._(authUser: authUser);
+  static AppleKrAccountInclude include({_i2.AuthUserInclude? authUser}) {
+    return AppleKrAccountInclude._(authUser: authUser);
   }
 
-  static AppleAccountIncludeList includeList({
-    _i1.WhereExpressionBuilder<AppleAccountTable>? where,
+  static AppleKrAccountIncludeList includeList({
+    _i1.WhereExpressionBuilder<AppleKrAccountTable>? where,
     int? limit,
     int? offset,
-    _i1.OrderByBuilder<AppleAccountTable>? orderBy,
+    _i1.OrderByBuilder<AppleKrAccountTable>? orderBy,
     @Deprecated('Use desc() on the orderBy column instead.')
     bool orderDescending = false,
-    _i1.OrderByListBuilder<AppleAccountTable>? orderByList,
-    AppleAccountInclude? include,
+    _i1.OrderByListBuilder<AppleKrAccountTable>? orderByList,
+    AppleKrAccountInclude? include,
   }) {
-    return AppleAccountIncludeList._(
+    return AppleKrAccountIncludeList._(
       where: where,
       limit: limit,
       offset: offset,
-      orderBy: orderBy?.call(AppleAccount.t),
+      orderBy: orderBy?.call(AppleKrAccount.t),
       orderDescending: // ignore: deprecated_member_use_from_same_package
           orderDescending,
-      orderByList: orderByList?.call(AppleAccount.t),
+      orderByList: orderByList?.call(AppleKrAccount.t),
       include: include,
     );
   }
@@ -244,8 +244,8 @@ abstract class AppleAccount
 
 class _Undefined {}
 
-class _AppleAccountImpl extends AppleAccount {
-  _AppleAccountImpl({
+class _AppleKrAccountImpl extends AppleKrAccount {
+  _AppleKrAccountImpl({
     _i1.UuidValue? id,
     required String userIdentifier,
     required String refreshToken,
@@ -276,11 +276,11 @@ class _AppleAccountImpl extends AppleAccount {
          lastName: lastName,
        );
 
-  /// Returns a shallow copy of this [AppleAccount]
+  /// Returns a shallow copy of this [AppleKrAccount]
   /// with some or all fields replaced by the given arguments.
   @_i1.useResult
   @override
-  AppleAccount copyWith({
+  AppleKrAccount copyWith({
     Object? id = _Undefined,
     String? userIdentifier,
     String? refreshToken,
@@ -295,7 +295,7 @@ class _AppleAccountImpl extends AppleAccount {
     Object? firstName = _Undefined,
     Object? lastName = _Undefined,
   }) {
-    return AppleAccount(
+    return AppleKrAccount(
       id: id is _i1.UuidValue? ? id : this.id,
       userIdentifier: userIdentifier ?? this.userIdentifier,
       refreshToken: refreshToken ?? this.refreshToken,
@@ -321,8 +321,8 @@ class _AppleAccountImpl extends AppleAccount {
   }
 }
 
-class AppleAccountUpdateTable extends _i1.UpdateTable<AppleAccountTable> {
-  AppleAccountUpdateTable(super.table);
+class AppleKrAccountUpdateTable extends _i1.UpdateTable<AppleKrAccountTable> {
+  AppleKrAccountUpdateTable(super.table);
 
   _i1.ColumnValue<String, String> userIdentifier(String value) =>
       _i1.ColumnValue(table.userIdentifier, value);
@@ -360,10 +360,10 @@ class AppleAccountUpdateTable extends _i1.UpdateTable<AppleAccountTable> {
       _i1.ColumnValue(table.lastName, value);
 }
 
-class AppleAccountTable extends _i1.Table<_i1.UuidValue?> {
-  AppleAccountTable({super.tableRelation})
+class AppleKrAccountTable extends _i1.Table<_i1.UuidValue?> {
+  AppleKrAccountTable({super.tableRelation})
     : super(tableName: 'serverpod_auth_idp_apple_kr_account') {
-    updateTable = AppleAccountUpdateTable(this);
+    updateTable = AppleKrAccountUpdateTable(this);
     userIdentifier = _i1.ColumnString('userIdentifier', this);
     refreshToken = _i1.ColumnString('refreshToken', this);
     refreshTokenRequestedWithBundleIdentifier = _i1.ColumnBool(
@@ -384,7 +384,7 @@ class AppleAccountTable extends _i1.Table<_i1.UuidValue?> {
     lastName = _i1.ColumnString('lastName', this);
   }
 
-  late final AppleAccountUpdateTable updateTable;
+  late final AppleKrAccountUpdateTable updateTable;
 
   /// The Apple-provided user identifier
   late final _i1.ColumnString userIdentifier;
@@ -442,7 +442,7 @@ class AppleAccountTable extends _i1.Table<_i1.UuidValue?> {
     if (_authUser != null) return _authUser!;
     _authUser = _i1.createRelationTable(
       relationFieldName: 'authUser',
-      field: AppleAccount.t.authUserId,
+      field: AppleKrAccount.t.authUserId,
       foreignField: _i2.AuthUser.t.id,
       tableRelation: tableRelation,
       createTable: (foreignTableRelation) =>
@@ -476,8 +476,8 @@ class AppleAccountTable extends _i1.Table<_i1.UuidValue?> {
   }
 }
 
-class AppleAccountInclude extends _i1.IncludeObject {
-  AppleAccountInclude._({_i2.AuthUserInclude? authUser}) {
+class AppleKrAccountInclude extends _i1.IncludeObject {
+  AppleKrAccountInclude._({_i2.AuthUserInclude? authUser}) {
     _authUser = authUser;
   }
 
@@ -487,12 +487,12 @@ class AppleAccountInclude extends _i1.IncludeObject {
   Map<String, _i1.Include?> get includes => {'authUser': _authUser};
 
   @override
-  _i1.Table<_i1.UuidValue?> get table => AppleAccount.t;
+  _i1.Table<_i1.UuidValue?> get table => AppleKrAccount.t;
 }
 
-class AppleAccountIncludeList extends _i1.IncludeList {
-  AppleAccountIncludeList._({
-    _i1.WhereExpressionBuilder<AppleAccountTable>? where,
+class AppleKrAccountIncludeList extends _i1.IncludeList {
+  AppleKrAccountIncludeList._({
+    _i1.WhereExpressionBuilder<AppleKrAccountTable>? where,
     super.limit,
     super.offset,
     super.orderBy,
@@ -501,22 +501,22 @@ class AppleAccountIncludeList extends _i1.IncludeList {
     super.orderByList,
     super.include,
   }) {
-    super.where = where?.call(AppleAccount.t);
+    super.where = where?.call(AppleKrAccount.t);
   }
 
   @override
   Map<String, _i1.Include?> get includes => include?.includes ?? {};
 
   @override
-  _i1.Table<_i1.UuidValue?> get table => AppleAccount.t;
+  _i1.Table<_i1.UuidValue?> get table => AppleKrAccount.t;
 }
 
-class AppleAccountRepository {
-  const AppleAccountRepository._();
+class AppleKrAccountRepository {
+  const AppleKrAccountRepository._();
 
-  final attachRow = const AppleAccountAttachRowRepository._();
+  final attachRow = const AppleKrAccountAttachRowRepository._();
 
-  /// Returns a list of [AppleAccount]s matching the given query parameters.
+  /// Returns a list of [AppleKrAccount]s matching the given query parameters.
   ///
   /// Use [where] to specify which items to include in the return value.
   /// If none is specified, all items will be returned.
@@ -538,24 +538,24 @@ class AppleAccountRepository {
   ///   limit: 100,
   /// );
   /// ```
-  Future<List<AppleAccount>> find(
+  Future<List<AppleKrAccount>> find(
     _i1.DatabaseSession session, {
-    _i1.WhereExpressionBuilder<AppleAccountTable>? where,
+    _i1.WhereExpressionBuilder<AppleKrAccountTable>? where,
     int? limit,
     int? offset,
-    _i1.OrderByBuilder<AppleAccountTable>? orderBy,
+    _i1.OrderByBuilder<AppleKrAccountTable>? orderBy,
     @Deprecated('Use desc() on the orderBy column instead.')
     bool orderDescending = false,
-    _i1.OrderByListBuilder<AppleAccountTable>? orderByList,
+    _i1.OrderByListBuilder<AppleKrAccountTable>? orderByList,
     _i1.Transaction? transaction,
-    AppleAccountInclude? include,
+    AppleKrAccountInclude? include,
     _i1.LockMode? lockMode,
     _i1.LockBehavior? lockBehavior,
   }) async {
-    return session.db.find<AppleAccount>(
-      where: where?.call(AppleAccount.t),
-      orderBy: orderBy?.call(AppleAccount.t),
-      orderByList: orderByList?.call(AppleAccount.t),
+    return session.db.find<AppleKrAccount>(
+      where: where?.call(AppleKrAccount.t),
+      orderBy: orderBy?.call(AppleKrAccount.t),
+      orderByList: orderByList?.call(AppleKrAccount.t),
       orderDescending: // ignore: deprecated_member_use
           orderDescending,
       limit: limit,
@@ -567,7 +567,7 @@ class AppleAccountRepository {
     );
   }
 
-  /// Returns the first matching [AppleAccount] matching the given query parameters.
+  /// Returns the first matching [AppleKrAccount] matching the given query parameters.
   ///
   /// Use [where] to specify which items to include in the return value.
   /// If none is specified, all items will be returned.
@@ -584,23 +584,23 @@ class AppleAccountRepository {
   ///   orderBy: (t) => t.age,
   /// );
   /// ```
-  Future<AppleAccount?> findFirstRow(
+  Future<AppleKrAccount?> findFirstRow(
     _i1.DatabaseSession session, {
-    _i1.WhereExpressionBuilder<AppleAccountTable>? where,
+    _i1.WhereExpressionBuilder<AppleKrAccountTable>? where,
     int? offset,
-    _i1.OrderByBuilder<AppleAccountTable>? orderBy,
+    _i1.OrderByBuilder<AppleKrAccountTable>? orderBy,
     @Deprecated('Use desc() on the orderBy column instead.')
     bool orderDescending = false,
-    _i1.OrderByListBuilder<AppleAccountTable>? orderByList,
+    _i1.OrderByListBuilder<AppleKrAccountTable>? orderByList,
     _i1.Transaction? transaction,
-    AppleAccountInclude? include,
+    AppleKrAccountInclude? include,
     _i1.LockMode? lockMode,
     _i1.LockBehavior? lockBehavior,
   }) async {
-    return session.db.findFirstRow<AppleAccount>(
-      where: where?.call(AppleAccount.t),
-      orderBy: orderBy?.call(AppleAccount.t),
-      orderByList: orderByList?.call(AppleAccount.t),
+    return session.db.findFirstRow<AppleKrAccount>(
+      where: where?.call(AppleKrAccount.t),
+      orderBy: orderBy?.call(AppleKrAccount.t),
+      orderByList: orderByList?.call(AppleKrAccount.t),
       orderDescending: // ignore: deprecated_member_use
           orderDescending,
       offset: offset,
@@ -611,16 +611,16 @@ class AppleAccountRepository {
     );
   }
 
-  /// Finds a single [AppleAccount] by its [id] or null if no such row exists.
-  Future<AppleAccount?> findById(
+  /// Finds a single [AppleKrAccount] by its [id] or null if no such row exists.
+  Future<AppleKrAccount?> findById(
     _i1.DatabaseSession session,
     _i1.UuidValue id, {
     _i1.Transaction? transaction,
-    AppleAccountInclude? include,
+    AppleKrAccountInclude? include,
     _i1.LockMode? lockMode,
     _i1.LockBehavior? lockBehavior,
   }) async {
-    return session.db.findById<AppleAccount>(
+    return session.db.findById<AppleKrAccount>(
       id,
       transaction: transaction,
       include: include,
@@ -629,9 +629,9 @@ class AppleAccountRepository {
     );
   }
 
-  /// Inserts all [AppleAccount]s in the list and returns the inserted rows.
+  /// Inserts all [AppleKrAccount]s in the list and returns the inserted rows.
   ///
-  /// The returned [AppleAccount]s will have their `id` fields set.
+  /// The returned [AppleKrAccount]s will have their `id` fields set.
   ///
   /// This is an atomic operation, meaning that if one of the rows fails to
   /// insert, none of the rows will be inserted.
@@ -643,14 +643,14 @@ class AppleAccountRepository {
   /// If [noReturn] is set to `true`, the inserted rows are not read back from
   /// the database and an empty list is returned. This avoids the overhead of
   /// transferring and deserializing the rows when the result is not needed.
-  Future<List<AppleAccount>> insert(
+  Future<List<AppleKrAccount>> insert(
     _i1.DatabaseSession session,
-    List<AppleAccount> rows, {
+    List<AppleKrAccount> rows, {
     _i1.Transaction? transaction,
     bool ignoreConflicts = false,
     bool noReturn = false,
   }) async {
-    return session.db.insert<AppleAccount>(
+    return session.db.insert<AppleKrAccount>(
       rows,
       transaction: transaction,
       ignoreConflicts: ignoreConflicts,
@@ -658,18 +658,18 @@ class AppleAccountRepository {
     );
   }
 
-  /// Inserts a single [AppleAccount] and returns the inserted row.
+  /// Inserts a single [AppleKrAccount] and returns the inserted row.
   ///
-  /// The returned [AppleAccount] will have its `id` field set.
-  Future<AppleAccount> insertRow(
+  /// The returned [AppleKrAccount] will have its `id` field set.
+  Future<AppleKrAccount> insertRow(
     _i1.DatabaseSession session,
-    AppleAccount row, {
+    AppleKrAccount row, {
     _i1.Transaction? transaction,
   }) async {
-    return session.db.insertRow<AppleAccount>(row, transaction: transaction);
+    return session.db.insertRow<AppleKrAccount>(row, transaction: transaction);
   }
 
-  /// Upserts all [AppleAccount]s in the list and returns the resulting rows.
+  /// Upserts all [AppleKrAccount]s in the list and returns the resulting rows.
   ///
   /// If a row conflicts on the given [conflictColumns], the existing row is
   /// updated with the new values. Otherwise, a new row is inserted.
@@ -681,7 +681,7 @@ class AppleAccountRepository {
   /// given expression. Conflicting rows that don't match are skipped and not
   /// returned, so the resulting list may be shorter than [rows].
   ///
-  /// The returned [AppleAccount]s will have their `id` fields set.
+  /// The returned [AppleKrAccount]s will have their `id` fields set.
   ///
   /// This is an atomic operation, meaning that if one of the rows fails,
   /// none of the rows will be affected.
@@ -689,26 +689,26 @@ class AppleAccountRepository {
   /// If [noReturn] is set to `true`, the resulting rows are not read back from
   /// the database and an empty list is returned. This avoids the overhead of
   /// transferring and deserializing the rows when the result is not needed.
-  Future<List<AppleAccount>> upsert(
+  Future<List<AppleKrAccount>> upsert(
     _i1.DatabaseSession session,
-    List<AppleAccount> rows, {
-    required _i1.ColumnSelections<AppleAccountTable> conflictColumns,
-    _i1.ColumnSelections<AppleAccountTable>? updateColumns,
-    _i1.WhereExpressionBuilder<AppleAccountTable>? updateWhere,
+    List<AppleKrAccount> rows, {
+    required _i1.ColumnSelections<AppleKrAccountTable> conflictColumns,
+    _i1.ColumnSelections<AppleKrAccountTable>? updateColumns,
+    _i1.WhereExpressionBuilder<AppleKrAccountTable>? updateWhere,
     _i1.Transaction? transaction,
     bool noReturn = false,
   }) async {
-    return session.db.upsert<AppleAccount>(
+    return session.db.upsert<AppleKrAccount>(
       rows,
-      conflictColumns: conflictColumns(AppleAccount.t),
-      updateColumns: updateColumns?.call(AppleAccount.t),
-      updateWhere: updateWhere?.call(AppleAccount.t),
+      conflictColumns: conflictColumns(AppleKrAccount.t),
+      updateColumns: updateColumns?.call(AppleKrAccount.t),
+      updateWhere: updateWhere?.call(AppleKrAccount.t),
       transaction: transaction,
       noReturn: noReturn,
     );
   }
 
-  /// Upserts a single [AppleAccount] and returns the resulting row.
+  /// Upserts a single [AppleKrAccount] and returns the resulting row.
   ///
   /// If the row conflicts on the given [conflictColumns], the existing row is
   /// updated. Otherwise, a new row is inserted.
@@ -720,25 +720,25 @@ class AppleAccountRepository {
   /// row matches the expression. Returns `null` if no row was affected — for
   /// example when [updateWhere] does not match the conflicting row.
   ///
-  /// The returned [AppleAccount] will have its `id` field set.
-  Future<AppleAccount?> upsertRow(
+  /// The returned [AppleKrAccount] will have its `id` field set.
+  Future<AppleKrAccount?> upsertRow(
     _i1.DatabaseSession session,
-    AppleAccount row, {
-    required _i1.ColumnSelections<AppleAccountTable> conflictColumns,
-    _i1.ColumnSelections<AppleAccountTable>? updateColumns,
-    _i1.WhereExpressionBuilder<AppleAccountTable>? updateWhere,
+    AppleKrAccount row, {
+    required _i1.ColumnSelections<AppleKrAccountTable> conflictColumns,
+    _i1.ColumnSelections<AppleKrAccountTable>? updateColumns,
+    _i1.WhereExpressionBuilder<AppleKrAccountTable>? updateWhere,
     _i1.Transaction? transaction,
   }) async {
-    return session.db.upsertRow<AppleAccount>(
+    return session.db.upsertRow<AppleKrAccount>(
       row,
-      conflictColumns: conflictColumns(AppleAccount.t),
-      updateColumns: updateColumns?.call(AppleAccount.t),
-      updateWhere: updateWhere?.call(AppleAccount.t),
+      conflictColumns: conflictColumns(AppleKrAccount.t),
+      updateColumns: updateColumns?.call(AppleKrAccount.t),
+      updateWhere: updateWhere?.call(AppleKrAccount.t),
       transaction: transaction,
     );
   }
 
-  /// Updates all [AppleAccount]s in the list and returns the updated rows. If
+  /// Updates all [AppleKrAccount]s in the list and returns the updated rows. If
   /// [columns] is provided, only those columns will be updated. Defaults to
   /// all columns.
   /// This is an atomic operation, meaning that if one of the rows fails to
@@ -747,78 +747,78 @@ class AppleAccountRepository {
   /// If [noReturn] is set to `true`, the updated rows are not read back from
   /// the database and an empty list is returned. This avoids the overhead of
   /// transferring and deserializing the rows when the result is not needed.
-  Future<List<AppleAccount>> update(
+  Future<List<AppleKrAccount>> update(
     _i1.DatabaseSession session,
-    List<AppleAccount> rows, {
-    _i1.ColumnSelections<AppleAccountTable>? columns,
+    List<AppleKrAccount> rows, {
+    _i1.ColumnSelections<AppleKrAccountTable>? columns,
     _i1.Transaction? transaction,
     bool noReturn = false,
   }) async {
-    return session.db.update<AppleAccount>(
+    return session.db.update<AppleKrAccount>(
       rows,
-      columns: columns?.call(AppleAccount.t),
+      columns: columns?.call(AppleKrAccount.t),
       transaction: transaction,
       noReturn: noReturn,
     );
   }
 
-  /// Updates a single [AppleAccount]. The row needs to have its id set.
+  /// Updates a single [AppleKrAccount]. The row needs to have its id set.
   /// Optionally, a list of [columns] can be provided to only update those
   /// columns. Defaults to all columns.
-  Future<AppleAccount> updateRow(
+  Future<AppleKrAccount> updateRow(
     _i1.DatabaseSession session,
-    AppleAccount row, {
-    _i1.ColumnSelections<AppleAccountTable>? columns,
+    AppleKrAccount row, {
+    _i1.ColumnSelections<AppleKrAccountTable>? columns,
     _i1.Transaction? transaction,
   }) async {
-    return session.db.updateRow<AppleAccount>(
+    return session.db.updateRow<AppleKrAccount>(
       row,
-      columns: columns?.call(AppleAccount.t),
+      columns: columns?.call(AppleKrAccount.t),
       transaction: transaction,
     );
   }
 
-  /// Updates a single [AppleAccount] by its [id] with the specified [columnValues].
+  /// Updates a single [AppleKrAccount] by its [id] with the specified [columnValues].
   /// Returns the updated row or null if no row with the given id exists.
-  Future<AppleAccount?> updateById(
+  Future<AppleKrAccount?> updateById(
     _i1.DatabaseSession session,
     _i1.UuidValue id, {
-    required _i1.ColumnValueListBuilder<AppleAccountUpdateTable> columnValues,
+    required _i1.ColumnValueListBuilder<AppleKrAccountUpdateTable> columnValues,
     _i1.Transaction? transaction,
   }) async {
-    return session.db.updateById<AppleAccount>(
+    return session.db.updateById<AppleKrAccount>(
       id,
-      columnValues: columnValues(AppleAccount.t.updateTable),
+      columnValues: columnValues(AppleKrAccount.t.updateTable),
       transaction: transaction,
     );
   }
 
-  /// Updates all [AppleAccount]s matching the [where] expression with the specified [columnValues].
+  /// Updates all [AppleKrAccount]s matching the [where] expression with the specified [columnValues].
   /// Returns the list of updated rows.
   ///
   /// If [noReturn] is set to `true`, the updated rows are not read back from
   /// the database and an empty list is returned. This avoids the overhead of
   /// transferring and deserializing the rows when the result is not needed.
-  Future<List<AppleAccount>> updateWhere(
+  Future<List<AppleKrAccount>> updateWhere(
     _i1.DatabaseSession session, {
-    required _i1.ColumnValueListBuilder<AppleAccountUpdateTable> columnValues,
-    required _i1.WhereExpressionBuilder<AppleAccountTable> where,
+    required _i1.ColumnValueListBuilder<AppleKrAccountUpdateTable> columnValues,
+    required _i1.WhereExpressionBuilder<AppleKrAccountTable> where,
     int? limit,
     int? offset,
-    _i1.OrderByBuilder<AppleAccountTable>? orderBy,
-    _i1.OrderByListBuilder<AppleAccountTable>? orderByList,
+    _i1.OrderByBuilder<AppleKrAccountTable>? orderBy,
+    _i1.OrderByListBuilder<AppleKrAccountTable>? orderByList,
     @Deprecated('Use desc() on the orderBy column instead.')
     bool orderDescending = false,
     _i1.Transaction? transaction,
     bool noReturn = false,
   }) async {
-    return session.db.updateWhere<AppleAccount>(
-      columnValues: columnValues(AppleAccount.t.updateTable),
-      where: where(AppleAccount.t),
+    return session.db.updateWhere<AppleKrAccount>(
+      columnValues: columnValues(AppleKrAccount.t.updateTable),
+      where: where(AppleKrAccount.t),
       limit: limit,
       offset: offset,
-      orderBy: orderBy?.call(AppleAccount.t),
-      orderByList: orderByList?.call(AppleAccount.t),
+      orderBy: orderBy?.call(AppleKrAccount.t),
+      orderByList: orderByList?.call(AppleKrAccount.t),
       orderDescending: // ignore: deprecated_member_use
           orderDescending,
       transaction: transaction,
@@ -826,7 +826,7 @@ class AppleAccountRepository {
     );
   }
 
-  /// Deletes all [AppleAccount]s in the list and returns the deleted rows.
+  /// Deletes all [AppleKrAccount]s in the list and returns the deleted rows.
   ///
   /// To specify the order of the returned rows use [orderBy] or [orderByList]
   /// when sorting by multiple columns.
@@ -837,20 +837,20 @@ class AppleAccountRepository {
   /// If [noReturn] is set to `true`, the deleted rows are not read back from
   /// the database and an empty list is returned. This avoids the overhead of
   /// transferring and deserializing the rows when the result is not needed.
-  Future<List<AppleAccount>> delete(
+  Future<List<AppleKrAccount>> delete(
     _i1.DatabaseSession session,
-    List<AppleAccount> rows, {
-    _i1.OrderByBuilder<AppleAccountTable>? orderBy,
+    List<AppleKrAccount> rows, {
+    _i1.OrderByBuilder<AppleKrAccountTable>? orderBy,
     @Deprecated('Use desc() on the orderBy column instead.')
     bool orderDescending = false,
-    _i1.OrderByListBuilder<AppleAccountTable>? orderByList,
+    _i1.OrderByListBuilder<AppleKrAccountTable>? orderByList,
     _i1.Transaction? transaction,
     bool noReturn = false,
   }) async {
-    return session.db.delete<AppleAccount>(
+    return session.db.delete<AppleKrAccount>(
       rows,
-      orderBy: orderBy?.call(AppleAccount.t),
-      orderByList: orderByList?.call(AppleAccount.t),
+      orderBy: orderBy?.call(AppleKrAccount.t),
+      orderByList: orderByList?.call(AppleKrAccount.t),
       orderDescending: // ignore: deprecated_member_use
           orderDescending,
       transaction: transaction,
@@ -858,13 +858,13 @@ class AppleAccountRepository {
     );
   }
 
-  /// Deletes a single [AppleAccount].
-  Future<AppleAccount> deleteRow(
+  /// Deletes a single [AppleKrAccount].
+  Future<AppleKrAccount> deleteRow(
     _i1.DatabaseSession session,
-    AppleAccount row, {
+    AppleKrAccount row, {
     _i1.Transaction? transaction,
   }) async {
-    return session.db.deleteRow<AppleAccount>(row, transaction: transaction);
+    return session.db.deleteRow<AppleKrAccount>(row, transaction: transaction);
   }
 
   /// Deletes all rows matching the [where] expression.
@@ -875,20 +875,20 @@ class AppleAccountRepository {
   /// If [noReturn] is set to `true`, the deleted rows are not read back from
   /// the database and an empty list is returned. This avoids the overhead of
   /// transferring and deserializing the rows when the result is not needed.
-  Future<List<AppleAccount>> deleteWhere(
+  Future<List<AppleKrAccount>> deleteWhere(
     _i1.DatabaseSession session, {
-    required _i1.WhereExpressionBuilder<AppleAccountTable> where,
-    _i1.OrderByBuilder<AppleAccountTable>? orderBy,
+    required _i1.WhereExpressionBuilder<AppleKrAccountTable> where,
+    _i1.OrderByBuilder<AppleKrAccountTable>? orderBy,
     @Deprecated('Use desc() on the orderBy column instead.')
     bool orderDescending = false,
-    _i1.OrderByListBuilder<AppleAccountTable>? orderByList,
+    _i1.OrderByListBuilder<AppleKrAccountTable>? orderByList,
     _i1.Transaction? transaction,
     bool noReturn = false,
   }) async {
-    return session.db.deleteWhere<AppleAccount>(
-      where: where(AppleAccount.t),
-      orderBy: orderBy?.call(AppleAccount.t),
-      orderByList: orderByList?.call(AppleAccount.t),
+    return session.db.deleteWhere<AppleKrAccount>(
+      where: where(AppleKrAccount.t),
+      orderBy: orderBy?.call(AppleKrAccount.t),
+      orderByList: orderByList?.call(AppleKrAccount.t),
       orderDescending: // ignore: deprecated_member_use
           orderDescending,
       transaction: transaction,
@@ -900,27 +900,27 @@ class AppleAccountRepository {
   /// will return the count of all rows in the table.
   Future<int> count(
     _i1.DatabaseSession session, {
-    _i1.WhereExpressionBuilder<AppleAccountTable>? where,
+    _i1.WhereExpressionBuilder<AppleKrAccountTable>? where,
     int? limit,
     _i1.Transaction? transaction,
   }) async {
-    return session.db.count<AppleAccount>(
-      where: where?.call(AppleAccount.t),
+    return session.db.count<AppleKrAccount>(
+      where: where?.call(AppleKrAccount.t),
       limit: limit,
       transaction: transaction,
     );
   }
 
-  /// Acquires row-level locks on [AppleAccount] rows matching the [where] expression.
+  /// Acquires row-level locks on [AppleKrAccount] rows matching the [where] expression.
   Future<void> lockRows(
     _i1.DatabaseSession session, {
-    required _i1.WhereExpressionBuilder<AppleAccountTable> where,
+    required _i1.WhereExpressionBuilder<AppleKrAccountTable> where,
     required _i1.LockMode lockMode,
     required _i1.Transaction transaction,
     _i1.LockBehavior lockBehavior = _i1.LockBehavior.wait,
   }) async {
-    return session.db.lockRows<AppleAccount>(
-      where: where(AppleAccount.t),
+    return session.db.lockRows<AppleKrAccount>(
+      where: where(AppleKrAccount.t),
       lockMode: lockMode,
       lockBehavior: lockBehavior,
       transaction: transaction,
@@ -928,28 +928,28 @@ class AppleAccountRepository {
   }
 }
 
-class AppleAccountAttachRowRepository {
-  const AppleAccountAttachRowRepository._();
+class AppleKrAccountAttachRowRepository {
+  const AppleKrAccountAttachRowRepository._();
 
-  /// Creates a relation between the given [AppleAccount] and [AuthUser]
-  /// by setting the [AppleAccount]'s foreign key `authUserId` to refer to the [AuthUser].
+  /// Creates a relation between the given [AppleKrAccount] and [AuthUser]
+  /// by setting the [AppleKrAccount]'s foreign key `authUserId` to refer to the [AuthUser].
   Future<void> authUser(
     _i1.DatabaseSession session,
-    AppleAccount appleAccount,
+    AppleKrAccount appleKrAccount,
     _i2.AuthUser authUser, {
     _i1.Transaction? transaction,
   }) async {
-    if (appleAccount.id == null) {
-      throw ArgumentError.notNull('appleAccount.id');
+    if (appleKrAccount.id == null) {
+      throw ArgumentError.notNull('appleKrAccount.id');
     }
     if (authUser.id == null) {
       throw ArgumentError.notNull('authUser.id');
     }
 
-    var $appleAccount = appleAccount.copyWith(authUserId: authUser.id);
-    await session.db.updateRow<AppleAccount>(
-      $appleAccount,
-      columns: [AppleAccount.t.authUserId],
+    var $appleKrAccount = appleKrAccount.copyWith(authUserId: authUser.id);
+    await session.db.updateRow<AppleKrAccount>(
+      $appleKrAccount,
+      columns: [AppleKrAccount.t.authUserId],
       transaction: transaction,
     );
   }
