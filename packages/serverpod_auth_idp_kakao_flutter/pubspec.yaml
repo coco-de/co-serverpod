@@ -3,7 +3,7 @@ description: >-
   Flutter client for the Kakao identity provider of serverpod_auth_idp.
   Auth controller (access-token flow), SDK-agnostic sign-in service, and a
   Kakao-branded sign-in button.
-version: 0.2.0
+version: 1.0.0
 repository: https://github.com/coco-de/serverpod-auth-kr
 # Path dependency on the sibling _client package during development.
 # Switch to a versioned dependency before publishing to pub.dev.
