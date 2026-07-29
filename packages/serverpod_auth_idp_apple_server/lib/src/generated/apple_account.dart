@@ -219,8 +219,6 @@ abstract class AppleKrAccount
     int? limit,
     int? offset,
     _i1.OrderByBuilder<AppleKrAccountTable>? orderBy,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    bool orderDescending = false,
     _i1.OrderByListBuilder<AppleKrAccountTable>? orderByList,
     AppleKrAccountInclude? include,
   }) {
@@ -229,8 +227,6 @@ abstract class AppleKrAccount
       limit: limit,
       offset: offset,
       orderBy: orderBy?.call(AppleKrAccount.t),
-      orderDescending: // ignore: deprecated_member_use_from_same_package
-          orderDescending,
       orderByList: orderByList?.call(AppleKrAccount.t),
       include: include,
     );
@@ -325,47 +321,80 @@ class AppleKrAccountUpdateTable extends _i1.UpdateTable<AppleKrAccountTable> {
   AppleKrAccountUpdateTable(super.table);
 
   _i1.ColumnValue<String, String> userIdentifier(String value) =>
-      _i1.ColumnValue(table.userIdentifier, value);
+      _i1.ColumnValue(
+        table.userIdentifier,
+        value,
+      );
 
-  _i1.ColumnValue<String, String> refreshToken(String value) =>
-      _i1.ColumnValue(table.refreshToken, value);
+  _i1.ColumnValue<String, String> refreshToken(String value) => _i1.ColumnValue(
+    table.refreshToken,
+    value,
+  );
 
   _i1.ColumnValue<bool, bool> refreshTokenRequestedWithBundleIdentifier(
     bool value,
-  ) => _i1.ColumnValue(table.refreshTokenRequestedWithBundleIdentifier, value);
+  ) => _i1.ColumnValue(
+    table.refreshTokenRequestedWithBundleIdentifier,
+    value,
+  );
 
   _i1.ColumnValue<DateTime, DateTime> lastRefreshedAt(DateTime value) =>
-      _i1.ColumnValue(table.lastRefreshedAt, value);
+      _i1.ColumnValue(
+        table.lastRefreshedAt,
+        value,
+      );
 
   _i1.ColumnValue<_i1.UuidValue, _i1.UuidValue> authUserId(
     _i1.UuidValue value,
-  ) => _i1.ColumnValue(table.authUserId, value);
+  ) => _i1.ColumnValue(
+    table.authUserId,
+    value,
+  );
 
   _i1.ColumnValue<DateTime, DateTime> createdAt(DateTime value) =>
-      _i1.ColumnValue(table.createdAt, value);
+      _i1.ColumnValue(
+        table.createdAt,
+        value,
+      );
 
-  _i1.ColumnValue<String, String> email(String? value) =>
-      _i1.ColumnValue(table.email, value);
+  _i1.ColumnValue<String, String> email(String? value) => _i1.ColumnValue(
+    table.email,
+    value,
+  );
 
-  _i1.ColumnValue<bool, bool> isEmailVerified(bool? value) =>
-      _i1.ColumnValue(table.isEmailVerified, value);
+  _i1.ColumnValue<bool, bool> isEmailVerified(bool? value) => _i1.ColumnValue(
+    table.isEmailVerified,
+    value,
+  );
 
-  _i1.ColumnValue<bool, bool> isPrivateEmail(bool? value) =>
-      _i1.ColumnValue(table.isPrivateEmail, value);
+  _i1.ColumnValue<bool, bool> isPrivateEmail(bool? value) => _i1.ColumnValue(
+    table.isPrivateEmail,
+    value,
+  );
 
-  _i1.ColumnValue<String, String> firstName(String? value) =>
-      _i1.ColumnValue(table.firstName, value);
+  _i1.ColumnValue<String, String> firstName(String? value) => _i1.ColumnValue(
+    table.firstName,
+    value,
+  );
 
-  _i1.ColumnValue<String, String> lastName(String? value) =>
-      _i1.ColumnValue(table.lastName, value);
+  _i1.ColumnValue<String, String> lastName(String? value) => _i1.ColumnValue(
+    table.lastName,
+    value,
+  );
 }
 
 class AppleKrAccountTable extends _i1.Table<_i1.UuidValue?> {
   AppleKrAccountTable({super.tableRelation})
     : super(tableName: 'serverpod_auth_idp_apple_kr_account') {
     updateTable = AppleKrAccountUpdateTable(this);
-    userIdentifier = _i1.ColumnString('userIdentifier', this);
-    refreshToken = _i1.ColumnString('refreshToken', this);
+    userIdentifier = _i1.ColumnString(
+      'userIdentifier',
+      this,
+    );
+    refreshToken = _i1.ColumnString(
+      'refreshToken',
+      this,
+    );
     refreshTokenRequestedWithBundleIdentifier = _i1.ColumnBool(
       'refreshTokenRequestedWithBundleIdentifier',
       this,
@@ -375,13 +404,34 @@ class AppleKrAccountTable extends _i1.Table<_i1.UuidValue?> {
       this,
       hasDefault: true,
     );
-    authUserId = _i1.ColumnUuid('authUserId', this);
-    createdAt = _i1.ColumnDateTime('createdAt', this);
-    email = _i1.ColumnString('email', this);
-    isEmailVerified = _i1.ColumnBool('isEmailVerified', this);
-    isPrivateEmail = _i1.ColumnBool('isPrivateEmail', this);
-    firstName = _i1.ColumnString('firstName', this);
-    lastName = _i1.ColumnString('lastName', this);
+    authUserId = _i1.ColumnUuid(
+      'authUserId',
+      this,
+    );
+    createdAt = _i1.ColumnDateTime(
+      'createdAt',
+      this,
+    );
+    email = _i1.ColumnString(
+      'email',
+      this,
+    );
+    isEmailVerified = _i1.ColumnBool(
+      'isEmailVerified',
+      this,
+    );
+    isPrivateEmail = _i1.ColumnBool(
+      'isPrivateEmail',
+      this,
+    );
+    firstName = _i1.ColumnString(
+      'firstName',
+      this,
+    );
+    lastName = _i1.ColumnString(
+      'lastName',
+      this,
+    );
   }
 
   late final AppleKrAccountUpdateTable updateTable;
@@ -496,8 +546,6 @@ class AppleKrAccountIncludeList extends _i1.IncludeList {
     super.limit,
     super.offset,
     super.orderBy,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    super.orderDescending,
     super.orderByList,
     super.include,
   }) {
@@ -544,8 +592,6 @@ class AppleKrAccountRepository {
     int? limit,
     int? offset,
     _i1.OrderByBuilder<AppleKrAccountTable>? orderBy,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    bool orderDescending = false,
     _i1.OrderByListBuilder<AppleKrAccountTable>? orderByList,
     _i1.Transaction? transaction,
     AppleKrAccountInclude? include,
@@ -556,8 +602,6 @@ class AppleKrAccountRepository {
       where: where?.call(AppleKrAccount.t),
       orderBy: orderBy?.call(AppleKrAccount.t),
       orderByList: orderByList?.call(AppleKrAccount.t),
-      orderDescending: // ignore: deprecated_member_use
-          orderDescending,
       limit: limit,
       offset: offset,
       transaction: transaction,
@@ -589,8 +633,6 @@ class AppleKrAccountRepository {
     _i1.WhereExpressionBuilder<AppleKrAccountTable>? where,
     int? offset,
     _i1.OrderByBuilder<AppleKrAccountTable>? orderBy,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    bool orderDescending = false,
     _i1.OrderByListBuilder<AppleKrAccountTable>? orderByList,
     _i1.Transaction? transaction,
     AppleKrAccountInclude? include,
@@ -601,8 +643,6 @@ class AppleKrAccountRepository {
       where: where?.call(AppleKrAccount.t),
       orderBy: orderBy?.call(AppleKrAccount.t),
       orderByList: orderByList?.call(AppleKrAccount.t),
-      orderDescending: // ignore: deprecated_member_use
-          orderDescending,
       offset: offset,
       transaction: transaction,
       include: include,
@@ -666,7 +706,10 @@ class AppleKrAccountRepository {
     AppleKrAccount row, {
     _i1.Transaction? transaction,
   }) async {
-    return session.db.insertRow<AppleKrAccount>(row, transaction: transaction);
+    return session.db.insertRow<AppleKrAccount>(
+      row,
+      transaction: transaction,
+    );
   }
 
   /// Upserts all [AppleKrAccount]s in the list and returns the resulting rows.
@@ -807,8 +850,6 @@ class AppleKrAccountRepository {
     int? offset,
     _i1.OrderByBuilder<AppleKrAccountTable>? orderBy,
     _i1.OrderByListBuilder<AppleKrAccountTable>? orderByList,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    bool orderDescending = false,
     _i1.Transaction? transaction,
     bool noReturn = false,
   }) async {
@@ -819,8 +860,6 @@ class AppleKrAccountRepository {
       offset: offset,
       orderBy: orderBy?.call(AppleKrAccount.t),
       orderByList: orderByList?.call(AppleKrAccount.t),
-      orderDescending: // ignore: deprecated_member_use
-          orderDescending,
       transaction: transaction,
       noReturn: noReturn,
     );
@@ -841,8 +880,6 @@ class AppleKrAccountRepository {
     _i1.DatabaseSession session,
     List<AppleKrAccount> rows, {
     _i1.OrderByBuilder<AppleKrAccountTable>? orderBy,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    bool orderDescending = false,
     _i1.OrderByListBuilder<AppleKrAccountTable>? orderByList,
     _i1.Transaction? transaction,
     bool noReturn = false,
@@ -851,8 +888,6 @@ class AppleKrAccountRepository {
       rows,
       orderBy: orderBy?.call(AppleKrAccount.t),
       orderByList: orderByList?.call(AppleKrAccount.t),
-      orderDescending: // ignore: deprecated_member_use
-          orderDescending,
       transaction: transaction,
       noReturn: noReturn,
     );
@@ -864,7 +899,10 @@ class AppleKrAccountRepository {
     AppleKrAccount row, {
     _i1.Transaction? transaction,
   }) async {
-    return session.db.deleteRow<AppleKrAccount>(row, transaction: transaction);
+    return session.db.deleteRow<AppleKrAccount>(
+      row,
+      transaction: transaction,
+    );
   }
 
   /// Deletes all rows matching the [where] expression.
@@ -879,8 +917,6 @@ class AppleKrAccountRepository {
     _i1.DatabaseSession session, {
     required _i1.WhereExpressionBuilder<AppleKrAccountTable> where,
     _i1.OrderByBuilder<AppleKrAccountTable>? orderBy,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    bool orderDescending = false,
     _i1.OrderByListBuilder<AppleKrAccountTable>? orderByList,
     _i1.Transaction? transaction,
     bool noReturn = false,
@@ -889,8 +925,6 @@ class AppleKrAccountRepository {
       where: where(AppleKrAccount.t),
       orderBy: orderBy?.call(AppleKrAccount.t),
       orderByList: orderByList?.call(AppleKrAccount.t),
-      orderDescending: // ignore: deprecated_member_use
-          orderDescending,
       transaction: transaction,
       noReturn: noReturn,
     );
