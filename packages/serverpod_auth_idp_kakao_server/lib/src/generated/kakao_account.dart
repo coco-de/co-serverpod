@@ -130,8 +130,6 @@ abstract class KakaoAccount
     int? limit,
     int? offset,
     _i1.OrderByBuilder<KakaoAccountTable>? orderBy,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    bool orderDescending = false,
     _i1.OrderByListBuilder<KakaoAccountTable>? orderByList,
     KakaoAccountInclude? include,
   }) {
@@ -140,8 +138,6 @@ abstract class KakaoAccount
       limit: limit,
       offset: offset,
       orderBy: orderBy?.call(KakaoAccount.t),
-      orderDescending: // ignore: deprecated_member_use_from_same_package
-          orderDescending,
       orderByList: orderByList?.call(KakaoAccount.t),
       include: include,
     );
@@ -323,8 +319,6 @@ class KakaoAccountIncludeList extends _i1.IncludeList {
     super.limit,
     super.offset,
     super.orderBy,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    super.orderDescending,
     super.orderByList,
     super.include,
   }) {
@@ -371,8 +365,6 @@ class KakaoAccountRepository {
     int? limit,
     int? offset,
     _i1.OrderByBuilder<KakaoAccountTable>? orderBy,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    bool orderDescending = false,
     _i1.OrderByListBuilder<KakaoAccountTable>? orderByList,
     _i1.Transaction? transaction,
     KakaoAccountInclude? include,
@@ -383,8 +375,6 @@ class KakaoAccountRepository {
       where: where?.call(KakaoAccount.t),
       orderBy: orderBy?.call(KakaoAccount.t),
       orderByList: orderByList?.call(KakaoAccount.t),
-      orderDescending: // ignore: deprecated_member_use
-          orderDescending,
       limit: limit,
       offset: offset,
       transaction: transaction,
@@ -416,8 +406,6 @@ class KakaoAccountRepository {
     _i1.WhereExpressionBuilder<KakaoAccountTable>? where,
     int? offset,
     _i1.OrderByBuilder<KakaoAccountTable>? orderBy,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    bool orderDescending = false,
     _i1.OrderByListBuilder<KakaoAccountTable>? orderByList,
     _i1.Transaction? transaction,
     KakaoAccountInclude? include,
@@ -428,8 +416,6 @@ class KakaoAccountRepository {
       where: where?.call(KakaoAccount.t),
       orderBy: orderBy?.call(KakaoAccount.t),
       orderByList: orderByList?.call(KakaoAccount.t),
-      orderDescending: // ignore: deprecated_member_use
-          orderDescending,
       offset: offset,
       transaction: transaction,
       include: include,
@@ -637,8 +623,6 @@ class KakaoAccountRepository {
     int? offset,
     _i1.OrderByBuilder<KakaoAccountTable>? orderBy,
     _i1.OrderByListBuilder<KakaoAccountTable>? orderByList,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    bool orderDescending = false,
     _i1.Transaction? transaction,
     bool noReturn = false,
   }) async {
@@ -649,8 +633,6 @@ class KakaoAccountRepository {
       offset: offset,
       orderBy: orderBy?.call(KakaoAccount.t),
       orderByList: orderByList?.call(KakaoAccount.t),
-      orderDescending: // ignore: deprecated_member_use
-          orderDescending,
       transaction: transaction,
       noReturn: noReturn,
     );
@@ -671,8 +653,6 @@ class KakaoAccountRepository {
     _i1.DatabaseSession session,
     List<KakaoAccount> rows, {
     _i1.OrderByBuilder<KakaoAccountTable>? orderBy,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    bool orderDescending = false,
     _i1.OrderByListBuilder<KakaoAccountTable>? orderByList,
     _i1.Transaction? transaction,
     bool noReturn = false,
@@ -681,8 +661,6 @@ class KakaoAccountRepository {
       rows,
       orderBy: orderBy?.call(KakaoAccount.t),
       orderByList: orderByList?.call(KakaoAccount.t),
-      orderDescending: // ignore: deprecated_member_use
-          orderDescending,
       transaction: transaction,
       noReturn: noReturn,
     );
@@ -712,8 +690,6 @@ class KakaoAccountRepository {
     _i1.DatabaseSession session, {
     required _i1.WhereExpressionBuilder<KakaoAccountTable> where,
     _i1.OrderByBuilder<KakaoAccountTable>? orderBy,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    bool orderDescending = false,
     _i1.OrderByListBuilder<KakaoAccountTable>? orderByList,
     _i1.Transaction? transaction,
     bool noReturn = false,
@@ -722,8 +698,6 @@ class KakaoAccountRepository {
       where: where(KakaoAccount.t),
       orderBy: orderBy?.call(KakaoAccount.t),
       orderByList: orderByList?.call(KakaoAccount.t),
-      orderDescending: // ignore: deprecated_member_use
-          orderDescending,
       transaction: transaction,
       noReturn: noReturn,
     );

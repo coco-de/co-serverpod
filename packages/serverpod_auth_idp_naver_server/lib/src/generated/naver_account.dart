@@ -128,8 +128,6 @@ abstract class NaverAccount
     int? limit,
     int? offset,
     _i1.OrderByBuilder<NaverAccountTable>? orderBy,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    bool orderDescending = false,
     _i1.OrderByListBuilder<NaverAccountTable>? orderByList,
     NaverAccountInclude? include,
   }) {
@@ -138,8 +136,6 @@ abstract class NaverAccount
       limit: limit,
       offset: offset,
       orderBy: orderBy?.call(NaverAccount.t),
-      orderDescending: // ignore: deprecated_member_use_from_same_package
-          orderDescending,
       orderByList: orderByList?.call(NaverAccount.t),
       include: include,
     );
@@ -319,8 +315,6 @@ class NaverAccountIncludeList extends _i1.IncludeList {
     super.limit,
     super.offset,
     super.orderBy,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    super.orderDescending,
     super.orderByList,
     super.include,
   }) {
@@ -367,8 +361,6 @@ class NaverAccountRepository {
     int? limit,
     int? offset,
     _i1.OrderByBuilder<NaverAccountTable>? orderBy,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    bool orderDescending = false,
     _i1.OrderByListBuilder<NaverAccountTable>? orderByList,
     _i1.Transaction? transaction,
     NaverAccountInclude? include,
@@ -379,8 +371,6 @@ class NaverAccountRepository {
       where: where?.call(NaverAccount.t),
       orderBy: orderBy?.call(NaverAccount.t),
       orderByList: orderByList?.call(NaverAccount.t),
-      orderDescending: // ignore: deprecated_member_use
-          orderDescending,
       limit: limit,
       offset: offset,
       transaction: transaction,
@@ -412,8 +402,6 @@ class NaverAccountRepository {
     _i1.WhereExpressionBuilder<NaverAccountTable>? where,
     int? offset,
     _i1.OrderByBuilder<NaverAccountTable>? orderBy,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    bool orderDescending = false,
     _i1.OrderByListBuilder<NaverAccountTable>? orderByList,
     _i1.Transaction? transaction,
     NaverAccountInclude? include,
@@ -424,8 +412,6 @@ class NaverAccountRepository {
       where: where?.call(NaverAccount.t),
       orderBy: orderBy?.call(NaverAccount.t),
       orderByList: orderByList?.call(NaverAccount.t),
-      orderDescending: // ignore: deprecated_member_use
-          orderDescending,
       offset: offset,
       transaction: transaction,
       include: include,
@@ -633,8 +619,6 @@ class NaverAccountRepository {
     int? offset,
     _i1.OrderByBuilder<NaverAccountTable>? orderBy,
     _i1.OrderByListBuilder<NaverAccountTable>? orderByList,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    bool orderDescending = false,
     _i1.Transaction? transaction,
     bool noReturn = false,
   }) async {
@@ -645,8 +629,6 @@ class NaverAccountRepository {
       offset: offset,
       orderBy: orderBy?.call(NaverAccount.t),
       orderByList: orderByList?.call(NaverAccount.t),
-      orderDescending: // ignore: deprecated_member_use
-          orderDescending,
       transaction: transaction,
       noReturn: noReturn,
     );
@@ -667,8 +649,6 @@ class NaverAccountRepository {
     _i1.DatabaseSession session,
     List<NaverAccount> rows, {
     _i1.OrderByBuilder<NaverAccountTable>? orderBy,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    bool orderDescending = false,
     _i1.OrderByListBuilder<NaverAccountTable>? orderByList,
     _i1.Transaction? transaction,
     bool noReturn = false,
@@ -677,8 +657,6 @@ class NaverAccountRepository {
       rows,
       orderBy: orderBy?.call(NaverAccount.t),
       orderByList: orderByList?.call(NaverAccount.t),
-      orderDescending: // ignore: deprecated_member_use
-          orderDescending,
       transaction: transaction,
       noReturn: noReturn,
     );
@@ -708,8 +686,6 @@ class NaverAccountRepository {
     _i1.DatabaseSession session, {
     required _i1.WhereExpressionBuilder<NaverAccountTable> where,
     _i1.OrderByBuilder<NaverAccountTable>? orderBy,
-    @Deprecated('Use desc() on the orderBy column instead.')
-    bool orderDescending = false,
     _i1.OrderByListBuilder<NaverAccountTable>? orderByList,
     _i1.Transaction? transaction,
     bool noReturn = false,
@@ -718,8 +694,6 @@ class NaverAccountRepository {
       where: where(NaverAccount.t),
       orderBy: orderBy?.call(NaverAccount.t),
       orderByList: orderByList?.call(NaverAccount.t),
-      orderDescending: // ignore: deprecated_member_use
-          orderDescending,
       transaction: transaction,
       noReturn: noReturn,
     );
