@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/coco-de/serverpod-auth-kr/compare/serverpod_auth_idp_naver_flutter-v0.2.0...serverpod_auth_idp_naver_flutter-v1.0.0) (2026-07-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* **serverpod:** serverpod 4.0.0-beta.1 이상을 요구한다. 소비 측은 serverpod 계열 의존을 함께 올려야 한다.
+
+### 기능
+
+* **serverpod:** ⬆️ serverpod 4.0.0-beta.1 대응 — 생성 코드 재생성 ([#6](https://github.com/coco-de/serverpod-auth-kr/issues/6)) ([1266bd9](https://github.com/coco-de/serverpod-auth-kr/commit/1266bd9740716a05bdf2a10e541790c72d5e7c34))
+
 ## [0.2.0](https://github.com/coco-de/serverpod-auth-kr/compare/serverpod_auth_idp_naver_flutter-v0.1.0...serverpod_auth_idp_naver_flutter-v0.2.0) (2026-07-21)
 
 

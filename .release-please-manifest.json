@@ -1,10 +1,10 @@
 {
-  "packages/serverpod_auth_idp_apple_client": "0.2.0",
-  "packages/serverpod_auth_idp_apple_server": "0.2.0",
-  "packages/serverpod_auth_idp_kakao_client": "0.2.0",
-  "packages/serverpod_auth_idp_kakao_flutter": "0.2.0",
-  "packages/serverpod_auth_idp_kakao_server": "0.2.0",
-  "packages/serverpod_auth_idp_naver_client": "0.2.0",
-  "packages/serverpod_auth_idp_naver_flutter": "0.2.0",
-  "packages/serverpod_auth_idp_naver_server": "0.2.0"
+  "packages/serverpod_auth_idp_apple_client": "1.0.0",
+  "packages/serverpod_auth_idp_apple_server": "1.0.0",
+  "packages/serverpod_auth_idp_kakao_client": "1.0.0",
+  "packages/serverpod_auth_idp_kakao_flutter": "1.0.0",
+  "packages/serverpod_auth_idp_kakao_server": "1.0.0",
+  "packages/serverpod_auth_idp_naver_client": "1.0.0",
+  "packages/serverpod_auth_idp_naver_flutter": "1.0.0",
+  "packages/serverpod_auth_idp_naver_server": "1.0.0"
 }
