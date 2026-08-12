@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/coco-de/serverpod-auth-kr/compare/serverpod_auth_idp_kakao_server-v1.0.0...serverpod_auth_idp_kakao_server-v2.0.0) (2026-08-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* **serverpod:** ⬆️ serverpod 4.0.0-beta.2 대응 — IdentityProvider 계약 구현 ([#8](https://github.com/coco-de/serverpod-auth-kr/issues/8))
+
+### 기능
+
+* **serverpod:** ⬆️ serverpod 4.0.0-beta.2 대응 — IdentityProvider 계약 구현 ([#8](https://github.com/coco-de/serverpod-auth-kr/issues/8)) ([db72656](https://github.com/coco-de/serverpod-auth-kr/commit/db7265643c8e34aa7a81f0986a7014096718adc4))
+
 ## [1.0.0](https://github.com/coco-de/serverpod-auth-kr/compare/serverpod_auth_idp_kakao_server-v0.2.0...serverpod_auth_idp_kakao_server-v1.0.0) (2026-07-29)
 
 
