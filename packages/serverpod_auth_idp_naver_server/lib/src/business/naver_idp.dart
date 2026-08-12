@@ -5,6 +5,9 @@ import 'naver_idp_admin.dart';
 import 'naver_idp_config.dart';
 import 'naver_idp_utils.dart';
 
+// Account 모델은 `serverpod generate` 산출물이다.
+import '../generated/protocol.dart';
+
 /// Main class for the Naver identity provider.
 /// The methods defined here are intended to be called from an endpoint.
 ///
@@ -17,9 +20,10 @@ import 'naver_idp_utils.dart';
 ///
 /// If you would like to modify the authentication flow, consider creating
 /// custom implementations of the relevant methods.
-class NaverIdp {
+class NaverIdp implements IdentityProvider {
   /// The method used when authenticating with the Naver identity provider.
-  static const String method = 'naver';
+  @override
+  String get method => utils.method;
 
   /// Admin operations to work with Naver-backed accounts.
   final NaverIdpAdmin admin;
@@ -177,6 +181,21 @@ class NaverIdp {
   /// Determines whether the current session has an associated Naver account.
   Future<bool> hasAccount(final Session session) async =>
       await utils.getAccount(session) != null;
+
+  @override
+  Future<void> mergeAuthUsers(
+    final Session session, {
+    required final UuidValue userToKeepId,
+    required final UuidValue userToRemoveId,
+    required final Transaction transaction,
+  }) async {
+    await NaverAccount.db.updateWhere(
+      session,
+      where: (final t) => t.authUserId.equals(userToRemoveId),
+      columnValues: (final t) => [t.authUserId(userToKeepId)],
+      transaction: transaction,
+    );
+  }
 }
 
 /// Extension to get the [NaverIdp] instance from the [AuthServices].
