@@ -7,6 +7,9 @@ import 'package:sign_in_with_apple_server/sign_in_with_apple_server.dart';
 import 'apple_idp_admin.dart';
 import 'apple_idp_config.dart';
 import 'apple_idp_utils.dart';
+
+// Account 모델은 `serverpod generate` 산출물이다.
+import '../generated/protocol.dart';
 import 'routes/apple_server_notification_route.dart';
 
 /// Main class for the Apple identity provider.
@@ -17,9 +20,10 @@ import 'routes/apple_server_notification_route.dart';
 ///
 /// The `admin` property provides access to [AppleIdpAdmin]; the `utils`
 /// property provides access to [AppleIdpUtils].
-class AppleIdp {
+class AppleIdp implements IdentityProvider {
   /// The method used when authenticating with the Apple identity provider.
-  static const String method = 'apple';
+  @override
+  String get method => utils.method;
 
   /// Admin operations to work with Apple-backed accounts.
   final AppleIdpAdmin admin;
@@ -146,6 +150,21 @@ class AppleIdp {
     androidPackageIdentifier: config.androidPackageIdentifier,
     webRedirectUri: config.webRedirectUri,
   );
+
+  @override
+  Future<void> mergeAuthUsers(
+    final Session session, {
+    required final UuidValue userToKeepId,
+    required final UuidValue userToRemoveId,
+    required final Transaction transaction,
+  }) async {
+    await AppleAccount.db.updateWhere(
+      session,
+      where: (final t) => t.authUserId.equals(userToRemoveId),
+      columnValues: (final t) => [t.authUserId(userToKeepId)],
+      transaction: transaction,
+    );
+  }
 }
 
 /// Extension to get the [AppleIdp] instance from the [AuthServices].

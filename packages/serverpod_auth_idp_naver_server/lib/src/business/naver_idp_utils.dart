@@ -35,6 +35,12 @@ typedef NaverAuthSuccess = ({
 /// But for most cases, the methods exposed by [NaverIdp] and
 /// `NaverIdpAdmin` should be sufficient.
 class NaverIdpUtils {
+  /// The method identifier used when issuing authentication tokens.
+  ///
+  /// serverpod 4.0.0-beta.2 의 `IdentityProvider` 계약이 요구하는
+  /// instance getter 의 실제 값 소유자다 (공식 IdP 와 동일한 배치).
+  String get method => 'naver';
+
   /// Configuration for the Naver identity provider.
   final NaverIdpConfig config;
 

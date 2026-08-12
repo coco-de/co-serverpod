@@ -40,6 +40,12 @@ typedef AppleAuthSuccess = ({
 /// is verified (replay protection), instead of the official provider's
 /// hard-coded `nonce: null`.
 class AppleIdpUtils {
+  /// The method identifier used when issuing authentication tokens.
+  ///
+  /// serverpod 4.0.0-beta.2 의 `IdentityProvider` 계약이 요구하는
+  /// instance getter 의 실제 값 소유자다 (공식 IdP 와 동일한 배치).
+  String get method => 'apple';
+
   /// Configuration for the Apple identity provider.
   final AppleIdpConfig? config;
 
@@ -238,7 +244,7 @@ class AppleIdpUtils {
         await _tokenManager.revokeAllTokens(
           session,
           authUserId: appleAccount.authUserId,
-          method: AppleIdp.method,
+          method: method,
         );
 
         if (notification is AppleServerNotificationAccountDelete) {

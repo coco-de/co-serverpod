@@ -37,6 +37,12 @@ typedef KakaoAuthSuccess = ({
 /// But for most cases, the methods exposed by [KakaoIdp] and
 /// [KakaoIdpAdmin] should be sufficient.
 class KakaoIdpUtils {
+  /// The method identifier used when issuing authentication tokens.
+  ///
+  /// serverpod 4.0.0-beta.2 의 `IdentityProvider` 계약이 요구하는
+  /// instance getter 의 실제 값 소유자다 (공식 IdP 와 동일한 배치).
+  String get method => 'kakao';
+
   /// Configuration for the Kakao identity provider.
   final KakaoIdpConfig config;
 
