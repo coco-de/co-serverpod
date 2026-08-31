@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/coco-de/serverpod-auth-kr/compare/serverpod_auth_idp_apple_server-v2.0.0...serverpod_auth_idp_apple_server-v2.0.1) (2026-08-31)
+
+
+### 버그 수정
+
+* **apple:** 🐛 네이티브 iOS/macOS 신규 로그인 redirect_uri mismatch 수정 ([#10](https://github.com/coco-de/serverpod-auth-kr/issues/10)) ([847620c](https://github.com/coco-de/serverpod-auth-kr/commit/847620c4a2c01192f4bd13d7f59fa29f71304fa0))
+
 ## [2.0.0](https://github.com/coco-de/serverpod-auth-kr/compare/serverpod_auth_idp_apple_server-v1.0.0...serverpod_auth_idp_apple_server-v2.0.0) (2026-08-12)
 
 
