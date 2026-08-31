@@ -118,16 +118,50 @@ class AppleIdpUtils {
     };
 
     if (createNewAccount) {
-      final refreshToken = await _signInWithApple.exchangeAuthorizationCode(
-        authorizationCode,
-        useBundleIdentifier: isNativeApplePlatformSignIn,
-      );
+      // `sign_in_with_apple_server` (pub.dev v1.0.0) always sends
+      // `redirect_uri: _config.redirectUri` to Apple's `/auth/token`
+      // endpoint regardless of `useBundleIdentifier` (see its
+      // `exchangeAuthorizationCode`). For native (bundle-identifier)
+      // sign-ins the authorization code was never associated with any
+      // redirect_uri in the first place — it is issued through the App ID
+      // flow, not the Service ID web-redirect flow — so Apple always
+      // rejects the exchange with `invalid_grant: redirect_uri mismatch`.
+      // This made every *first-time* native iOS/macOS Apple sign-in fail
+      // (unibook#12663), even though [verifyIdentityToken] above already
+      // proved the user's identity.
+      //
+      // The refresh token obtained here is only used later by
+      // [refreshToken]/[serverNotificationHandler] to detect a revoked
+      // Apple authorization — it is not required to complete this sign-in.
+      // For native platforms we therefore treat the exchange as
+      // best-effort: on failure we fall back to an empty sentinel token
+      // (see [refreshToken] for how that sentinel is handled) instead of
+      // failing the whole authentication.
+      String refreshToken;
+      try {
+        final response = await _signInWithApple.exchangeAuthorizationCode(
+          authorizationCode,
+          useBundleIdentifier: isNativeApplePlatformSignIn,
+        );
+        refreshToken = response.refreshToken;
+      } on Exception catch (error, stackTrace) {
+        if (!isNativeApplePlatformSignIn) rethrow;
+        session.log(
+          'Apple native sign-in: could not exchange authorization code for '
+          'a refresh token (identity already verified, continuing without '
+          'one): $error',
+          level: LogLevel.warning,
+          exception: error,
+          stackTrace: stackTrace,
+        );
+        refreshToken = '';
+      }
 
       appleAccount = await AppleKrAccount.db.insertRow(
         session,
         AppleKrAccount(
           userIdentifier: verifiedIdentityToken.userId,
-          refreshToken: refreshToken.refreshToken,
+          refreshToken: refreshToken,
           refreshTokenRequestedWithBundleIdentifier:
               isNativeApplePlatformSignIn,
           email: verifiedIdentityToken.email?.toLowerCase(),
@@ -193,6 +227,14 @@ class AppleIdpUtils {
       session,
       appleAccount.copyWith(lastRefreshedAt: clock.now()),
     );
+
+    // [authenticate] leaves this empty for native sign-ins where the initial
+    // authorization-code exchange failed (see the comment there). There is
+    // no token to validate, so skip the call instead of letting Apple's
+    // rejection of an empty token surface as an unhandled exception here —
+    // that would otherwise abort [AppleIdpAdmin.checkAccountStatus]'s whole
+    // batch, including the accounts after this one.
+    if (appleAccount.refreshToken.isEmpty) return;
 
     try {
       await _signInWithApple.validateRefreshToken(
