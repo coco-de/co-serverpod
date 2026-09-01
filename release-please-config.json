@@ -1,36 +1,89 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "release-type": "dart",
-
   "//": "패키지별 독립 버전. 단, separate-pull-requests=false(기본) 로 릴리즈를 한 커밋에 묶어 형제 패키지 태그가 항상 같은 커밋을 가리키게 한다 — 소비 측(kobic)이 형제 패키지를 서로 다른 커밋 조합으로 받는 사고를 구조적으로 차단.",
   "separate-pull-requests": false,
   "include-component-in-tag": true,
-
   "//bootstrap": "kobic 이 마지막으로 참조해 온 커밋. 이 이후 쌓인 미릴리즈 변경이 첫 릴리즈 노트에 담긴다.",
   "bootstrap-sha": "7a302d0a4930147329cde4e057b3184980e8cac1",
-
   "changelog-sections": [
-    { "type": "feat",     "section": "기능" },
-    { "type": "fix",      "section": "버그 수정" },
-    { "type": "perf",     "section": "성능" },
-    { "type": "revert",   "section": "되돌림" },
-    { "type": "refactor", "section": "리팩터링" },
-    { "type": "docs",     "section": "문서" },
-    { "type": "build",    "section": "빌드",   "hidden": true },
-    { "type": "ci",       "section": "CI",     "hidden": true },
-    { "type": "test",     "section": "테스트", "hidden": true },
-    { "type": "style",    "section": "스타일", "hidden": true },
-    { "type": "chore",    "section": "기타",   "hidden": true }
+    {
+      "type": "feat",
+      "section": "기능"
+    },
+    {
+      "type": "fix",
+      "section": "버그 수정"
+    },
+    {
+      "type": "perf",
+      "section": "성능"
+    },
+    {
+      "type": "revert",
+      "section": "되돌림"
+    },
+    {
+      "type": "refactor",
+      "section": "리팩터링"
+    },
+    {
+      "type": "docs",
+      "section": "문서"
+    },
+    {
+      "type": "build",
+      "section": "빌드",
+      "hidden": true
+    },
+    {
+      "type": "ci",
+      "section": "CI",
+      "hidden": true
+    },
+    {
+      "type": "test",
+      "section": "테스트",
+      "hidden": true
+    },
+    {
+      "type": "style",
+      "section": "스타일",
+      "hidden": true
+    },
+    {
+      "type": "chore",
+      "section": "기타",
+      "hidden": true
+    }
   ],
-
   "packages": {
-    "packages/serverpod_auth_idp_apple_client": { "component": "serverpod_auth_idp_apple_client" },
-    "packages/serverpod_auth_idp_apple_server": { "component": "serverpod_auth_idp_apple_server" },
-    "packages/serverpod_auth_idp_kakao_client": { "component": "serverpod_auth_idp_kakao_client" },
-    "packages/serverpod_auth_idp_kakao_flutter": { "component": "serverpod_auth_idp_kakao_flutter" },
-    "packages/serverpod_auth_idp_kakao_server": { "component": "serverpod_auth_idp_kakao_server" },
-    "packages/serverpod_auth_idp_naver_client": { "component": "serverpod_auth_idp_naver_client" },
-    "packages/serverpod_auth_idp_naver_flutter": { "component": "serverpod_auth_idp_naver_flutter" },
-    "packages/serverpod_auth_idp_naver_server": { "component": "serverpod_auth_idp_naver_server" }
+    "packages/co_offline_sync": {
+      "component": "co_offline_sync"
+    },
+    "packages/serverpod_auth_idp_apple_client": {
+      "component": "serverpod_auth_idp_apple_client"
+    },
+    "packages/serverpod_auth_idp_apple_server": {
+      "component": "serverpod_auth_idp_apple_server"
+    },
+    "packages/serverpod_auth_idp_kakao_client": {
+      "component": "serverpod_auth_idp_kakao_client"
+    },
+    "packages/serverpod_auth_idp_kakao_flutter": {
+      "component": "serverpod_auth_idp_kakao_flutter"
+    },
+    "packages/serverpod_auth_idp_kakao_server": {
+      "component": "serverpod_auth_idp_kakao_server"
+    },
+    "packages/serverpod_auth_idp_naver_client": {
+      "component": "serverpod_auth_idp_naver_client"
+    },
+    "packages/serverpod_auth_idp_naver_flutter": {
+      "component": "serverpod_auth_idp_naver_flutter"
+    },
+    "packages/serverpod_auth_idp_naver_server": {
+      "component": "serverpod_auth_idp_naver_server"
+    }
   }
 }

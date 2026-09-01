@@ -1,4 +1,5 @@
 {
+  "packages/co_offline_sync": "0.1.0",
   "packages/serverpod_auth_idp_apple_client": "2.0.0",
   "packages/serverpod_auth_idp_apple_server": "2.0.1",
   "packages/serverpod_auth_idp_kakao_client": "2.0.0",

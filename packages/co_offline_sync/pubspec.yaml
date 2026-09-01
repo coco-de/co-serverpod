@@ -1,0 +1,17 @@
+name: co_offline_sync
+description: >-
+  Offline-first sync engine core for Cocode apps. Hybrid logical clocks,
+  field-level LWW merge with tombstones, cursor-based delta sync protocol,
+  and pluggable store/transport contracts. Pure Dart, backend-agnostic.
+version: 0.1.0
+repository: https://github.com/coco-de/co-serverpod
+
+environment:
+  sdk: ">=3.8.0 <4.0.0"
+
+dependencies:
+  crypto: ^3.0.6
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0
