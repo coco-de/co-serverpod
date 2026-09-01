@@ -21,8 +21,8 @@ webServer:
 
 database:
   host: localhost
-  port: 9092
-  name: serverpod_auth_idp_kakao_test
+  port: 9094
+  name: serverpod_auth_idp_apple_test
   user: postgres
 
 redis:
