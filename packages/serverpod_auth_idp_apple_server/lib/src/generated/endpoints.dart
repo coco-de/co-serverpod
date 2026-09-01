@@ -22,11 +22,7 @@ class Endpoints extends _i1.EndpointDispatch {
   void initializeEndpoints(_i1.Server server) {
     var endpoints = <String, _i1.Endpoint>{
       'appleIdp': _i2.AppleIdpEndpoint()
-        ..initialize(
-          server,
-          'appleIdp',
-          'serverpod_auth_idp_apple',
-        ),
+        ..initialize(server, 'appleIdp', 'serverpod_auth_idp_apple'),
     };
     connectors['appleIdp'] = _i1.EndpointConnector(
       name: 'appleIdp',
@@ -66,11 +62,8 @@ class Endpoints extends _i1.EndpointDispatch {
               nullable: true,
             ),
           },
-          call:
-              (
-                _i1.Session session,
-                Map<String, dynamic> params,
-              ) async => (endpoints['appleIdp'] as _i2.AppleIdpEndpoint).login(
+          call: (_i1.Session session, Map<String, dynamic> params) async =>
+              (endpoints['appleIdp'] as _i2.AppleIdpEndpoint).login(
                 session,
                 identityToken: params['identityToken'],
                 authorizationCode: params['authorizationCode'],
@@ -84,12 +77,10 @@ class Endpoints extends _i1.EndpointDispatch {
         'hasAccount': _i1.MethodConnector(
           name: 'hasAccount',
           params: {},
-          call:
-              (
-                _i1.Session session,
-                Map<String, dynamic> params,
-              ) async => (endpoints['appleIdp'] as _i2.AppleIdpEndpoint)
-                  .hasAccount(session),
+          call: (_i1.Session session, Map<String, dynamic> params) async =>
+              (endpoints['appleIdp'] as _i2.AppleIdpEndpoint).hasAccount(
+                session,
+              ),
         ),
       },
     );

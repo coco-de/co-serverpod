@@ -7,9 +7,6 @@ import 'package:sign_in_with_apple_server/sign_in_with_apple_server.dart';
 import 'apple_idp_admin.dart';
 import 'apple_idp_config.dart';
 import 'apple_idp_utils.dart';
-
-// Account 모델은 `serverpod generate` 산출물이다.
-import '../generated/protocol.dart';
 import 'routes/apple_server_notification_route.dart';
 
 /// Main class for the Apple identity provider.

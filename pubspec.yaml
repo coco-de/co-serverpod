@@ -3,13 +3,20 @@ name: serverpod_auth_kr_workspace
 environment:
   sdk: ">=3.8.0 <4.0.0"
 
+workspace:
+  - packages/serverpod_auth_idp_apple_client
+  - packages/serverpod_auth_idp_apple_server
+  - packages/serverpod_auth_idp_kakao_client
+  - packages/serverpod_auth_idp_kakao_flutter
+  - packages/serverpod_auth_idp_kakao_server
+  - packages/serverpod_auth_idp_naver_client
+  - packages/serverpod_auth_idp_naver_flutter
+  - packages/serverpod_auth_idp_naver_server
+
 dev_dependencies:
-  melos: ^7.0.0
+  melos: ^8.6.0
 
 melos:
-  packages:
-    - packages/**
-
   scripts:
     analyze:
       run: melos exec -- dart analyze --fatal-infos
@@ -20,8 +27,8 @@ melos:
       description: 전체 패키지 포맷
 
     test:
-      run: melos exec --dir-exists=test -- dart test
-      description: 전체 패키지 테스트
+      run: melos exec --dir-exists=test --no-flutter -- dart test && melos exec --dir-exists=test --flutter -- flutter test
+      description: 전체 패키지 테스트 (Dart 패키지는 dart test, Flutter 패키지는 flutter test)
 
     generate:
       run: melos exec --scope="*_server" -- serverpod generate
