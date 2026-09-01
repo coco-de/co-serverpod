@@ -1,6 +1,6 @@
 name: serverpod_auth_idp_apple_server
 description: Apple identity provider (with nonce replay protection) for the Serverpod authentication module (serverpod_auth_idp).
-version: 2.0.1
+version: 2.0.2
 repository: https://github.com/coco-de/co-serverpod
 
 environment:

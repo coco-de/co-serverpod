@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.0.2](https://github.com/coco-de/co-serverpod/compare/serverpod_auth_idp_apple_server-v2.0.1...serverpod_auth_idp_apple_server-v2.0.2) (2026-09-01)
+
+
+### 버그 수정
+
+* **apple:** 🐛 웹 신규 로그인도 authorization code 교환 실패를 non-fatal 로 처리 ([#16](https://github.com/coco-de/co-serverpod/issues/16)) ([e2900b9](https://github.com/coco-de/co-serverpod/commit/e2900b99de887e4890342bb49091062867e4c735))
+
+
+### 문서
+
+* 📝 레포 이름 변경(serverpod-auth-kr → co-serverpod) 반영 ([#12](https://github.com/coco-de/co-serverpod/issues/12)) ([5d2ede7](https://github.com/coco-de/co-serverpod/commit/5d2ede7f5c27076bbeb75dcc33f3bff10eb123bb))
+
 ## [2.0.1](https://github.com/coco-de/serverpod-auth-kr/compare/serverpod_auth_idp_apple_server-v2.0.0...serverpod_auth_idp_apple_server-v2.0.1) (2026-08-31)
 
 

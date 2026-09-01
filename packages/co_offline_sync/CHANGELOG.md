@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/coco-de/co-serverpod/compare/co_offline_sync-v0.1.0...co_offline_sync-v0.2.0) (2026-09-01)
+
+
+### 기능
+
+* **offline-sync:** ✨ co_offline_sync 코어 패키지 신설 — HLC·필드 LWW 병합·커서 델타 프로토콜 ([#14](https://github.com/coco-de/co-serverpod/issues/14)) ([367a638](https://github.com/coco-de/co-serverpod/commit/367a63882ee7260007fde700e87e5c11d39dbd30))
+
 ## 0.1.0
 
 - 최초 릴리스 — offline-first 동기화 엔진 코어.
