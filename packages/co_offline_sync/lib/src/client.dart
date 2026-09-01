@@ -56,12 +56,15 @@ class SyncReport {
 /// 커서가 과거로 되감기지 않는다.
 class CoSyncClient {
   /// [syncSchema] 는 동기화 대상 `테이블 → 컬럼 목록` — 서명 계산과 로컬
-  /// 쓰기 검증에 함께 쓴다.
+  /// 쓰기 검증에 함께 쓴다. [schemaVersion] 은 서버 [SchemaRegistry] 의 버전
+  /// 번호 — 서명이 불일치할 때 서버가 "앱이 낡았다 / 서버가 뒤처졌다" 를
+  /// 갈라 답하게 하는 힌트다 (없어도 동기화는 동작한다).
   CoSyncClient({
     required ClientSyncStore store,
     required SyncTransport transport,
     required HlcClock clock,
     required Map<String, List<String>> syncSchema,
+    this.schemaVersion,
     this.tombstonePolicy = TombstonePolicy.deleteWins,
   }) : _store = store,
        _transport = transport,
@@ -78,6 +81,9 @@ class CoSyncClient {
 
   /// 클라이언트가 아는 동기화 스키마 서명.
   final String schemaSignature;
+
+  /// 클라이언트 스키마 버전 힌트 (요청에 실린다, 선택).
+  final int? schemaVersion;
 
   /// 읽기 뷰의 tombstone 해석 정책.
   final TombstonePolicy tombstonePolicy;
@@ -196,12 +202,18 @@ class CoSyncClient {
     for (final p in pending) {
       final state = await _store.getRow(p.table, p.rowId);
       if (state == null) continue;
-      changes.add(RowChange(table: p.table, state: state));
+      // 자기 스키마 컬럼으로 투영해 보낸다 — 롤링 배포 중 구 인스턴스가 투영
+      // 없이 내려준 창 밖 필드를 되실어 올리지 않는다 (서버도 관대하지만
+      // 방어선은 양쪽에 둔다). pending 스탬프는 자기 쓰기라 투영에 살아남는다.
+      final columns = _schema[p.table];
+      final outgoing = columns == null ? state : state.project(columns);
+      changes.add(RowChange(table: p.table, state: outgoing));
     }
     final response = await _transport.push(
       SyncPushRequest(
         nodeId: _clock.nodeId,
         schemaSignature: schemaSignature,
+        schemaVersion: schemaVersion,
         changes: changes,
       ),
     );
@@ -226,14 +238,29 @@ class CoSyncClient {
         SyncPullRequest(
           nodeId: _clock.nodeId,
           schemaSignature: schemaSignature,
+          schemaVersion: schemaVersion,
           cursor: cursor,
           limit: limit,
         ),
       );
+      // 서버 시계(투영 전 페이지 최대 스탬프 포함)로 먼저 전진한다 — 구
+      // 클라이언트는 숨겨진 컬럼의 스탬프를 관찰하지 못해, 이것이 없으면 그
+      // 뒤의 삭제가 숨겨진 편집보다 과거로 찍힌다. 구 서버는 이 키를 안 준다.
+      final serverHlc = response.serverHlcPacked;
+      if (serverHlc != null) _clock.receive(Hlc.parse(serverHlc));
       for (final change in response.changes) {
-        _clock.receive(change.state.maxHlc);
-        final local = await _store.getRow(change.table, change.state.rowId);
-        final merged = mergeIntoLocal(local, change.state);
+        // 자기 스키마로 투영 — 투영을 모르는 구 인스턴스(롤링 배포)가 내려준
+        // 창 밖 필드·테이블을 저장하지 않는다.
+        final columns = _schema[change.table];
+        if (columns == null) continue;
+        final incoming = change.state.project(columns);
+        final local = await _store.getRow(change.table, incoming.rowId);
+        // 본 적 없는 행에 앱 필드도 없고 tombstone 도 아니면(예: 신 컬럼만
+        // 있는 행의 되살림) 빈 alive 행(phantom)을 만들지 않는다. 이미 가진
+        // 행에는 항상 병합한다 — tombstone 을 받아 둔 행의 되살림이 여기다.
+        if (local == null && !_worthCreating(incoming)) continue;
+        _clock.receive(incoming.maxHlc);
+        final merged = mergeIntoLocal(local, incoming);
         if (local != null && rowStatesEqual(local, merged)) continue;
         await _store.putRow(
           change.table,
@@ -256,4 +283,11 @@ class CoSyncClient {
     }
     return total;
   }
+
+  /// 아직 없는 행을 이 상태로 **새로 만들** 가치가 있는가 — 앱 필드가 하나라도
+  /// 있거나 tombstone(`$deleted:true`)일 때. `$deleted:false` 만 있는 상태는
+  /// "되살림" 인데 되살릴 로컬 행이 없으므로 무의미하다.
+  static bool _worthCreating(RowState state) =>
+      state.fields.keys.any((k) => k != kDeletedField) ||
+      state.deletedField?.value == true;
 }

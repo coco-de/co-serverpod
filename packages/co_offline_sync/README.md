@@ -66,6 +66,46 @@ client.changes.listen((c) => print('changed: ${c.table}/${c.rowId}'));
 await client.sync();
 ```
 
+## 스키마 버저닝 — 호환 창 (compatibility window)
+
+서명 대조는 전부-아니면-전무라, 서버가 컬럼 하나를 더하는 순간 아직 업데이트하지
+않은 앱의 동기화가 **영구 실패**한다. `SchemaRegistry` 는 서버가 현행뿐 아니라
+이전 버전 N개를 함께 받아 주게 한다.
+
+```dart
+final registry = SchemaRegistry([
+  SchemaVersion(version: 1, tables: {'bookmark': ['title', 'page']}),
+  SchemaVersion(version: 2, tables: {'bookmark': ['title', 'page', 'note']}),
+]);
+
+final server = CoSyncServer.withRegistry(
+  store: ..., clock: ..., registry: registry,
+);
+
+final client = CoSyncClient(
+  ..., syncSchema: registry.current.tables, schemaVersion: registry.current.version,
+);
+```
+
+| 규칙 | 내용 |
+|---|---|
+| **서명이 정본** | 요청은 서명으로 어느 버전인지 확정된다. 버전 번호는 불일치 시 원인 분류(`SchemaMismatchReason`)용 힌트일 뿐이다 |
+| **가산적 진화만** | 창 안의 각 버전은 직전 버전의 상위집합이어야 한다 (테이블·컬럼 추가만). 위반은 `SchemaRegistry` 생성 시 `ArgumentError` |
+| **신 컬럼은 optional** | 구 클라이언트가 만든 행에는 그 필드가 없다 — nullable 이거나 앱 기본값이 있어야 한다 (소비 측 규약) |
+| **push 검증 = 레지스트리가 아는 컬럼 전체** | 어느 버전도 모르는 컬럼·예약 필드만 프로토콜 위반. 롤링 배포 중 구 인스턴스가 투영 없이 내려준 신 컬럼을 구 클라이언트가 되실어도 거부하지 않는다(그 값은 서버가 준 것이라 LWW 에서 no-op) |
+| **pull 투영** | 구 클라이언트에는 그 버전의 컬럼만 내려간다 (`$deleted` 는 값과 무관하게 보존 — 삭제·되살림 대칭). 모르는 테이블의 변경은 빠지되 커서는 전진. 응답 `hlc` 로 투영 전 최대 스탬프를 함께 내려 구 클라이언트 시계가 뒤처지지 않게 한다 |
+| **클라 방어선** | `_pull` 은 받은 상태를 자기 컬럼으로 투영하고, **본 적 없는 행**에 앱 필드가 없고 tombstone 도 아니면 저장하지 않는다(phantom 방지). `_push` 도 자기 컬럼으로 투영해 보낸다 |
+| **유실 0** | 구 클라이언트의 편집은 자기 컬럼만 나르고 필드 단위 LWW 가 나머지를 보존한다 (`test/schema_versioning_test.dart` "유실 0") |
+| **창 닫기** | 목록에서 빼면 그 버전은 `clientOutdated` 로 거부 — 앱 강제 업데이트와 같은 시점에 |
+
+제거·이름 변경이 정말 필요하면 새 테이블/컬럼을 추가하고 옛 것을 창이 닫힐 때까지
+병존시킨다. 단일 스키마 생성자 `CoSyncServer(syncSchema:)` 는 버전 1개짜리
+레지스트리와 같다.
+
+알려진 한계: `TombstonePolicy.editWins` 는 창 안에서 버전 간 뷰가 갈릴 수 있다
+(구 클라이언트는 신 컬럼의 스탬프를 못 본다) — 창 운영 중에는 `deleteWins` 권장.
+`protocolVersion` 을 올리면 창 안 모든 서명이 바뀌어 창이 통째로 닫힌다.
+
 ## 로드맵 (unibook Project #12634)
 
 | 단계 | 내용 | 위치 |
