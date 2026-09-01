@@ -3,6 +3,11 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 /// 프로토콜 버전 — 와이어 포맷이 비호환으로 바뀔 때만 올린다.
+///
+/// ⚠️ 이 값은 [computeSchemaSignature] 에 들어가므로 **올리는 순간
+/// `SchemaRegistry` 창 안의 모든 버전 서명이 동시에 바뀐다** — 배포된 모든
+/// 앱이 한꺼번에 불일치가 된다. 가산적 변경(선택 키 추가 등)에는 올리지 말고,
+/// 올려야 한다면 앱 강제 업데이트와 같은 시점에만 한다.
 const int protocolVersion = 1;
 
 /// 동기화 대상 스키마의 안정적 서명을 만든다.

@@ -120,6 +120,20 @@ class RowState {
     );
   }
 
+  /// [columns] 에 있는 애플리케이션 필드와 [kDeletedField] 만 남긴 사본.
+  ///
+  /// 서버가 구 스키마 버전 클라이언트에게 내려보낼 때 쓴다 — 그 클라이언트가
+  /// 모르는 컬럼을 저장했다가 그대로 되밀어 올리는 일을 원천 차단한다.
+  /// tombstone 은 어느 버전에서나 의미가 같으므로 항상 보존한다. 필드별 HLC 는
+  /// 그대로라 투영 결과도 여전히 병합 가능한 [RowState] 다.
+  RowState project(Set<String> columns) => RowState(
+    rowId: rowId,
+    fields: {
+      for (final e in fields.entries)
+        if (e.key == kDeletedField || columns.contains(e.key)) e.key: e.value,
+    },
+  );
+
   @override
   String toString() => 'RowState(${jsonEncode(toJson())})';
 }

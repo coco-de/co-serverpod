@@ -41,20 +41,73 @@ class HlcCounterOverflowException extends CoOfflineSyncException {
     : super('HLC counter overflow at millis=$millis');
 }
 
+/// 스키마 불일치의 원인 분류 — 소비 측이 사용자 안내를 갈라 쓰는 근거.
+///
+/// | 값 | 뜻 | 소비 측 대응 |
+/// |---|---|---|
+/// | [clientOutdated] | 클라이언트 버전이 지원 창 **아래** | 앱 업데이트 유도 (영구) |
+/// | [serverBehind] | 클라이언트 버전이 서버 현행보다 **위** | 서버 롤아웃 대기 후 재시도 (일시) |
+/// | [signatureConflict] | 버전 번호는 창 안인데 서명이 다름 | 같은 버전 번호로 다른 스키마를 배포한 **결함** — 개발 단계 검출 |
+/// | [unknown] | 서명이 어느 버전과도 다르고 버전 힌트도 없음 | 버전 힌트를 보내지 않는 구 클라이언트 — 업데이트 유도 |
+enum SchemaMismatchReason {
+  /// 서명이 레지스트리의 어느 버전과도 일치하지 않고 버전 힌트도 없다.
+  unknown,
+
+  /// 클라이언트 스키마 버전이 서버의 최소 지원 버전보다 낮다.
+  clientOutdated,
+
+  /// 클라이언트 스키마 버전이 서버의 현행 버전보다 높다.
+  serverBehind,
+
+  /// 버전 번호는 지원 창 안인데 그 버전의 서명과 다르다.
+  signatureConflict,
+}
+
 /// 클라이언트와 서버의 동기화 대상 스키마 서명이 다를 때.
 ///
 /// 서명이 다른 채로 병합하면 필드가 조용히 유실되므로, 동기화 자체를 거부한다.
-/// 소비 측은 앱 업데이트 유도 또는 서버 롤아웃 대기로 해소한다.
+/// 소비 측은 [reason] 으로 앱 업데이트 유도(영구)와 서버 롤아웃 대기(일시)를
+/// 갈라 안내한다. 버전 정보는 클라이언트가 힌트를 보냈을 때만 채워진다.
 class SchemaMismatchException extends CoOfflineSyncException {
-  /// 양쪽 서명을 담아 생성한다.
-  SchemaMismatchException({required this.expected, required this.actual})
-    : super('schema signature mismatch: server=$expected client=$actual');
+  /// 양쪽 서명을 담아 생성한다. [reason] 기본값은 [SchemaMismatchReason.unknown].
+  SchemaMismatchException({
+    required this.expected,
+    required this.actual,
+    this.reason = SchemaMismatchReason.unknown,
+    this.clientVersion,
+    this.minSupportedVersion,
+    this.currentVersion,
+  }) : super(
+         'schema signature mismatch (${reason.name}): '
+         'server=$expected client=$actual'
+         '${clientVersion == null ? '' : ' clientVersion=v$clientVersion'}'
+         '${_windowSuffix(minSupportedVersion, currentVersion)}',
+       );
 
-  /// 서버 쪽 서명.
+  static String _windowSuffix(int? min, int? current) {
+    if (min != null && current != null) return ' supported=v$min..v$current';
+    if (min != null) return ' minSupported=v$min';
+    if (current != null) return ' current=v$current';
+    return '';
+  }
+
+  /// 서버 쪽 (현행) 서명.
   final String expected;
 
   /// 클라이언트가 보낸 서명.
   final String actual;
+
+  /// 불일치 원인 분류.
+  final SchemaMismatchReason reason;
+
+  /// 클라이언트가 힌트로 보낸 스키마 버전 (없으면 null).
+  final int? clientVersion;
+
+  /// 서버가 받아 주는 가장 오래된 스키마 버전 (레지스트리 서버만 채운다).
+  final int? minSupportedVersion;
+
+  /// 서버 현행 스키마 버전 (레지스트리 서버만 채운다).
+  final int? currentVersion;
 }
 
 /// 와이어에서 온 페이로드가 프로토콜 형식에 맞지 않을 때.
