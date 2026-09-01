@@ -120,22 +120,41 @@ class AppleIdpUtils {
       // `sign_in_with_apple_server` (pub.dev v1.0.0) always sends
       // `redirect_uri: _config.redirectUri` to Apple's `/auth/token`
       // endpoint regardless of `useBundleIdentifier` (see its
-      // `exchangeAuthorizationCode`). For native (bundle-identifier)
-      // sign-ins the authorization code was never associated with any
-      // redirect_uri in the first place — it is issued through the App ID
-      // flow, not the Service ID web-redirect flow — so Apple always
-      // rejects the exchange with `invalid_grant: redirect_uri mismatch`.
-      // This made every *first-time* native iOS/macOS Apple sign-in fail
-      // (unibook#12663), even though [verifyIdentityToken] above already
-      // proved the user's identity.
+      // `exchangeAuthorizationCode`, where `redirect_uri` sits outside the
+      // `useBundleIdentifier` branch). That single fixed value cannot match
+      // every platform's authorization request, and there are two distinct
+      // ways it goes wrong:
       //
-      // The refresh token obtained here is only used later by
+      //  * **Native (bundle identifier).** The authorization code was never
+      //    associated with any redirect_uri in the first place — it is
+      //    issued through the App ID flow, not the Service ID web-redirect
+      //    flow — so Apple rejects the exchange with
+      //    `invalid_grant: redirect_uri mismatch`. This made every
+      //    *first-time* native iOS/macOS Apple sign-in fail
+      //    (unibook#12663).
+      //
+      //  * **Web (Service ID + JS SDK popup).** The code *is* bound to a
+      //    redirect_uri, but necessarily to a different one: the Apple JS
+      //    SDK runs with `usePopup: true` and posts its result only to the
+      //    origin of the `redirectURI` it was given, so the client must
+      //    pass the *page origin* (e.g. `https://example.com`, no path).
+      //    `_config.redirectUri` is a fixed URL that carries a path, so the
+      //    two can never be equal on any host — this is structural, not a
+      //    misconfiguration (unibook#12761).
+      //
+      // Android and desktop happen to send exactly `_config.redirectUri`
+      // and so do not hit the mismatch, but they are equally entitled to
+      // survive a transient exchange failure.
+      //
+      // In every case [verifyIdentityToken] above has *already* proven the
+      // user's identity against Apple's public keys (signature, audience
+      // and nonce). The refresh token obtained here is only used later by
       // [refreshToken]/[serverNotificationHandler] to detect a revoked
       // Apple authorization — it is not required to complete this sign-in.
-      // For native platforms we therefore treat the exchange as
-      // best-effort: on failure we fall back to an empty sentinel token
-      // (see [refreshToken] for how that sentinel is handled) instead of
-      // failing the whole authentication.
+      // We therefore treat the exchange as best-effort on **all**
+      // platforms: on failure we fall back to an empty sentinel token (see
+      // [refreshToken] and [serverNotificationHandler] for how that
+      // sentinel is handled) instead of failing the whole authentication.
       String refreshToken;
       try {
         final response = await _signInWithApple.exchangeAuthorizationCode(
@@ -144,11 +163,10 @@ class AppleIdpUtils {
         );
         refreshToken = response.refreshToken;
       } on Exception catch (error, stackTrace) {
-        if (!isNativeApplePlatformSignIn) rethrow;
         session.log(
-          'Apple native sign-in: could not exchange authorization code for '
-          'a refresh token (identity already verified, continuing without '
-          'one): $error',
+          'Apple sign-in: could not exchange authorization code for a '
+          'refresh token (identity already verified, continuing without '
+          'one; native=$isNativeApplePlatformSignIn): $error',
           level: LogLevel.warning,
           exception: error,
           stackTrace: stackTrace,
@@ -227,8 +245,8 @@ class AppleIdpUtils {
       appleAccount.copyWith(lastRefreshedAt: clock.now()),
     );
 
-    // [authenticate] leaves this empty for native sign-ins where the initial
-    // authorization-code exchange failed (see the comment there). There is
+    // [authenticate] leaves this empty when the initial authorization-code
+    // exchange failed, on any platform (see the comment there). There is
     // no token to validate, so skip the call instead of letting Apple's
     // rejection of an empty token surface as an unhandled exception here —
     // that would otherwise abort [AppleIdpAdmin.checkAccountStatus]'s whole
@@ -276,11 +294,31 @@ class AppleIdpUtils {
       );
 
       if (appleAccount != null) {
-        await _signInWithApple.revokeAuthorization(
-          refreshToken: appleAccount.refreshToken,
-          useBundleIdentifier:
-              appleAccount.refreshTokenRequestedWithBundleIdentifier,
-        );
+        // [authenticate] stores an empty sentinel when the initial
+        // authorization-code exchange failed, so there may be no token to
+        // revoke. Even when there is one, revoking at Apple is a courtesy —
+        // what actually ends the user's access is the local teardown below.
+        // Neither an absent token nor Apple's rejection of one may prevent
+        // [revokeAllTokens]/[deleteRow] from running; letting this throw
+        // would leave the user signed in *after* they revoked consent.
+        if (appleAccount.refreshToken.isNotEmpty) {
+          try {
+            await _signInWithApple.revokeAuthorization(
+              refreshToken: appleAccount.refreshToken,
+              useBundleIdentifier:
+                  appleAccount.refreshTokenRequestedWithBundleIdentifier,
+            );
+          } on Exception catch (error, stackTrace) {
+            session.log(
+              'Apple server notification: revoking the authorization at '
+              'Apple failed; continuing with the local session teardown: '
+              '$error',
+              level: LogLevel.warning,
+              exception: error,
+              stackTrace: stackTrace,
+            );
+          }
+        }
 
         await _tokenManager.revokeAllTokens(
           session,
