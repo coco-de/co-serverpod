@@ -1,7 +1,7 @@
 name: serverpod_auth_idp_kakao_server
 description: Kakao identity provider for the Serverpod authentication module (serverpod_auth_idp).
 version: 2.0.0
-repository: https://github.com/coco-de/serverpod-auth-kr
+repository: https://github.com/coco-de/co-serverpod
 
 environment:
   sdk: ">=3.8.0 <4.0.0"
