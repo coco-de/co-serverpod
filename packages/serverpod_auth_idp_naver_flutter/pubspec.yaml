@@ -4,7 +4,7 @@ description: >-
   Auth controller (access-token flow), SDK-agnostic sign-in service, and a
   Naver-branded sign-in button.
 version: 2.0.0
-repository: https://github.com/coco-de/serverpod-auth-kr
+repository: https://github.com/coco-de/co-serverpod
 # Path dependency on the sibling _client package during development.
 # Switch to a versioned dependency before publishing to pub.dev.
 publish_to: none

@@ -3,7 +3,7 @@ description: >-
   Naver identity provider for Serverpod's authentication module. Mirrors the
   upstream GitHub OAuth2 provider, adapted for Naver Login (NID).
 version: 2.0.0
-repository: https://github.com/coco-de/serverpod-auth-kr
+repository: https://github.com/coco-de/co-serverpod
 
 environment:
   sdk: ">=3.8.0 <4.0.0"

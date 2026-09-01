@@ -1,4 +1,4 @@
-# serverpod_auth_kr
+# co-serverpod
 
 [Serverpod](https://serverpod.dev) `serverpod_auth_idp`용 **한국 소셜(Kakao / Naver) Identity Provider** 패키지 모노레포.
 
