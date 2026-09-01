@@ -321,80 +321,47 @@ class AppleKrAccountUpdateTable extends _i1.UpdateTable<AppleKrAccountTable> {
   AppleKrAccountUpdateTable(super.table);
 
   _i1.ColumnValue<String, String> userIdentifier(String value) =>
-      _i1.ColumnValue(
-        table.userIdentifier,
-        value,
-      );
+      _i1.ColumnValue(table.userIdentifier, value);
 
-  _i1.ColumnValue<String, String> refreshToken(String value) => _i1.ColumnValue(
-    table.refreshToken,
-    value,
-  );
+  _i1.ColumnValue<String, String> refreshToken(String value) =>
+      _i1.ColumnValue(table.refreshToken, value);
 
   _i1.ColumnValue<bool, bool> refreshTokenRequestedWithBundleIdentifier(
     bool value,
-  ) => _i1.ColumnValue(
-    table.refreshTokenRequestedWithBundleIdentifier,
-    value,
-  );
+  ) => _i1.ColumnValue(table.refreshTokenRequestedWithBundleIdentifier, value);
 
   _i1.ColumnValue<DateTime, DateTime> lastRefreshedAt(DateTime value) =>
-      _i1.ColumnValue(
-        table.lastRefreshedAt,
-        value,
-      );
+      _i1.ColumnValue(table.lastRefreshedAt, value);
 
   _i1.ColumnValue<_i1.UuidValue, _i1.UuidValue> authUserId(
     _i1.UuidValue value,
-  ) => _i1.ColumnValue(
-    table.authUserId,
-    value,
-  );
+  ) => _i1.ColumnValue(table.authUserId, value);
 
   _i1.ColumnValue<DateTime, DateTime> createdAt(DateTime value) =>
-      _i1.ColumnValue(
-        table.createdAt,
-        value,
-      );
+      _i1.ColumnValue(table.createdAt, value);
 
-  _i1.ColumnValue<String, String> email(String? value) => _i1.ColumnValue(
-    table.email,
-    value,
-  );
+  _i1.ColumnValue<String, String> email(String? value) =>
+      _i1.ColumnValue(table.email, value);
 
-  _i1.ColumnValue<bool, bool> isEmailVerified(bool? value) => _i1.ColumnValue(
-    table.isEmailVerified,
-    value,
-  );
+  _i1.ColumnValue<bool, bool> isEmailVerified(bool? value) =>
+      _i1.ColumnValue(table.isEmailVerified, value);
 
-  _i1.ColumnValue<bool, bool> isPrivateEmail(bool? value) => _i1.ColumnValue(
-    table.isPrivateEmail,
-    value,
-  );
+  _i1.ColumnValue<bool, bool> isPrivateEmail(bool? value) =>
+      _i1.ColumnValue(table.isPrivateEmail, value);
 
-  _i1.ColumnValue<String, String> firstName(String? value) => _i1.ColumnValue(
-    table.firstName,
-    value,
-  );
+  _i1.ColumnValue<String, String> firstName(String? value) =>
+      _i1.ColumnValue(table.firstName, value);
 
-  _i1.ColumnValue<String, String> lastName(String? value) => _i1.ColumnValue(
-    table.lastName,
-    value,
-  );
+  _i1.ColumnValue<String, String> lastName(String? value) =>
+      _i1.ColumnValue(table.lastName, value);
 }
 
 class AppleKrAccountTable extends _i1.Table<_i1.UuidValue?> {
   AppleKrAccountTable({super.tableRelation})
     : super(tableName: 'serverpod_auth_idp_apple_kr_account') {
     updateTable = AppleKrAccountUpdateTable(this);
-    userIdentifier = _i1.ColumnString(
-      'userIdentifier',
-      this,
-    );
-    refreshToken = _i1.ColumnString(
-      'refreshToken',
-      this,
-    );
+    userIdentifier = _i1.ColumnString('userIdentifier', this);
+    refreshToken = _i1.ColumnString('refreshToken', this);
     refreshTokenRequestedWithBundleIdentifier = _i1.ColumnBool(
       'refreshTokenRequestedWithBundleIdentifier',
       this,
@@ -404,34 +371,13 @@ class AppleKrAccountTable extends _i1.Table<_i1.UuidValue?> {
       this,
       hasDefault: true,
     );
-    authUserId = _i1.ColumnUuid(
-      'authUserId',
-      this,
-    );
-    createdAt = _i1.ColumnDateTime(
-      'createdAt',
-      this,
-    );
-    email = _i1.ColumnString(
-      'email',
-      this,
-    );
-    isEmailVerified = _i1.ColumnBool(
-      'isEmailVerified',
-      this,
-    );
-    isPrivateEmail = _i1.ColumnBool(
-      'isPrivateEmail',
-      this,
-    );
-    firstName = _i1.ColumnString(
-      'firstName',
-      this,
-    );
-    lastName = _i1.ColumnString(
-      'lastName',
-      this,
-    );
+    authUserId = _i1.ColumnUuid('authUserId', this);
+    createdAt = _i1.ColumnDateTime('createdAt', this);
+    email = _i1.ColumnString('email', this);
+    isEmailVerified = _i1.ColumnBool('isEmailVerified', this);
+    isPrivateEmail = _i1.ColumnBool('isPrivateEmail', this);
+    firstName = _i1.ColumnString('firstName', this);
+    lastName = _i1.ColumnString('lastName', this);
   }
 
   late final AppleKrAccountUpdateTable updateTable;
@@ -706,10 +652,7 @@ class AppleKrAccountRepository {
     AppleKrAccount row, {
     _i1.Transaction? transaction,
   }) async {
-    return session.db.insertRow<AppleKrAccount>(
-      row,
-      transaction: transaction,
-    );
+    return session.db.insertRow<AppleKrAccount>(row, transaction: transaction);
   }
 
   /// Upserts all [AppleKrAccount]s in the list and returns the resulting rows.
@@ -899,10 +842,7 @@ class AppleKrAccountRepository {
     AppleKrAccount row, {
     _i1.Transaction? transaction,
   }) async {
-    return session.db.deleteRow<AppleKrAccount>(
-      row,
-      transaction: transaction,
-    );
+    return session.db.deleteRow<AppleKrAccount>(row, transaction: transaction);
   }
 
   /// Deletes all rows matching the [where] expression.

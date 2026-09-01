@@ -22,11 +22,7 @@ class Endpoints extends _i1.EndpointDispatch {
   void initializeEndpoints(_i1.Server server) {
     var endpoints = <String, _i1.Endpoint>{
       'naverIdp': _i2.NaverIdpEndpoint()
-        ..initialize(
-          server,
-          'naverIdp',
-          'serverpod_auth_idp_naver',
-        ),
+        ..initialize(server, 'naverIdp', 'serverpod_auth_idp_naver'),
     };
     connectors['naverIdp'] = _i1.EndpointConnector(
       name: 'naverIdp',
@@ -51,11 +47,8 @@ class Endpoints extends _i1.EndpointDispatch {
               nullable: false,
             ),
           },
-          call:
-              (
-                _i1.Session session,
-                Map<String, dynamic> params,
-              ) async => (endpoints['naverIdp'] as _i2.NaverIdpEndpoint).login(
+          call: (_i1.Session session, Map<String, dynamic> params) async =>
+              (endpoints['naverIdp'] as _i2.NaverIdpEndpoint).login(
                 session,
                 code: params['code'],
                 codeVerifier: params['codeVerifier'],
@@ -71,11 +64,8 @@ class Endpoints extends _i1.EndpointDispatch {
               nullable: false,
             ),
           },
-          call:
-              (
-                _i1.Session session,
-                Map<String, dynamic> params,
-              ) async => (endpoints['naverIdp'] as _i2.NaverIdpEndpoint)
+          call: (_i1.Session session, Map<String, dynamic> params) async =>
+              (endpoints['naverIdp'] as _i2.NaverIdpEndpoint)
                   .loginWithAccessToken(
                     session,
                     accessToken: params['accessToken'],
@@ -84,12 +74,10 @@ class Endpoints extends _i1.EndpointDispatch {
         'hasAccount': _i1.MethodConnector(
           name: 'hasAccount',
           params: {},
-          call:
-              (
-                _i1.Session session,
-                Map<String, dynamic> params,
-              ) async => (endpoints['naverIdp'] as _i2.NaverIdpEndpoint)
-                  .hasAccount(session),
+          call: (_i1.Session session, Map<String, dynamic> params) async =>
+              (endpoints['naverIdp'] as _i2.NaverIdpEndpoint).hasAccount(
+                session,
+              ),
         ),
       },
     );

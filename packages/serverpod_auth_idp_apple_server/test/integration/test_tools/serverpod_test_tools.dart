@@ -155,18 +155,12 @@ class _InternalTestEndpoints extends TestEndpoints
     _i2.SerializationManager serializationManager,
     _i2.EndpointDispatch endpoints,
   ) {
-    appleIdp = _AppleIdpEndpoint(
-      endpoints,
-      serializationManager,
-    );
+    appleIdp = _AppleIdpEndpoint(endpoints, serializationManager);
   }
 }
 
 class _AppleIdpEndpoint {
-  _AppleIdpEndpoint(
-    this._endpointDispatch,
-    this._serializationManager,
-  );
+  _AppleIdpEndpoint(this._endpointDispatch, this._serializationManager);
 
   final _i2.EndpointDispatch _endpointDispatch;
 

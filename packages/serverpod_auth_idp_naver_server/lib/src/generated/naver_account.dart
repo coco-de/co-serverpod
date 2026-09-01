@@ -196,49 +196,26 @@ class NaverAccountUpdateTable extends _i1.UpdateTable<NaverAccountTable> {
 
   _i1.ColumnValue<_i1.UuidValue, _i1.UuidValue> authUserId(
     _i1.UuidValue value,
-  ) => _i1.ColumnValue(
-    table.authUserId,
-    value,
-  );
+  ) => _i1.ColumnValue(table.authUserId, value);
 
   _i1.ColumnValue<String, String> userIdentifier(String value) =>
-      _i1.ColumnValue(
-        table.userIdentifier,
-        value,
-      );
+      _i1.ColumnValue(table.userIdentifier, value);
 
-  _i1.ColumnValue<String, String> email(String? value) => _i1.ColumnValue(
-    table.email,
-    value,
-  );
+  _i1.ColumnValue<String, String> email(String? value) =>
+      _i1.ColumnValue(table.email, value);
 
   _i1.ColumnValue<DateTime, DateTime> created(DateTime value) =>
-      _i1.ColumnValue(
-        table.created,
-        value,
-      );
+      _i1.ColumnValue(table.created, value);
 }
 
 class NaverAccountTable extends _i1.Table<_i1.UuidValue?> {
   NaverAccountTable({super.tableRelation})
     : super(tableName: 'serverpod_auth_idp_naver_account') {
     updateTable = NaverAccountUpdateTable(this);
-    authUserId = _i1.ColumnUuid(
-      'authUserId',
-      this,
-    );
-    userIdentifier = _i1.ColumnString(
-      'userIdentifier',
-      this,
-    );
-    email = _i1.ColumnString(
-      'email',
-      this,
-    );
-    created = _i1.ColumnDateTime(
-      'created',
-      this,
-    );
+    authUserId = _i1.ColumnUuid('authUserId', this);
+    userIdentifier = _i1.ColumnString('userIdentifier', this);
+    email = _i1.ColumnString('email', this);
+    created = _i1.ColumnDateTime('created', this);
   }
 
   late final NaverAccountUpdateTable updateTable;
@@ -475,10 +452,7 @@ class NaverAccountRepository {
     NaverAccount row, {
     _i1.Transaction? transaction,
   }) async {
-    return session.db.insertRow<NaverAccount>(
-      row,
-      transaction: transaction,
-    );
+    return session.db.insertRow<NaverAccount>(row, transaction: transaction);
   }
 
   /// Upserts all [NaverAccount]s in the list and returns the resulting rows.
@@ -668,10 +642,7 @@ class NaverAccountRepository {
     NaverAccount row, {
     _i1.Transaction? transaction,
   }) async {
-    return session.db.deleteRow<NaverAccount>(
-      row,
-      transaction: transaction,
-    );
+    return session.db.deleteRow<NaverAccount>(row, transaction: transaction);
   }
 
   /// Deletes all rows matching the [where] expression.

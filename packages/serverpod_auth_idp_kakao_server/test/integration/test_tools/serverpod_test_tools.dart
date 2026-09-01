@@ -155,18 +155,12 @@ class _InternalTestEndpoints extends TestEndpoints
     _i2.SerializationManager serializationManager,
     _i2.EndpointDispatch endpoints,
   ) {
-    kakaoIdp = _KakaoIdpEndpoint(
-      endpoints,
-      serializationManager,
-    );
+    kakaoIdp = _KakaoIdpEndpoint(endpoints, serializationManager);
   }
 }
 
 class _KakaoIdpEndpoint {
-  _KakaoIdpEndpoint(
-    this._endpointDispatch,
-    this._serializationManager,
-  );
+  _KakaoIdpEndpoint(this._endpointDispatch, this._serializationManager);
 
   final _i2.EndpointDispatch _endpointDispatch;
 

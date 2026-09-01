@@ -6,7 +6,6 @@ import 'package:serverpod/serverpod.dart';
 import 'package:serverpod_auth_idp_server/core.dart';
 import 'package:sign_in_with_apple_server/sign_in_with_apple_server.dart';
 
-import 'apple_idp.dart';
 import 'apple_idp_config.dart';
 
 // AppleKrAccount 는 `serverpod generate` 후 생성되는 모델이다.
