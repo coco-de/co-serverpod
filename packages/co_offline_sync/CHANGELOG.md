@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/coco-de/co-serverpod/compare/co_offline_sync-v0.2.0...co_offline_sync-v0.3.0) (2026-09-02)
+
+
+### 기능
+
+* **offline-sync:** ✨ 스키마 버전 호환 창 — SchemaRegistry · pull 투영 · 불일치 원인 분류 ([#19](https://github.com/coco-de/co-serverpod/issues/19)) ([139e2eb](https://github.com/coco-de/co-serverpod/commit/139e2eb59b361b7e8fcaddf569513e1d4ff007fc))
+* **offline-sync:** ✨ 클라이언트 청크 push 분할·행 단위 직렬화 (unibook[#12839](https://github.com/coco-de/co-serverpod/issues/12839)) ([#20](https://github.com/coco-de/co-serverpod/issues/20)) ([792de07](https://github.com/coco-de/co-serverpod/commit/792de0784e04747cfd09293b3a30c0334c72f8ca))
+
 ## [0.2.0](https://github.com/coco-de/co-serverpod/compare/co_offline_sync-v0.1.0...co_offline_sync-v0.2.0) (2026-09-01)
 
 
