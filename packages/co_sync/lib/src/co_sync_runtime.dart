@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:co_offline_sync/co_offline_sync.dart';
-import 'package:co_offline_sync_client/src/drift/co_sync_database.dart';
-import 'package:co_offline_sync_client/src/drift_client_sync_store.dart';
+import 'package:co_sync/src/drift/co_sync_database.dart';
+import 'package:co_sync/src/drift_client_sync_store.dart';
 import 'package:flutter/foundation.dart';
 
 /// 서버가 알려 주는 스키마 버전 창 (`CoSyncEndpoint.getSchemaWindow`).

@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:co_offline_sync_client/src/co_sync_runtime.dart';
-import 'package:co_offline_sync_client/src/replica/replica_puller.dart';
+import 'package:co_sync/src/co_sync_runtime.dart';
+import 'package:co_sync/src/replica/replica_puller.dart';
 
 /// co_sync 논리 테이블(⋈ replica) watch 에 **2축 시드 게이트**를 씌운 스트림
 /// (S3-9b #12963, 설계 §6.4 "S3-9b 읽기 원천").

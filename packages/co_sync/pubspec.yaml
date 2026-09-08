@@ -1,4 +1,4 @@
-name: co_offline_sync_client
+name: co_sync
 version: 0.1.0
 publish_to: none
 description: >-

@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:co_offline_sync/co_offline_sync.dart';
-import 'package:co_offline_sync_client/co_offline_sync_client.dart';
+import 'package:co_sync/co_sync.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';

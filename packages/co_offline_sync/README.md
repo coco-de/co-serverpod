@@ -9,7 +9,7 @@ Flutter, Serverpod 생성 코드에 의존하지 않습니다.
 | 패키지 | 역할 | 사용처 |
 |---|---|---|
 | `co_offline_sync` | HLC, 필드별 LWW 병합, 삭제/복원, 프로토콜, 클라이언트/서버 엔진 | Dart 서버, 커스텀 클라이언트 |
-| [`co_offline_sync_client`](../co_offline_sync_client/README.md) | Drift 저장소, 반응형 조회, 연결/인증/생명주기 런타임, 읽기 전용 replica | Flutter 앱 |
+| [`co_sync`](../co_sync/README.md) | Drift 저장소, 반응형 조회, 연결/인증/생명주기 런타임, 읽기 전용 replica | Flutter 앱 |
 
 Flutter 앱은 두 번째 패키지의 시작 가이드를 사용하세요. 이 문서는 코어 직접 사용과
 서버 구현 계약을 설명합니다. `CoSyncClient`와 `CoSyncServer`는 **이 코어에 모두**
@@ -196,7 +196,7 @@ Serverpod에서는 앱이 만든 endpoint의 `push(String)` / `pull(String)` 메
 
 ## 4. 영속 저장소 구현 계약
 
-Flutter는 [`DriftClientSyncStore`](../co_offline_sync_client/README.md)를 재사용할 수
+Flutter는 [`DriftClientSyncStore`](../co_sync/README.md)를 재사용할 수
 있습니다. 다른 플랫폼은 다음 계약을 구현합니다.
 
 | `ClientSyncStore` 메서드 | 지켜야 할 동작 |

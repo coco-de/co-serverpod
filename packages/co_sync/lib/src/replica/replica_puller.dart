@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:co_offline_sync_client/src/replica/replica_store.dart';
+import 'package:co_sync/src/replica/replica_store.dart';
 
 /// 도메인 하나의 pull 응답 한 페이지.
 class ReplicaPage {
