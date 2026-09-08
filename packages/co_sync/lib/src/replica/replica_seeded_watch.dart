@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:co_offline_sync_client/src/replica/replica_puller.dart';
+import 'package:co_sync/src/replica/replica_puller.dart';
 
 /// replica watch 에 **시드 게이트**를 씌운 스트림 (S6-3 에서 확립 ·
 /// S7-3 kobic#12754 에서 공용화).

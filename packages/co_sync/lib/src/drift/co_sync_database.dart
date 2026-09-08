@@ -2,9 +2,9 @@ import 'dart:convert';
 
 import 'package:co_offline_sync/co_offline_sync.dart'
     show RowState, TombstonePolicy;
-import 'package:co_offline_sync_client/src/drift/co_sync_web_options.dart';
-import 'package:co_offline_sync_client/src/drift/flutter_test_env_stub.dart'
-    if (dart.library.io) 'package:co_offline_sync_client/src/drift/flutter_test_env_io.dart';
+import 'package:co_sync/src/drift/co_sync_web_options.dart';
+import 'package:co_sync/src/drift/flutter_test_env_stub.dart'
+    if (dart.library.io) 'package:co_sync/src/drift/flutter_test_env_io.dart';
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 import 'package:flutter/foundation.dart';

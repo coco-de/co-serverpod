@@ -8,5 +8,5 @@
   "packages/serverpod_auth_idp_naver_client": "2.0.1",
   "packages/serverpod_auth_idp_naver_flutter": "2.0.1",
   "packages/serverpod_auth_idp_naver_server": "2.0.1",
-  "packages/co_offline_sync_client": "0.1.0"
+  "packages/co_sync": "0.1.0"
 }

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:co_offline_sync/co_offline_sync.dart';
-import 'package:co_offline_sync_client/src/drift/co_sync_database.dart';
+import 'package:co_sync/src/drift/co_sync_database.dart';
 import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 

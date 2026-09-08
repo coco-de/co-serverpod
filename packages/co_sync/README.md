@@ -1,4 +1,4 @@
-# co_offline_sync_client
+# co_sync
 
 [`co_offline_sync`](../co_offline_sync/README.md)의 **Flutter + Drift 클라이언트 구현**입니다.
 SQLite 기반 영속 저장소, 반응형 조회, 연결/인증/생명주기에 따른 동기화, 읽기 전용
@@ -19,11 +19,11 @@ SDK 제약은 Dart `>=3.10.0 <4.0.0`이고, 아래 검증 명령은 Flutter 3.47
 dependencies:
   flutter:
     sdk: flutter
-  co_offline_sync_client:
+  co_sync:
     git:
       url: https://github.com/coco-de/co-serverpod.git
       ref: <COMMIT_SHA>
-      path: packages/co_offline_sync_client
+      path: packages/co_sync
   # 코어 타입을 직접 import하는 앱은 명시적으로 선언합니다.
   co_offline_sync:
     git:
@@ -69,7 +69,7 @@ UI / Repository
 
 ```dart
 import 'package:co_offline_sync/co_offline_sync.dart';
-import 'package:co_offline_sync_client/co_offline_sync_client.dart';
+import 'package:co_sync/co_sync.dart';
 
 const appSchemaVersion = 1;
 const appSyncSchema = {
@@ -326,7 +326,7 @@ JSON 전송 왕복, 로컬 쓰기/원격 수신/삭제/복원/계정 초기화�
 Flutter 화면이나 실제 서버 없이 실행할 수 있습니다.
 
 ```bash
-cd packages/co_offline_sync_client
+cd packages/co_sync
 flutter pub get
 flutter analyze --fatal-infos
 flutter test test example
@@ -338,17 +338,23 @@ Drift 테이블을 수정하는 패키지 유지보수자만 생성 코드를 �
 dart run build_runner build --delete-conflicting-outputs
 ```
 
-## 기존 co_sync에서 이동
+## 기존 패키지에서 이동
+
+공용 클라이언트의 패키지 이름은 `co_offline_sync_client`에서 `co_sync`로
+변경되었습니다. Git 경로는 `packages/co_sync`, import는
+`package:co_sync/co_sync.dart`를 사용합니다. 순수 Dart 코어 이름은
+`co_offline_sync`로 유지합니다.
 
 | 이전 | 공용 패키지 |
 |---|---|
-| `package:co_sync/co_sync.dart`의 공용 구현 | `package:co_offline_sync_client/co_offline_sync_client.dart` |
+| 유니북 로컬 `package/co_sync` | co-serverpod Git 패키지 `packages/co_sync` |
 | `CoSyncRuntime`의 유니북 스키마 기본값 | `syncSchema`와 `schemaVersion`을 필수 주입 |
 | `ServerpodSyncTransport(pod.Client)` | 앱별 생성 클라이언트 어댑터로 유지 |
 | `serverpodReplicaFetch`의 앱 DTO 변환 | 앱별 어댑터로 유지 |
 | DB 이름, 테이블, schemaVersion 3, pending, HLC, cursor | 기존 형식 유지 |
 
-유니북은 `package/co_sync`를 얇은 호환 어댑터로 유지하므로 기존 import와 DI 타입을
-바꿀 필요가 없습니다. 다른 앱은 이 패키지를 직접 사용하고 자신의 스키마와 전송을
-주입합니다. 코어 프로토콜/서버 저장소 계약은 [코어 README](../co_offline_sync/README.md)를
-참고하세요.
+유니북은 로컬 `package/co_sync`를 제거하고 이 Git 패키지를 직접 사용합니다.
+유니북 전용 스키마와 생성 Serverpod 클라이언트 어댑터는 기존 `pod_service`의
+`sync.dart`에서 제공하며, 앱 DI와 테스트 생성자에서 스키마를 명시합니다.
+다른 앱도 자신의 스키마와 전송을 주입합니다. 코어 프로토콜/서버 저장소 계약은
+[코어 README](../co_offline_sync/README.md)를 참고하세요.

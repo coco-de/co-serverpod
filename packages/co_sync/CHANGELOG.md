@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Rename `co_offline_sync_client` to `co_sync`; update the Git package path and Dart import.
+- Preserve the runtime API, database name, SQLite schema and persisted sync state.
+
 ## 0.1.0
 
 - Extract the reusable Flutter runtime, Drift stores, replica puller and reactive

@@ -19,11 +19,11 @@ dev_dependencies:
 melos:
   scripts:
     offline-sync:analyze:
-      run: cd packages/co_offline_sync && dart analyze --fatal-infos && cd ../co_offline_sync_client && flutter analyze --fatal-infos
+      run: cd packages/co_offline_sync && dart analyze --fatal-infos && cd ../co_sync && flutter analyze --fatal-infos
       description: 독립 동기화 패키지 분석 (각 패키지 pub get 선행)
 
     offline-sync:test:
-      run: cd packages/co_offline_sync && dart test && cd ../co_offline_sync_client && flutter test test example
+      run: cd packages/co_offline_sync && dart test && cd ../co_sync && flutter test test example
       description: 순수 Dart 코어와 Flutter 어댑터 테스트
 
     analyze:

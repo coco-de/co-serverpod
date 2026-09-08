@@ -1,4 +1,4 @@
-import 'package:co_offline_sync_client/src/drift/co_sync_database.dart';
+import 'package:co_sync/src/drift/co_sync_database.dart';
 import 'package:drift/drift.dart';
 
 /// 서버가 내려준 replica 행 변경 1건 (pull 응답의 단위).
