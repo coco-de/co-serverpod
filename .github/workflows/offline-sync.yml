@@ -1,0 +1,52 @@
+name: Offline sync
+
+on:
+  pull_request:
+    paths:
+      - packages/co_offline_sync/**
+      - packages/co_offline_sync_client/**
+      - analysis_options.yaml
+      - .github/workflows/offline-sync.yml
+  push:
+    branches: [main]
+    paths:
+      - packages/co_offline_sync/**
+      - packages/co_offline_sync_client/**
+      - analysis_options.yaml
+      - .github/workflows/offline-sync.yml
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/co_offline_sync
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - run: dart pub get
+      - run: dart analyze --fatal-infos
+      - run: dart test
+      - run: dart --enable-asserts run example/sync_example.dart
+
+  client:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/co_offline_sync_client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.0'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed lib test example
+      - run: flutter analyze --fatal-infos
+      - run: flutter test test example
