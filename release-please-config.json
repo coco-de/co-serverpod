@@ -84,6 +84,9 @@
     },
     "packages/serverpod_auth_idp_naver_server": {
       "component": "serverpod_auth_idp_naver_server"
+    },
+    "packages/co_offline_sync_client": {
+      "component": "co_offline_sync_client"
     }
   }
 }

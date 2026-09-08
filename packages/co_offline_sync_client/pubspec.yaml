@@ -1,0 +1,27 @@
+name: co_offline_sync_client
+version: 0.1.0
+publish_to: none
+description: >-
+  Flutter adapters for co_offline_sync with Drift persistence, reactive queries,
+  lifecycle-aware synchronization and read-only replica stores.
+repository: https://github.com/coco-de/co-serverpod
+
+environment:
+  sdk: ">=3.10.0 <4.0.0"
+
+dependencies:
+  co_offline_sync:
+    path: ../co_offline_sync
+  drift: ^2.32.1
+  drift_flutter: ^0.3.0
+  flutter:
+    sdk: flutter
+  uuid: ^4.5.1
+
+dev_dependencies:
+  build_runner: ^2.15.0
+  drift_dev: ^2.32.1
+  flutter_test:
+    sdk: flutter
+  lints: ^5.0.0
+  test: ^1.25.0
