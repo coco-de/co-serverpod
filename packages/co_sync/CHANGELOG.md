@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add `CoSyncRuntime.deleteWithFields(table, rowId, fields)` with atomic metadata
+  and tombstone writes, field-size validation and existing account/sync guards.
 - Rename `co_offline_sync_client` to `co_sync`; update the Git package path and Dart import.
 - Preserve the runtime API, database name, SQLite schema and persisted sync state.
 

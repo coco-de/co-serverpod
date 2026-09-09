@@ -124,6 +124,15 @@ dart --enable-asserts run example/sync_example.dart
 `delete`는 예약 필드 `$deleted`를 true로 기록하고 `restore`는 false로 기록합니다.
 물리 삭제가 아니므로 기존 필드 값이 유지됩니다.
 
+`CoSyncClient.deleteWithFields(String table, String rowId, Map<String, Object?> fields)`는
+전달한 필드와 `$deleted: true`를 같은 HLC로 한 번에 저장합니다 (`Future<void>`).
+행이 없어도 중간 활성 행 없이 tombstone을 만들고, 기존 행의 생략한 필드는 유지합니다.
+`upsert` 후 `delete`를 나눠 호출하는 대신 삭제에 필요한 메타데이터를 함께 전달하세요.
+스키마 밖 컬럼·테이블과 `$` 예약 접두 필드는 저장 전에 `ArgumentError`로 거부합니다.
+빈 Map도 허용하며 기존 두 인자 `delete`와 `restore` 동작은 바뀌지 않습니다.
+도메인 envelope·ID-only payload 구성은 앱 책임이고, 코어는 필드 크기 제한을 적용하지
+않습니다. 크기 제한은 [`CoSyncRuntime`](../co_sync/README.md)이 제공합니다.
+
 | 정책 | 삭제 상태 판정 |
 |---|---|
 | `TombstonePolicy.deleteWins` (기본) | `$deleted`의 현재 값이 true면 삭제. 일반 필드 편집만으로 복원되지 않음 |

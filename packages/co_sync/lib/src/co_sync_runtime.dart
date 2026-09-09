@@ -336,6 +336,21 @@ class CoSyncRuntime {
     await _write((client) => client.delete(table, rowId));
   }
 
+  /// Atomically writes [fields] with a tombstone, including for a missing row.
+  ///
+  /// Uses the same field-size limit as [upsert], core schema/reserved-field
+  /// validation, account-generation guards, notifications and [scheduleSync].
+  /// Omitted fields are preserved; no intermediate live row or restore occurs.
+  Future<void> deleteWithFields(
+    String table,
+    String rowId,
+    Map<String, Object?> fields,
+  ) async {
+    final snapshot = Map<String, Object?>.of(fields);
+    _validateFieldSizes(table, snapshot);
+    await _write((client) => client.deleteWithFields(table, rowId, snapshot));
+  }
+
   /// 삭제된 행 되살림 (`$deleted: false`, 코어 `restore` 위임). 쓰기 뒤 [scheduleSync].
   Future<void> restore(String table, String rowId) async {
     await _write((client) => client.restore(table, rowId));
