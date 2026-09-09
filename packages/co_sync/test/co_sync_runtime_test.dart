@@ -109,6 +109,252 @@ void main() {
     serverTransport = InProcessTransport(server);
   });
 
+  group('deleteWithFields', () {
+    test(
+      'should_notify_once_and_never_expose_live_row_when_deleting_missing_row',
+      () async {
+        final runtime = runtimeWith(CoSyncDatabase(NativeDatabase.memory()));
+        addTearDown(runtime.dispose);
+        final changes = <TableChange>[];
+        final observed = <Future<RowState?>>[];
+        final subscription = runtime.changes.listen((change) {
+          changes.add(change);
+          observed.add(runtime.store.getRow(change.table, change.rowId));
+        });
+        addTearDown(subscription.cancel);
+        final snapshots = <List<RowState>>[];
+        final watch = runtime.store
+            .watchLogicalTable('co_sync_probe', coalesceWindow: Duration.zero)
+            .listen(snapshots.add);
+        addTearDown(watch.cancel);
+        await _waitUntil(() => snapshots.isNotEmpty);
+
+        await runtime.deleteWithFields('co_sync_probe', 'r1', {
+          'value': 'metadata',
+          'note': null,
+        });
+        final states = await Future.wait(observed);
+        expect(changes, hasLength(1));
+        expect(changes.single.origin, ChangeOrigin.local);
+        expect(states.single!.isDeleted(TombstonePolicy.deleteWins), isTrue);
+        expect(states.single!.valuesView(), {
+          'value': 'metadata',
+          'note': null,
+        });
+        expect(
+          states.single!.fields.values.map((f) => f.hlc).toSet(),
+          hasLength(1),
+        );
+        expect(await runtime.store.pendingRows(), hasLength(1));
+        expect(await runtime.store.getLogicalTable('co_sync_probe'), isEmpty);
+        expect(
+          await runtime.store.getLogicalTableTombstones('co_sync_probe'),
+          hasLength(1),
+        );
+        expect(snapshots.every((rows) => rows.isEmpty), isTrue);
+      },
+    );
+
+    for (final invalid in [
+      (
+        name: 'table',
+        table: 'unknown',
+        fields: <String, Object?>{'value': 'ok'},
+        error: throwsArgumentError,
+      ),
+      (
+        name: 'column',
+        table: 'co_sync_probe',
+        fields: <String, Object?>{'unknown': false},
+        error: throwsArgumentError,
+      ),
+      (
+        name: 'deleted',
+        table: 'co_sync_probe',
+        fields: <String, Object?>{r'$deleted': false},
+        error: throwsArgumentError,
+      ),
+      (
+        name: 'reserved',
+        table: 'co_sync_probe',
+        fields: <String, Object?>{r'$restore': true},
+        error: throwsArgumentError,
+      ),
+      (
+        name: 'string_size',
+        table: 'co_sync_probe',
+        fields: <String, Object?>{'value': 'x' * 11},
+        error: throwsA(isA<CoSyncFieldTooLargeError>()),
+      ),
+      (
+        name: 'json_size',
+        table: 'co_sync_probe',
+        fields: <String, Object?>{
+          'note': [1234567890],
+        },
+        error: throwsA(isA<CoSyncFieldTooLargeError>()),
+      ),
+      (
+        name: 'json_value',
+        table: 'co_sync_probe',
+        fields: <String, Object?>{'note': Object()},
+        error: throwsA(isA<Error>()),
+      ),
+    ]) {
+      test(
+        'should_not_mutate_or_schedule_when_${invalid.name}_is_invalid',
+        () async {
+          final transport = _ControlledTransport(serverTransport);
+          final runtime = runtimeWith(
+            CoSyncDatabase(NativeDatabase.memory()),
+            transport: transport,
+            maxFieldValueChars: 10,
+            writeSyncDebounce: const Duration(milliseconds: 10),
+          );
+          addTearDown(runtime.dispose);
+          final online = StreamController<bool>(sync: true);
+          addTearDown(online.close);
+          runtime.bindOnlineStream(online.stream);
+          online.add(true);
+          await runtime.onAuthenticated();
+          await runtime.upsert('co_sync_probe', 'existing', {'value': 'keep'});
+          await runtime.syncNow();
+          final original = await runtime.store.getRow(
+            'co_sync_probe',
+            'existing',
+          );
+          final baseline = transport.pullCalls;
+          final changes = <TableChange>[];
+          final subscription = runtime.changes.listen(changes.add);
+          addTearDown(subscription.cancel);
+
+          for (final rowId in ['missing', 'existing']) {
+            await expectLater(
+              runtime.deleteWithFields(invalid.table, rowId, {
+                'value': 'valid',
+                ...invalid.fields,
+              }),
+              invalid.error,
+            );
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+
+          expect(
+            await runtime.store.getRow('co_sync_probe', 'missing'),
+            isNull,
+          );
+          expect(
+            (await runtime.store.getRow('co_sync_probe', 'existing'))!.toJson(),
+            original!.toJson(),
+          );
+          expect(await runtime.store.pendingRows(), isEmpty);
+          expect(changes, isEmpty);
+          expect(
+            transport.pullCalls,
+            baseline,
+            reason: 'Rejected writes must not schedule sync',
+          );
+        },
+      );
+    }
+
+    test(
+      'should_snapshot_fields_and_schedule_when_valid_at_size_limit',
+      () async {
+        final transport = _ControlledTransport(serverTransport);
+        final runtime = runtimeWith(
+          CoSyncDatabase(NativeDatabase.memory()),
+          transport: transport,
+          maxFieldValueChars: 10,
+          writeSyncDebounce: const Duration(milliseconds: 10),
+        );
+        addTearDown(runtime.dispose);
+        final online = StreamController<bool>(sync: true);
+        addTearDown(online.close);
+        runtime.bindOnlineStream(online.stream);
+        online.add(true);
+        await runtime.onAuthenticated();
+        final fields = <String, Object?>{'value': 'x' * 10};
+        final write = runtime.deleteWithFields('co_sync_probe', 'r1', fields);
+        fields['value'] = 'x' * 11;
+        await write;
+        await _waitUntil(() => transport.pushCalls == 1);
+        await runtime.syncNow();
+
+        final page = await serverStore.changesSince(0, limit: 10);
+        expect(page.changes.single.state.valuesView(), {'value': 'x' * 10});
+        expect(page.changes.single.state.deletedField!.value, isTrue);
+        expect(await runtime.store.pendingRows(), isEmpty);
+      },
+    );
+
+    test(
+      'should_flush_atomic_deletion_when_an_older_push_is_in_flight',
+      () async {
+        final gate = Completer<void>();
+        final transport = _ControlledTransport(serverTransport)
+          ..beforePush = (_) => gate.future;
+        final runtime = runtimeWith(
+          CoSyncDatabase(NativeDatabase.memory()),
+          transport: transport,
+        );
+        addTearDown(runtime.dispose);
+        await runtime.upsert('co_sync_probe', 'r1', {
+          'value': 'old',
+          'note': 'keep',
+        });
+        final work = runtime.syncNow();
+        await _waitUntil(() => transport.pushCalls == 1);
+        wall++;
+        await runtime.deleteWithFields('co_sync_probe', 'r1', {
+          'value': 'metadata',
+        });
+        gate.complete();
+        expect((await work)!.pushedRows, 2);
+        expect(await runtime.store.pendingRows(), isEmpty);
+        final other = runtimeWith(CoSyncDatabase(NativeDatabase.memory()));
+        addTearDown(other.dispose);
+        await other.syncNow();
+        final view = await other.read('co_sync_probe', 'r1');
+        expect(view!.isDeleted, isTrue);
+        expect(view.values, {'value': 'metadata', 'note': 'keep'});
+      },
+    );
+
+    for (final initialized in [false, true]) {
+      test(
+        'should_cancel_old_deletion_when_reset_with_initialized_$initialized',
+        () async {
+          final runtime = runtimeWith(CoSyncDatabase(NativeDatabase.memory()));
+          addTearDown(runtime.dispose);
+          if (initialized) await runtime.read('co_sync_probe', 'old');
+          final changes = <TableChange>[];
+          final subscription = runtime.changes.listen(changes.add);
+          addTearDown(subscription.cancel);
+          final old = runtime.deleteWithFields('co_sync_probe', 'old', {
+            'value': 'old account',
+          });
+          await runtime.reset();
+          await runtime.store.clearAll();
+          await old;
+          expect(await runtime.store.getRow('co_sync_probe', 'old'), isNull);
+          expect(await runtime.store.pendingRows(), isEmpty);
+          expect(changes, isEmpty);
+          expect(runtime.lastError, isNull);
+
+          await runtime.deleteWithFields('co_sync_probe', 'new', {
+            'value': 'new account',
+          });
+          expect(
+            (await runtime.read('co_sync_probe', 'new'))!.isDeleted,
+            isTrue,
+          );
+          expect((await runtime.store.pendingRows()).single.rowId, 'new');
+        },
+      );
+    }
+  });
+
   group('nodeId 영속', () {
     test('같은 DB 에서 재조립해도 nodeId 가 유지되고, clearAll 후 재발급된다', () async {
       final db = CoSyncDatabase(NativeDatabase.memory());

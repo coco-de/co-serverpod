@@ -143,6 +143,9 @@ final note = await runtime.read('note', 'note-1');
 
 await runtime.delete('note', 'note-1');  // tombstone, 물리 삭제 아님
 await runtime.restore('note', 'note-1'); // 기존 값 유지한 복원
+
+// 로컬 행이 없어도 메타데이터와 tombstone을 한 번에 저장합니다.
+await runtime.deleteWithFields('note', 'note-2', {'title': '삭제 메타데이터'});
 ```
 
 쓰기는 네트워크를 기다리지 않고 SQLite에 반영됩니다. 변경한 필드만 전달하면 나머지
@@ -152,6 +155,13 @@ await runtime.restore('note', 'note-1'); // 기존 값 유지한 복원
 값은 JSON 호환 값으로 인코딩합니다. 필드 길이 검사는 String의 Dart `length`, 그 외는
 `jsonEncode(value).length`를 사용하며 UTF-8 바이트 제한과는 다릅니다.
 상한을 넘으면 pending에 넣기 전에 `CoSyncFieldTooLargeError`가 발생합니다.
+
+`Future<void> deleteWithFields(String table, String rowId, Map<String, Object?> fields)`는
+기존 행의 생략한 필드를 보존하며, 전달 필드와 `$deleted: true`를 같은 HLC와 단일
+저장으로 반영합니다. `upsert` 후 `delete`와 달리 중간 활성 행을 만들지 않습니다.
+스키마/예약 필드 검증과 위 크기 제한, 계정 세대 보호, 변경 통지와 debounce를 그대로
+사용합니다. 빈 Map도 허용하고 복원 부작용은 없습니다. 앱이 삭제용 envelope·payload를
+구성하며 기존 두 인자 `delete`의 시그니처와 동작은 유지됩니다.
 
 ```dart
 final notes = runtime.store.watchLogicalTable('note');
