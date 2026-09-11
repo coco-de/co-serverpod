@@ -1,5 +1,5 @@
 name: co_sync
-version: 0.1.0
+version: 0.2.0
 publish_to: none
 description: >-
   Flutter adapters for co_offline_sync with Drift persistence, reactive queries,

@@ -5,6 +5,21 @@
 - Add `CoSyncClient.deleteWithFields(table, rowId, fields)` to atomically stamp
   metadata and a tombstone, including for missing rows, without changing `delete`.
 
+## [0.3.0](https://github.com/coco-de/co-serverpod/compare/co_offline_sync-v0.2.0...co_offline_sync-v0.3.0) (2026-09-11)
+
+
+### 기능
+
+* **offline-sync:** ✨ 공용 클라이언트 패키지 분리와 사용 가이드 추가 ([#21](https://github.com/coco-de/co-serverpod/issues/21)) ([ec1b696](https://github.com/coco-de/co-serverpod/commit/ec1b6962c624d7ce39fdcde6ec7bd1885dfed70a))
+* **offline-sync:** ✨ 스키마 버전 호환 창 — SchemaRegistry · pull 투영 · 불일치 원인 분류 ([#19](https://github.com/coco-de/co-serverpod/issues/19)) ([139e2eb](https://github.com/coco-de/co-serverpod/commit/139e2eb59b361b7e8fcaddf569513e1d4ff007fc))
+* **offline-sync:** ✨ 클라이언트 청크 push 분할·행 단위 직렬화 (unibook[#12839](https://github.com/coco-de/co-serverpod/issues/12839)) ([#20](https://github.com/coco-de/co-serverpod/issues/20)) ([792de07](https://github.com/coco-de/co-serverpod/commit/792de0784e04747cfd09293b3a30c0334c72f8ca))
+* **sync:** ✨ 메타데이터 동반 원자 삭제 API 추가 ([#23](https://github.com/coco-de/co-serverpod/issues/23)) ([#24](https://github.com/coco-de/co-serverpod/issues/24)) ([bb9e6ab](https://github.com/coco-de/co-serverpod/commit/bb9e6abffb18930dba9f68c6ae9d0f71119397d4))
+
+
+### 리팩터링
+
+* **co-sync:** ♻️ 공용 클라이언트 패키지 이름을 co_sync로 변경 ([#22](https://github.com/coco-de/co-serverpod/issues/22)) ([ec001b9](https://github.com/coco-de/co-serverpod/commit/ec001b955846b1291da7a8fe4efb7109f610ff9b))
+
 ## [0.2.0](https://github.com/coco-de/co-serverpod/compare/co_offline_sync-v0.1.0...co_offline_sync-v0.2.0) (2026-09-01)
 
 
