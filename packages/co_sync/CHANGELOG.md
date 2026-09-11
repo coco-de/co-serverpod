@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add `ReplicaPuller.reset()` and `ReplicaPuller.generation`; in-flight pulls now
+  abort with `ReplicaPullAborted` immediately before `ReplicaStore.applyPage`, so a
+  page fetched for a previous account can no longer land after a wipe.
 - Add `CoSyncRuntime.deleteWithFields(table, rowId, fields)` with atomic metadata
   and tombstone writes, field-size validation and existing account/sync guards.
 - Rename `co_offline_sync_client` to `co_sync`; update the Git package path and Dart import.
