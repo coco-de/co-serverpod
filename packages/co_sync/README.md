@@ -253,11 +253,19 @@ await runtime.store.clearAll();
 막습니다. `clearAll`은 sync 행, pending, nodeId, cursor, 로컬 메타데이터를 지웁니다.
 **읽기 전용 replica 행/커서는 지우지 않습니다.**
 
-Replica를 함께 쓰면 앱에서 새 pull을 중단하고 진행 중인 pull이 완료되도록 기다린 후
-각 도메인에 `ReplicaStore.clearDomain`을 호출해야 합니다. `ReplicaPuller.dispose`는
-연결 구독만 해제하며 진행 중인 네트워크 요청을 취소하지 않습니다. 런타임의 세대 보호가
-replica puller에 자동 적용된다고 가정하지 마세요. 계정별 DB와 puller를 재생성하는
-방법도 가능합니다.
+Replica를 함께 쓰면 저장소를 비우기 **직전에** `ReplicaPuller.reset()`을 호출하고,
+그다음 각 도메인에 `ReplicaStore.clearDomain`을 호출합니다. `reset` 이후에
+`applyPage`에 도달하는 진행 중 pull은 `ReplicaPullAborted`로 끊기므로, 이전 계정을
+위해 받아 둔 페이지가 새 계정 DB에 앉지 않습니다.
+
+⚠️ **진행 중인 pull이 끝나기를 기다리지(drain) 마세요.** 기다려도 그 pull이
+`applyPage`를 마치는 시점은 알 수 없고, 기다리는 동안 로그아웃만 늦어집니다. 쓰기
+직전 세대 검사가 같은 것을 비용 없이 보장합니다.
+
+`ReplicaPuller.dispose`는 연결 구독만 해제하며 진행 중인 네트워크 요청을 취소하지
+않습니다 — 요청 취소가 아니라 **쓰기 차단**이 이 보호의 수단입니다. 런타임(`CoSyncRuntime`)의
+세대와 puller의 세대는 **서로 다른 카운터**이므로, 둘 다 쓰는 앱은 wipe 훅에서 둘 다
+호출해야 합니다. 계정별 DB와 puller를 재생성하는 방법도 가능합니다.
 
 앱 종료 시 `await runtime.dispose()`를 호출합니다. 이 메서드는 스토어와 전달받은 DB도
 닫습니다. 같은 DB를 공유하는 replica 구독/작업을 먼저 정리하고 DB를 중복으로 닫지 마세요.

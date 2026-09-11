@@ -21,6 +21,33 @@ class ReplicaPage {
   final bool hasMore;
 }
 
+/// 세대가 지나간 pull 을 끊었다는 신호.
+///
+/// **실패가 아니라 정상 중단이다** — 계정 전환·로그아웃 wipe 뒤에 도착한
+/// 이전 계정의 페이지가 새 계정 DB 에 앉는 것을 막은 것이다. 소비측은 이것을
+/// 에러가 아닌 정보로 기록해야 한다(`onError` 에서 레벨을 낮춘다).
+class ReplicaPullAborted implements Exception {
+  /// 기본 생성자.
+  const ReplicaPullAborted({
+    required this.domain,
+    required this.startedAt,
+    required this.current,
+  });
+
+  /// 중단된 도메인명.
+  final String domain;
+
+  /// 이 pull 이 시작된 세대.
+  final int startedAt;
+
+  /// 중단 시점의 현재 세대.
+  final int current;
+
+  @override
+  String toString() =>
+      'ReplicaPullAborted($domain: 세대 $startedAt → $current — 계정 전환으로 중단)';
+}
+
 /// 도메인 하나를 증분 조회하는 서버 접점 (S6-2 가 실구현을 배선한다).
 ///
 /// [cursor] 가 `null` 이면 최초 전량 pull 이다.
@@ -59,6 +86,13 @@ class ReplicaPuller {
   bool _wasOnline = false;
   final Map<String, Future<void>> _inFlightByDomain = {};
   final Map<String, Object> _lastErrors = {};
+  int _generation = 0;
+
+  /// 현재 세대 — [reset] 마다 1 증가한다.
+  ///
+  /// 진행 중인 pull 은 이 값을 자기 시작 시점과 대조해, 달라졌으면
+  /// [ReplicaStore.applyPage] **직전에** 스스로를 끊는다.
+  int get generation => _generation;
 
   /// 마지막 pull 에서 실패한 도메인 → 에러 (전부 성공 시 빈 맵).
   ///
@@ -125,9 +159,17 @@ class ReplicaPuller {
   }
 
   Future<void> _pullDomain(String domain, ReplicaDomainFetch fetch) async {
+    final startedAt = _generation;
     var cursor = await _store.loadCursor(domain);
+    // 커서 조회도 await 다 — 그 사이 wipe 가 났으면 첫 요청을 보내지 않는다.
+    _abortIfStale(domain, startedAt);
     for (var page = 0; page < maxPagesPerDomain; page++) {
       final result = await fetch(cursor);
+      // ⭐ 이 검사가 이 가드가 존재하는 이유다 — 서버 왕복이 끝난 **뒤**
+      //    쓰기 직전에 본다. 소비측(앱)이 fetch 를 감싸 대조해도 그 검사와
+      //    아래 applyPage 사이에는 여전히 창이 남고, 그 창은 이 지점에서만
+      //    닫힌다. 검사와 applyPage 사이에는 suspension point 가 없다.
+      _abortIfStale(domain, startedAt);
       await _store.applyPage(
         domain: domain,
         rows: result.rows,
@@ -136,6 +178,17 @@ class ReplicaPuller {
       cursor = result.nextCursor;
       if (!result.hasMore) return;
     }
+  }
+
+  /// ⚠️ [startedAt] 은 **도메인 pull 시작 시점**의 세대다 — 페이지마다 다시
+  /// 읽으면 그 사이의 reset 이 지워져 창이 다시 열린다.
+  void _abortIfStale(String domain, int startedAt) {
+    if (_generation == startedAt) return;
+    throw ReplicaPullAborted(
+      domain: domain,
+      startedAt: startedAt,
+      current: _generation,
+    );
   }
 
   /// 온라인 여부 스트림을 구독해 **오프라인→온라인 전이마다** [pullAll] 을
@@ -148,6 +201,24 @@ class ReplicaPuller {
       _wasOnline = isOnline;
       if (becameOnline) unawaited(pullAll());
     });
+  }
+
+  /// 계정 전환·로그아웃 wipe **직전**에 세대를 전진시킨다.
+  ///
+  /// 호출 이후에 `applyPage` 에 도달하는 모든 진행 중 pull 이
+  /// [ReplicaPullAborted] 로 끊긴다. 소비 앱은 저장소를 비우는 훅
+  /// (`CacheRegistry.registerBeforeClear` 등)의 **앞자리**에 이것을 건다.
+  ///
+  /// ## ⚠️ 진행 중인 pull 을 기다리지 않는다 (의도)
+  ///
+  /// 드레인은 이 문제를 풀지 못한다 — 기다려도 그 pull 이 `applyPage` 를
+  /// 마치는 시점은 알 수 없고, 기다리는 동안 로그아웃만 늦어진다. 대신
+  /// **쓰기 직전에 끊는** 위 검사가 같은 것을 비용 없이 보장한다.
+  ///
+  /// 커서는 지우지 않는다 — 저장소 wipe 가 커서까지 함께 비우므로 여기서
+  /// 중복으로 건드리면 wipe 를 하지 않는 소비자의 상태를 망가뜨린다.
+  Future<void> reset() async {
+    _generation++;
   }
 
   /// 구독 해제.
