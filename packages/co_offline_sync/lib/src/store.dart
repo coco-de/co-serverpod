@@ -1,5 +1,6 @@
 import 'change.dart';
 import 'hlc.dart';
+import 'quarantine.dart';
 import 'row_state.dart';
 
 /// 저장소 변경 이벤트의 출처.
@@ -77,6 +78,22 @@ abstract interface class ClientSyncStore {
   });
 
   /// push 대기 중인 행 스냅샷 목록.
+  ///
+  /// 계약 두 가지:
+  ///
+  /// 1. **격리된 행은 빼야 한다** ([QuarantineCapableStore]). 격리는 "이
+  ///    행은 재전송해도 같은 자리에서 거부된다" 는 판정이므로, 여기 남으면
+  ///    매 회차가 같은 행에서 멈춘다 — 격리의 존재 이유가 사라진다.
+  /// 2. **로컬 쓰기 순서(스냅샷 HLC 오름차순)로 정렬해야 한다.** 정렬이
+  ///    없으면 저장 엔진의 물리 순서가 전송 순서가 되어, 뒤에 만들어진
+  ///    자식 행이 앞선 부모 행보다 먼저 나가는 창이 생긴다(H9). 뒤 청크가
+  ///    실패하면 그 창이 서버에 그대로 남는다. 동률은 `(table, rowId)` 로
+  ///    깨 결정적으로 만든다.
+  ///
+  /// ⚠️ 그래서 이 목록은 **"서버에 닿지 않은 행 전부" 가 아니다.** 격리된 행도
+  /// 여전히 미전송이므로, 로그아웃 wipe 앞 보존이나 "아직 안 올라감" 표시처럼
+  /// *미전송 여부*를 묻는 자리는 [QuarantineCapableStore.unsentRows] 를 써야
+  /// 한다. 여기를 쓰면 격리된 로컬 변경이 조용히 사라진다.
   Future<List<PendingRow>> pendingRows();
 
   /// push ack 후 대기 해제 — 현재 행 maxHlc 가 [upTo] 이하일 때만 해제한다.
@@ -95,6 +112,54 @@ abstract interface class ClientSyncStore {
 
   /// 테이블 단위 변경 통지 스트림 (broadcast).
   Stream<TableChange> get changes;
+}
+
+/// 영구 실패 행 **격리**를 지원하는 저장소의 추가 계약 (선택).
+///
+/// [ClientSyncStore] 본체와 분리한 이유: 이미 배포된 구현체를 깨지 않기
+/// 위해서다. [CoSyncClient] 는 스토어가 이 계약을 함께 구현할 때만 격리
+/// 경로를 켜고, 아니면 종전처럼 실패를 그대로 던진다 — 격리하지 못하는
+/// 스토어에서 "격리했다" 고 치고 넘어가면 그 행이 pending 에 남아 무한
+/// 재시도가 된다.
+///
+/// ⚠️ [ClientSyncStore] 를 **감싸는 래퍼**(세대 스코프 데코레이터 등)를
+/// 만든다면 이 계약도 함께 위임하라. 래퍼가 이것을 구현하지 않으면 안쪽
+/// 스토어가 지원해도 격리가 조용히 꺼진다.
+abstract interface class QuarantineCapableStore {
+  /// [table]/[rowId] 를 격리한다 — 이후 [ClientSyncStore.pendingRows] 에서
+  /// 제외되고, 행 상태·pending 스냅샷은 그대로 보존된다.
+  ///
+  /// 보존이 핵심이다: 격리는 폐기가 아니라 **보류**이므로, 해제
+  /// ([requeueQuarantined]) 후 같은 스냅샷으로 재전송할 수 있어야 한다.
+  Future<void> quarantineRow(
+    String table,
+    String rowId, {
+    required QuarantineReason reason,
+    required DateTime at,
+  });
+
+  /// 현재 격리된 행 목록 (사용자 화면·운영 집계의 원천).
+  Future<List<QuarantinedRow>> quarantinedRows();
+
+  /// 격리를 푼다 — 다음 push 에 다시 실린다. 그 행이 격리 상태가 아니었으면
+  /// `false`.
+  Future<bool> requeueQuarantined(String table, String rowId);
+
+  /// 격리를 전부 푼다 — 해제된 행 수를 돌려준다 (앱 업데이트 후 일괄 재시도).
+  Future<int> requeueAllQuarantined();
+
+  /// 현재 격리된 행 수.
+  Future<int> quarantinedRowCount();
+
+  /// **서버에 닿지 않은 행 전부** — pending ∪ 격리. 정렬은
+  /// [ClientSyncStore.pendingRows] 와 같다.
+  ///
+  /// `pendingRows()` 는 전송 대상 목록이라 격리분을 뺀다. 그런데 "이 변경이
+  /// 아직 서버에 없는가" 를 묻는 자리(로그아웃 wipe 앞 보존 · 로컬 원본
+  /// 사본 유지 판정 · "아직 안 올라감" 표시)에서는 격리분이야말로 **가장
+  /// 확실하게** 서버에 없는 행이다. 두 질문을 한 메서드로 답하면 그중 하나가
+  /// 반드시 틀리므로 갈라 둔다.
+  Future<List<PendingRow>> unsentRows();
 }
 
 /// [ServerSyncStore.changesSince] 의 결과 페이지.

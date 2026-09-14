@@ -8,6 +8,7 @@
 /// - [ClientSyncStore] / [ServerSyncStore] — 저장소 계약 (인메모리 참조 구현 포함)
 /// - [CoSyncClient] / [CoSyncServer] / [SyncTransport] — 동기화 엔진
 /// - [SchemaRegistry] / [SchemaVersion] — 스키마 버전 호환 창 (가산적 진화만)
+/// - [QuarantineCapableStore] / [PushFailureClassifier] — 영구 실패 행 격리
 ///
 /// 설계 배경: coco-de/unibook#12634 (Project — Offline Sync 전면 전환) 의
 /// S1 설계 문서 `docs/architecture-offline-sync-crdt-s1.md` §8 B안.
@@ -20,6 +21,7 @@ export 'src/hlc.dart';
 export 'src/memory_store.dart';
 export 'src/merge.dart';
 export 'src/protocol.dart';
+export 'src/quarantine.dart';
 export 'src/row_state.dart';
 export 'src/schema_registry.dart';
 export 'src/schema_signature.dart';

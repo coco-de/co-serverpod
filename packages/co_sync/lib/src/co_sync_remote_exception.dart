@@ -1,3 +1,5 @@
+import 'package:co_offline_sync/co_offline_sync.dart';
+
 /// 서버가 거부한 동기화 요청의 타입드 실패.
 ///
 /// 소비 앱의 전송 어댑터가 서버의 실패를 이 타입으로 변환한다.
@@ -44,6 +46,33 @@ class CoSyncRemoteException implements Exception {
       code == 'protocol' ||
       code == 'payload_too_large';
 
+  /// 영구 실패가 **그 행에 귀속**되는가 — 같은 청크의 다른 행만 남기면
+  /// 성공하는 실패인가 (B4 #13736).
+  ///
+  /// ⚠️ [isPermanent] 의 부분집합이며, 그 차이가 안전장치다. 스키마 축
+  /// (`schema_outdated`·`schema_mismatch`)은 **요청 단위**라 청크의 모든
+  /// 행이 똑같이 실패한다 — 그것을 행 귀속으로 보면 이분 재시도가 끝까지
+  /// 쪼개져 **pending 전량이 격리된다**. 그 실패는 그대로 던져 다음 회차
+  /// (또는 앱 업데이트 후)에 회수한다.
+  bool get isRowAttributable => kCoSyncRowAttributableCodes.contains(code);
+
   @override
   String toString() => 'CoSyncRemoteException($code): $message';
+}
+
+/// 행에 귀속되는 영구 거부 코드 (`CoSyncRemoteException.isRowAttributable`).
+const Set<String> kCoSyncRowAttributableCodes = {
+  'payload_too_large',
+  'protocol',
+};
+
+/// co_sync 의 정본 [PushFailureClassifier] — 행 귀속 영구 거부만 격리 사유로
+/// 분류하고, 그 밖의 실패(일시·요청 단위 영구·취소)는 `null` 로 흘려보낸다.
+///
+/// `CoSyncRuntime` 이 기본으로 배선한다. 앱이 자체 분류를 쓰려면
+/// `CoSyncRuntime(classifyPushFailure: ...)` 로 교체한다.
+QuarantineReason? classifyCoSyncRowRejection(Object error) {
+  if (error is! CoSyncRemoteException) return null;
+  if (!error.isRowAttributable) return null;
+  return QuarantineReason(code: error.code, message: error.message);
 }
