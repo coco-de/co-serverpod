@@ -160,6 +160,15 @@ abstract interface class QuarantineCapableStore {
   /// 확실하게** 서버에 없는 행이다. 두 질문을 한 메서드로 답하면 그중 하나가
   /// 반드시 틀리므로 갈라 둔다.
   Future<List<PendingRow>> unsentRows();
+
+  /// [unsentRows] 의 **건수만** — 행을 적재하지 않는다.
+  ///
+  /// `(await unsentRows()).length` 와 같은 값이어야 한다. 별도 메서드인
+  /// 이유는 비용이다: "아직 안 올라감 N건" 표시는 로컬 쓰기마다·동기화
+  /// 회차마다 갱신되는데, 그때마다 오프라인 백로그 전량을 메모리로 끌어
+  /// 올리면 이 기능이 겨냥하는 바로 그 상황(대량 오프라인 편집)에서 가장
+  /// 크게 터진다. 저장 엔진이 COUNT 로 답할 수 있게 갈라 둔다.
+  Future<int> unsentRowCount();
 }
 
 /// [ServerSyncStore.changesSince] 의 결과 페이지.
