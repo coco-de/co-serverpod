@@ -4,9 +4,9 @@
 SQLite 기반 영속 저장소, 반응형 조회, 연결/인증/생명주기에 따른 동기화, 읽기 전용
 replica 저장소를 제공합니다. 유니북의 `package/co_sync`에서 공용 구현을 옮겼습니다.
 
-앱 스키마, 인증, Serverpod 생성 클라이언트, 도메인 코덱은 포함하지 않습니다.
+앱 스키마, 인증, backend SDK/생성 클라이언트, 도메인 코덱은 포함하지 않습니다.
 생성자와 콜백으로 연결하므로 다른 Flutter 앱에서도 사용할 수 있습니다.
-패키지 이름은 `client`지만 현재 Flutter SDK가 필요합니다. 순수 Dart 환경에는
+현재 Flutter SDK가 필요합니다. 순수 Dart 환경에는
 코어의 `CoSyncClient`와 별도 `ClientSyncStore` 구현을 사용하세요.
 
 ## 설치
@@ -48,7 +48,9 @@ Drift 생성 코드는 커밋되어 있어 **소비 앱은 build_runner를 실�
 | `CoSyncDatabase` | 동기화 행, pending, nodeId, pull 커서, replica 행/커서 저장 |
 | `DriftClientSyncStore` | 코어 `ClientSyncStore` 구현 + 스냅샷 기반 query watch |
 | `CoSyncRuntime` | 엔진 조립, 쓰기 debounce, 연결/인증/생명주기 트리거, 계정 세대 보호 |
+| `JsonSyncTransport` | 문자열 또는 decoded map 콜백을 코어 `SyncTransport`에 연결 |
 | `SchemaWindowProbe` / `SchemaWindowInfo` | 선택적인 서버 스키마 사전 조회 계약 |
+| `JsonSchemaWindowProbe` | JSON 문자열/map 기반 스키마 창 조회·형식 검증 |
 | `CoSyncRemoteException` | 앱 전송 어댑터에서 사용할 수 있는 원격 실패 코드 분류 |
 | `ReplicaStore` / `ReplicaPuller` | 서버가 원천인 데이터의 읽기 전용 증분 캐시 |
 | `replicaSeededWatch` / `localFirstSeededWatch` | 아직 수신하지 않은 상태와 실제 빈 목록 구분 |
@@ -99,11 +101,13 @@ final runtime = CoSyncRuntime(
 사용하세요. DB 이름과 SQLite 스키마 버전 **3**은 기존 `co_sync`와 동일합니다.
 이 DB 버전과 앱 동기화 스키마의 `schemaVersion`은 서로 다른 버전입니다.
 
-## 2. Serverpod 또는 HTTP 연결
+## 2. Serverpod · HTTP/OpenAPI · GraphQL 연결
 
-코어의 `SyncTransport`를 구현합니다. 생성된 Serverpod 타입에 공용 패키지가
-의존하지 않도록 아래 [예제 어댑터](example/json_sync_transport.dart)처럼 콜백으로 연결합니다.
-`JsonSyncTransport`는 예제에 정의한 클래스이며 패키지에서 export하는 타입은 아닙니다.
+`package:co_sync/co_sync.dart`가 export하는 `JsonSyncTransport`에 앱의 API 호출을
+주입합니다. 코어의 `SyncTransport`를 직접 구현한 기존 어댑터도 그대로 사용할 수 있습니다.
+공용 런타임·스토어·DB는 어떤 backend SDK에도 의존하지 않습니다.
+
+### JSON 문자열 — Serverpod 또는 raw HTTP body
 
 ```dart
 final transport = JsonSyncTransport(
@@ -116,6 +120,66 @@ final transport = JsonSyncTransport(
 서버에서 `SyncPushRequest`/`SyncPullRequest`를 디코드하고 `CoSyncServer`로 처리한 뒤
 JSON 문자열을 돌려줍니다. endpoint와 DB 저장소 구현은 이 패키지에 들어 있지 않습니다.
 HTTP에서도 같은 콜백 안에서 요청·인증·응답 처리를 구현할 수 있습니다.
+
+기존 [예제 import 경로](example/json_sync_transport.dart)도 유지됩니다. 신규 코드는
+패키지의 공개 import를 사용하세요.
+
+### Decoded map — OpenAPI/HTTP SDK
+
+```dart
+final transport = JsonSyncTransport.map(
+  pushMap: (payload) async {
+    final response = await api.pushSync(payload); // 소비 앱의 API 메서드
+    return response; // 성공한 sync 응답 Map<String, Object?>
+  },
+  pullMap: (payload) async => api.pullSync(payload),
+);
+```
+
+타입드 OpenAPI SDK는 콜백 안에서 요청 DTO를 만들고 응답 DTO의 `toJson()` 결과를
+돌려줍니다. HTTP 상태 확인, envelope 해제, 인증/timeout 정책도 콜백의 책임입니다.
+`DateTime` 등 SDK 전용 값은 JSON 값으로 변환하세요. map 경로는 문자열로 다시 인코딩하지
+않습니다. [OpenAPI 연결 예제](example/openapi_sync_transport.dart)는 SDK 없이 컴파일됩니다.
+
+### GraphQL — 오류를 검사한 뒤 data 해제
+
+[GraphQL 연결 예제](example/graphql_sync_transport.dart)는 `JSON` scalar를 받는
+`syncPush` mutation / `syncPull` query를 가정하고 `{payload: wireMap}`을 variables로
+전달합니다. 실제 operation 이름·scalar·DTO는 소비 앱과 서버가 정합니다.
+
+- SDK의 transport 오류를 먼저 던지고 **network-only**로 호출합니다. 캐시/SWR 결과를
+  push 성공 또는 새 pull 페이지로 반환하면 안 됩니다.
+- HTTP 200이어도 `errors`가 있으면 확인합니다. **`data`와 비어 있지 않은 `errors`가
+  함께 오면 전체 operation 실패**입니다. 성공처럼 보이는 `data.syncPush/syncPull`을
+  반환하지 않습니다. 예제는 `GraphqlSyncException`을 던집니다.
+- 그 이후에만 `data.syncPush` / `data.syncPull` 객체를 공용 어댑터에 반환합니다.
+  data 누락·잘못된 envelope는 `SyncProtocolException`입니다.
+
+실패한 push 청크의 pending은 유지되고, 실패한 pull 페이지는 행 적용·커서 전진을 하지
+않습니다. 이전에 **성공한** push 청크나 pull 페이지까지 롤백하는 전역 트랜잭션은 아닙니다.
+서버에 이미 반영된 요청의 응답만 유실될 수도 있으므로 서버의 멱등 재시도가 필요합니다.
+
+### 공통 wire 계약과 오류 경계
+
+두 생성자는 코어 `toJson()` / `fromJson()` 코덱을 사용합니다. 서버 종류에 따라 필드명,
+타입, 커서 또는 서명을 임의 변환하지 마세요.
+
+| 메시지 | 필드 |
+|---|---|
+| push 요청 | `node`, `schema`, 선택적 `sv`, `changes` |
+| push 응답 | `applied`(0 이상 정수), `hlc`(packed HLC) |
+| pull 요청 | `node`, `schema`, 선택적 `sv`, `cursor`(최초 null), `limit` |
+| pull 응답 | `changes`, `cursor`(불투명 문자열), `more`(bool), 선택적 `hlc` |
+| 행 변경 | `tb`, `st: {id, f: {필드명: {v, t}}}` — `t`는 packed HLC |
+
+구버전의 `sv` 없는 요청과 `hlc` 없는 pull 응답을 지원하며 추가 메타데이터는 무시합니다.
+커서는 해석·재계산하지 않고 서버가 준 문자열 그대로 왕복합니다. tombstone은 기존
+`$deleted` 필드와 HLC 형식을 유지합니다.
+
+**콜백이 던진 오류는 객체 identity와 stack을 그대로 전파**합니다. 콜백 내부의
+`FormatException`/`TypeError`도 어댑터 오류로 바꾸지 않습니다. 정상 반환된 응답의
+잘못된 JSON·필드 타입·HLC는 `SyncProtocolException`으로 분류하고, 응답 본문을
+오류 메시지에 포함하지 않습니다. 요청 직렬화 실패는 호출자의 입력 오류로 남습니다.
 
 원격 타입드 예외는 앱에서 `CoSyncRemoteException(code:, message:)`으로 변환할 수
 있습니다. 네트워크/타임아웃은 원래 예외를 전달하면 됩니다. 알려진 코드의 분류는 다음과
@@ -133,6 +197,20 @@ HTTP에서도 같은 콜백 안에서 요청·인증·응답 처리를 구현할
 `isPermanent`는 호출자가 분기할 수 있는 정보입니다. 런타임이 이 값만으로 모든
 재시도를 중단하지는 않으므로 같은 영구 실패를 계속 보내지 않도록 앱 정책을 연결하세요.
 
+### 서버가 보장해야 하는 것
+
+콜백 연결만으로 일반 CRUD API가 동기화 서버가 되는 것은 아닙니다. Serverpod endpoint,
+OpenAPI handler 또는 GraphQL resolver 뒤에서 코어 `CoSyncServer`와 서버 저장소를
+연결하거나, 아래 계약을 동등하게 구현해야 합니다.
+
+- 인증된 사용자/테넌트별 데이터 격리와 읽기·쓰기 권한, 요청 크기·필드 크기 제한
+- 매 push/pull의 schema signature/version 검증과 지원 창 내 구 스키마 투영
+- 필드별 HLC 병합, tombstone, 중복 push 멱등성 및 **요청 전체의 durable 성공** 후 ack
+- 안정적인 증분 순서, 불투명 커서, `more` 페이지네이션 및 오류 시 성공 응답 금지
+- schema window 조회는 사전 안내용이며 실제 동기화 요청의 검증을 대체하지 않음
+
+실제 OpenAPI/GraphQL SDK 패키지, 서버 배포·resolver·인증 시스템은 소비 측/후속 작업입니다.
+
 ## 3. 로컬 쓰기와 조회
 
 ```dart
@@ -143,6 +221,9 @@ final note = await runtime.read('note', 'note-1');
 
 await runtime.delete('note', 'note-1');  // tombstone, 물리 삭제 아님
 await runtime.restore('note', 'note-1'); // 기존 값 유지한 복원
+
+// 로컬 행이 없어도 메타데이터와 tombstone을 한 번에 저장합니다.
+await runtime.deleteWithFields('note', 'note-2', {'title': '삭제 메타데이터'});
 ```
 
 쓰기는 네트워크를 기다리지 않고 SQLite에 반영됩니다. 변경한 필드만 전달하면 나머지
@@ -152,6 +233,13 @@ await runtime.restore('note', 'note-1'); // 기존 값 유지한 복원
 값은 JSON 호환 값으로 인코딩합니다. 필드 길이 검사는 String의 Dart `length`, 그 외는
 `jsonEncode(value).length`를 사용하며 UTF-8 바이트 제한과는 다릅니다.
 상한을 넘으면 pending에 넣기 전에 `CoSyncFieldTooLargeError`가 발생합니다.
+
+`Future<void> deleteWithFields(String table, String rowId, Map<String, Object?> fields)`는
+기존 행의 생략한 필드를 보존하며, 전달 필드와 `$deleted: true`를 같은 HLC와 단일
+저장으로 반영합니다. `upsert` 후 `delete`와 달리 중간 활성 행을 만들지 않습니다.
+스키마/예약 필드 검증과 위 크기 제한, 계정 세대 보호, 변경 통지와 debounce를 그대로
+사용합니다. 빈 Map도 허용하고 복원 부작용은 없습니다. 앱이 삭제용 envelope·payload를
+구성하며 기존 두 인자 `delete`의 시그니처와 동작은 유지됩니다.
 
 ```dart
 final notes = runtime.store.watchLogicalTable('note');
@@ -207,18 +295,25 @@ if (report != null) {
 
 ### 스키마 사전 확인
 
-서버 현행/최소 버전/현행 서명을 반환하는 `SchemaWindowProbe`를 앱에서 구현하고
-런타임의 `schemaProbe`에 전달합니다.
+선택적 `JsonSchemaWindowProbe`를 런타임의 `schemaProbe`에 별도로 전달합니다.
+전송 어댑터에 이 기능을 강제하지 않으므로 schema endpoint가 없는 서버도 지원합니다.
 
 ```dart
-class AppSchemaProbe implements SchemaWindowProbe {
-  AppSchemaProbe(this.fetch);
-  final Future<SchemaWindowInfo> Function() fetch;
-
-  @override
-  Future<SchemaWindowInfo> fetchSchemaWindow() => fetch();
-}
+final schemaProbe = JsonSchemaWindowProbe(
+  fetchJson: () => client.coSync.getSchemaWindow(),
+);
+// 이미 디코드된 HTTP/OpenAPI/GraphQL 응답이면:
+final mapProbe = JsonSchemaWindowProbe.map(
+  fetchMap: () => api.schemaWindow(),
+);
+// CoSyncRuntime(..., schemaProbe: schemaProbe)
 ```
+
+반환 JSON은 `{currentVersion: int, minSupportedVersion: int, currentSignature: String}`입니다.
+버전은 `1 <= minSupportedVersion <= currentVersion`, 서명은 공백뿐이지 않은 문자열이어야
+합니다. 버전을 문자열/실수에서 정수로 암묵 변환하지 않습니다. 잘못된 창은
+`SyncProtocolException`, 콜백 오류는 원본 그대로입니다. 이미 `SchemaWindowProbe`를 직접
+구현해 `SchemaWindowInfo`를 반환하는 사용자 코드도 계속 지원됩니다.
 
 `verifySchemaWindow()`의 결과는 `schemaStatus`(`ValueListenable`)와
 `onSchemaStatus`로 관찰합니다. `appOutdated`는 업데이트 안내,
@@ -243,11 +338,19 @@ await runtime.store.clearAll();
 막습니다. `clearAll`은 sync 행, pending, nodeId, cursor, 로컬 메타데이터를 지웁니다.
 **읽기 전용 replica 행/커서는 지우지 않습니다.**
 
-Replica를 함께 쓰면 앱에서 새 pull을 중단하고 진행 중인 pull이 완료되도록 기다린 후
-각 도메인에 `ReplicaStore.clearDomain`을 호출해야 합니다. `ReplicaPuller.dispose`는
-연결 구독만 해제하며 진행 중인 네트워크 요청을 취소하지 않습니다. 런타임의 세대 보호가
-replica puller에 자동 적용된다고 가정하지 마세요. 계정별 DB와 puller를 재생성하는
-방법도 가능합니다.
+Replica를 함께 쓰면 저장소를 비우기 **직전에** `ReplicaPuller.reset()`을 호출하고,
+그다음 각 도메인에 `ReplicaStore.clearDomain`을 호출합니다. `reset` 이후에
+`applyPage`에 도달하는 진행 중 pull은 `ReplicaPullAborted`로 끊기므로, 이전 계정을
+위해 받아 둔 페이지가 새 계정 DB에 앉지 않습니다.
+
+⚠️ **진행 중인 pull이 끝나기를 기다리지(drain) 마세요.** 기다려도 그 pull이
+`applyPage`를 마치는 시점은 알 수 없고, 기다리는 동안 로그아웃만 늦어집니다. 쓰기
+직전 세대 검사가 같은 것을 비용 없이 보장합니다.
+
+`ReplicaPuller.dispose`는 연결 구독만 해제하며 진행 중인 네트워크 요청을 취소하지
+않습니다 — 요청 취소가 아니라 **쓰기 차단**이 이 보호의 수단입니다. 런타임(`CoSyncRuntime`)의
+세대와 puller의 세대는 **서로 다른 카운터**이므로, 둘 다 쓰는 앱은 wipe 훅에서 둘 다
+호출해야 합니다. 계정별 DB와 puller를 재생성하는 방법도 가능합니다.
 
 앱 종료 시 `await runtime.dispose()`를 호출합니다. 이 메서드는 스토어와 전달받은 DB도
 닫습니다. 같은 DB를 공유하는 replica 구독/작업을 먼저 정리하고 DB를 중복으로 닫지 마세요.
@@ -324,11 +427,14 @@ WASM 파일은 `Content-Type: application/wasm`으로 제공해야 합니다. �
 [예제 테스트](example/sync_example_test.dart)는 앱별 스키마, 두 SQLite 메모리 DB,
 JSON 전송 왕복, 로컬 쓰기/원격 수신/삭제/복원/계정 초기화를 실행합니다.
 Flutter 화면이나 실제 서버 없이 실행할 수 있습니다.
+[backend adapter 테스트](example/backend_adapters_test.dart)는 OpenAPI/map·GraphQL
+envelope 경로를 메모리 코어 서버/SQLite에 연결하고 partial errors 이후 pending/커서
+보존과 재시도를 확인합니다. 실제 OpenAPI/GraphQL 서버와 SDK의 통합 검증은 아닙니다.
 
 ```bash
 cd packages/co_sync
 flutter pub get
-flutter analyze --fatal-infos
+flutter analyze --no-pub --fatal-infos
 flutter test test example
 ```
 

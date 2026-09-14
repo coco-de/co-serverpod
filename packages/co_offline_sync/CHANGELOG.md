@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add `CoSyncClient.deleteWithFields(table, rowId, fields)` to atomically stamp
+  metadata and a tombstone, including for missing rows, without changing `delete`.
+
 ## [0.2.0](https://github.com/coco-de/co-serverpod/compare/co_offline_sync-v0.1.0...co_offline_sync-v0.2.0) (2026-09-01)
 
 

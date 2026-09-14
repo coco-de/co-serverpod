@@ -37,6 +37,7 @@ class _GateStore implements ClientSyncStore {
   final InMemoryClientSyncStore _inner;
   Completer<void>? gate;
   final List<String> getRowOrder = [];
+  final List<RowState> writes = [];
 
   @override
   Stream<TableChange> get changes => _inner.changes;
@@ -55,7 +56,10 @@ class _GateStore implements ClientSyncStore {
     RowState state, {
     required ChangeOrigin origin,
     required bool pending,
-  }) => _inner.putRow(table, state, origin: origin, pending: pending);
+  }) async {
+    await _inner.putRow(table, state, origin: origin, pending: pending);
+    writes.add(state);
+  }
 
   @override
   Future<List<PendingRow>> pendingRows() => _inner.pendingRows();
@@ -105,6 +109,176 @@ void main() {
     maxChangesPerPush: maxChangesPerPush,
     maxBytesPerPush: maxBytesPerPush,
   );
+
+  group('deleteWithFields', () {
+    test(
+      'should_write_one_tombstone_with_fields_when_row_is_missing',
+      () async {
+        final store = _GateStore(InMemoryClientSyncStore());
+        final a = client('A', store: store);
+        final changes = <TableChange>[];
+        final subscription = a.changes.listen(changes.add);
+        addTearDown(subscription.cancel);
+        final fields = <String, Object?>{
+          'title': {'id': 'r1'},
+          'body': null,
+        };
+
+        await a.deleteWithFields('note', 'r1', fields);
+        await Future<void>.delayed(Duration.zero);
+
+        final written = store.writes.single;
+        expect(written.valuesView(), fields);
+        expect(written.deletedField!.value, isTrue);
+        expect(written.fields.values.map((f) => f.hlc).toSet(), hasLength(1));
+        for (final policy in TombstonePolicy.values) {
+          expect(written.isDeleted(policy), isTrue);
+        }
+        expect(changes, hasLength(1));
+        expect(changes.single.table, 'note');
+        expect(changes.single.rowId, 'r1');
+        expect(changes.single.origin, ChangeOrigin.local);
+        expect((await store.pendingRows()).single.snapshotHlc, written.maxHlc);
+
+        await a.sync();
+        final b = client('B');
+        await b.sync();
+        final received = await b.read('note', 'r1');
+        expect(received!.isDeleted, isTrue);
+        expect(received.values, fields);
+      },
+    );
+
+    for (final deleted in [false, true]) {
+      test(
+        'should_preserve_omitted_fields_when_existing_deleted_$deleted',
+        () async {
+          final store = _GateStore(InMemoryClientSyncStore());
+          final before = client('before', store: store);
+          wall = 5000;
+          await before.upsert('note', 'r1', {'title': 'old', 'body': 'keep'});
+          if (deleted) await before.delete('note', 'r1');
+          final original = await store.getRow('note', 'r1');
+          store.writes.clear();
+          wall = 1000; // Restart behind the persisted clock.
+          final restarted = client('restarted', store: store);
+
+          await restarted.deleteWithFields('note', 'r1', {'title': null});
+
+          final written = store.writes.single;
+          expect(written.valuesView(), {'title': null, 'body': 'keep'});
+          expect(written.fields['body'], same(original!.fields['body']));
+          expect(written.deletedField!.hlc > original.maxHlc, isTrue);
+          expect(written.fields['title']!.hlc, written.deletedField!.hlc);
+          expect(written.isDeleted(TombstonePolicy.editWins), isTrue);
+        },
+      );
+    }
+
+    for (final table in ['note', 'unknown']) {
+      for (final field in ['unknown', r'$deleted', r'$restore']) {
+        test(
+          'should_reject_${table}_${field}_when_invalid_without_mutation',
+          () async {
+            final store = _GateStore(InMemoryClientSyncStore());
+            final a = client('A', store: store);
+            await a.upsert('note', 'existing', {'body': 'keep'});
+            await a.sync();
+            final original = await store.getRow('note', 'existing');
+            store.writes.clear();
+            final changes = <TableChange>[];
+            final subscription = a.changes.listen(changes.add);
+            addTearDown(subscription.cancel);
+
+            for (final rowId in ['missing', 'existing']) {
+              await expectLater(
+                a.deleteWithFields(table, rowId, {
+                  'title': 'valid',
+                  field: false,
+                }),
+                throwsArgumentError,
+              );
+            }
+
+            expect(store.writes, isEmpty);
+            expect(await store.pendingRows(), isEmpty);
+            expect(await store.getRow('note', 'missing'), isNull);
+            expect(
+              (await store.getRow('note', 'existing'))!.toJson(),
+              original!.toJson(),
+            );
+            expect(changes, isEmpty);
+          },
+        );
+      }
+    }
+
+    test('should_write_only_deleted_when_fields_are_empty', () async {
+      final store = _GateStore(InMemoryClientSyncStore());
+      final a = client('A', store: store);
+      await a.deleteWithFields('note', 'r1', {});
+      expect(store.writes.single.fields.keys, [kDeletedField]);
+      expect(store.writes.single.deletedField!.value, isTrue);
+    });
+
+    test(
+      'should_keep_validated_fields_when_caller_changes_map_during_await',
+      () async {
+        final a = client('A');
+        final fields = <String, Object?>{'title': 'valid'};
+        final write = a.deleteWithFields('note', 'r1', fields);
+        fields['title'] = 'changed';
+        fields[kDeletedField] = false;
+        await write;
+        final view = await a.read('note', 'r1');
+        expect(view!.values, {'title': 'valid'});
+        expect(view.isDeleted, isTrue);
+      },
+    );
+
+    test(
+      'should_serialize_with_upsert_and_pull_when_deletion_is_blocked',
+      () async {
+        final b = client('B');
+        await b.upsert('note', 'r1', {'body': 'remote'});
+        await b.sync();
+        wall = 3000;
+        final store = _GateStore(InMemoryClientSyncStore());
+        final a = client('A', store: store);
+        final gate = Completer<void>();
+        store.gate = gate;
+        final deletion = a.deleteWithFields('note', 'r1', {
+          'title': 'metadata',
+        });
+        await Future<void>.delayed(Duration.zero);
+        expect(store.getRowOrder, ['r1']);
+        final edit = a.upsert('note', 'r1', {'body': 'local'});
+        final sync = a.sync();
+        await Future<void>.delayed(Duration.zero);
+        expect(store.getRowOrder, [
+          'r1',
+        ], reason: 'All same-row writes use the lock');
+        store.gate = null;
+        await a.upsert('note', 'r2', {'title': 'independent'});
+        gate.complete();
+        await Future.wait([deletion, edit, sync]);
+
+        final states = store.writes.where((row) => row.rowId == 'r1');
+        expect(states, isNotEmpty);
+        expect(
+          states.every((row) => row.isDeleted(TombstonePolicy.deleteWins)),
+          isTrue,
+        );
+        final view = await a.read('note', 'r1');
+        expect(view!.values, {'title': 'metadata', 'body': 'local'});
+        expect(view.isDeleted, isTrue);
+        expect(
+          (await store.pendingRows()).map((row) => row.rowId),
+          contains('r1'),
+        );
+      },
+    );
+  });
 
   group('청크 push (unibook#12839)', () {
     test('pending 이 상한을 넘으면 여러 요청으로 나눠 보내고 전부 서버에 도달한다', () async {
