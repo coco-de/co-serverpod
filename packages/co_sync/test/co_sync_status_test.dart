@@ -324,12 +324,13 @@ void main() {
     });
 
     test('should_reset_every_axis_on_account_switch', () async {
-      final rejecting = _RejectingTransport(
-        const CoSyncRemoteException(code: 'protocol', message: 'x'),
-      );
+      // ⚠️ 전송 계층 실패를 쓴다 — `protocol` 은 행 귀속 영구 거부라 격리
+      //    카운터를 움직이고, 그러면 reset 의 `quarantinedRowCount = 0` 이
+      //    리스너를 깨워 발행이 **우연히** 일어난다. 그 경로로는 reset 의
+      //    명시적 발행이 있는지 없는지를 구분할 수 없다 (동등 변이).
       final runtime = runtimeWith(
         CoSyncDatabase(NativeDatabase.memory()),
-        transport: rejecting,
+        transport: _RejectingTransport(const SocketLikeError()),
       );
       addTearDown(runtime.dispose);
 
@@ -337,12 +338,36 @@ void main() {
       await runtime.syncNow();
       expect(runtime.status.value.pendingCount, 1);
       expect(runtime.status.value.lastFailure, isNotNull);
+      expect(runtime.status.value.quarantinedCount, 0);
+      expect(runtime.status.value.schemaStatus, CoSyncSchemaStatus.unknown);
 
       await runtime.reset();
 
       // 옛 계정의 "대기 N건" 이 다음 계정 화면에 남으면 안 된다.
       expect(runtime.status.value, const CoSyncStatus());
     });
+
+    test(
+      'should_clear_status_on_reset_even_when_row_was_quarantined',
+      () async {
+        // 위 테스트와 짝 — 격리가 있었던 경우도 같은 결과여야 한다.
+        final runtime = runtimeWith(
+          CoSyncDatabase(NativeDatabase.memory()),
+          transport: _RejectingTransport(
+            const CoSyncRemoteException(code: 'protocol', message: 'x'),
+          ),
+        );
+        addTearDown(runtime.dispose);
+
+        await runtime.upsert('co_sync_probe', 'r1', {'value': 'a'});
+        await runtime.syncNow();
+        expect(runtime.status.value.quarantinedCount, greaterThan(0));
+
+        await runtime.reset();
+
+        expect(runtime.status.value, const CoSyncStatus());
+      },
+    );
 
     test('should_not_notify_when_nothing_changed', () async {
       final runtime = runtimeWith(CoSyncDatabase(NativeDatabase.memory()));
