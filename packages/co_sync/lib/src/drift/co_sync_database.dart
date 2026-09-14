@@ -52,6 +52,22 @@ class CoSyncRows extends Table {
   /// (전행 재판정)을 동반해야 한다. 판정의 정본은 여전히 `stateJson` 이다.
   BoolColumn get deleted => boolean().withDefault(const Constant(false))();
 
+  /// 영구 거부로 **격리**된 행인가 (B4 #13736 — v4).
+  ///
+  /// 격리는 폐기가 아니라 보류다: `pending` 과 `pendingSnapshotHlc` 는 그대로
+  /// 두고 이 플래그만 세운다. `pendingRows()` 가 이 행을 빼므로 매 회차가 같은
+  /// 자리에서 멈추지 않고, 해제되면 원래 스냅샷 그대로 재전송된다.
+  BoolColumn get quarantined => boolean().withDefault(const Constant(false))();
+
+  /// 격리 사유 코드 (서버 실패 코드 — `payload_too_large` 등).
+  TextColumn get quarantineCode => text().nullable()();
+
+  /// 격리 사유 설명 (서버가 남긴 진단 문자열).
+  TextColumn get quarantineReason => text().nullable()();
+
+  /// 격리 시각 (epoch millis, UTC).
+  IntColumn get quarantinedAtMillis => integer().nullable()();
+
   @override
   Set<Column> get primaryKey => {logicalTable, rowId};
 }
@@ -156,7 +172,7 @@ class CoSyncDatabase extends _$CoSyncDatabase {
   );
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -174,8 +190,19 @@ class CoSyncDatabase extends _$CoSyncDatabase {
       // `materializedDeleted` 와 같은 식이어야 한다 (드리프트 금지).
       if (from < 3) {
         await migrator.addColumn(coSyncRows, coSyncRows.deleted);
-        final rows = await select(coSyncRows).get();
-        for (final row in rows) {
+        // ⚠️ `select(coSyncRows)` 를 쓰지 않는다 — 생성된 매퍼는 **현행(v4)**
+        // 컬럼을 전부 읽으므로, v2 DB 를 여는 이 단계에서는 아직 없는 v4
+        // 컬럼에서 null check 로 죽는다. 옛 단계는 그 시점에 존재하던
+        // 컬럼만 이름으로 읽어야 한다 (v4 추가 때 실제로 터졌다).
+        final rows = await customSelect(
+          'SELECT logical_table, row_id, state_json FROM co_sync_rows',
+        ).get();
+        for (final result in rows) {
+          final row = (
+            logicalTable: result.read<String>('logical_table'),
+            rowId: result.read<String>('row_id'),
+            stateJson: result.read<String>('state_json'),
+          );
           // 판정은 코어 API 로만 — JSON 형태(`f`/`v` 축약 키)를 손파싱하면
           // 코어 직렬화 변경에 조용히 어긋난다.
           final state = RowState.fromJson(
@@ -190,6 +217,16 @@ class CoSyncDatabase extends _$CoSyncDatabase {
                 .write(const CoSyncRowsCompanion(deleted: Value(true)));
           }
         }
+      }
+      // v3 → v4: 영구 실패 행 격리 컬럼 4종 (B4 #13736). 순수 가산 —
+      // 기존 행은 `quarantined=false` 가 옳다(격리된 적이 없다). 백필이
+      // 필요 없는 대신 기존 `pending` 부기는 **건드리지 않는다**: 여기서
+      // 손대면 아직 올라가지 않은 로컬 변경을 마이그레이션이 지운다.
+      if (from < 4) {
+        await migrator.addColumn(coSyncRows, coSyncRows.quarantined);
+        await migrator.addColumn(coSyncRows, coSyncRows.quarantineCode);
+        await migrator.addColumn(coSyncRows, coSyncRows.quarantineReason);
+        await migrator.addColumn(coSyncRows, coSyncRows.quarantinedAtMillis);
       }
     },
   );

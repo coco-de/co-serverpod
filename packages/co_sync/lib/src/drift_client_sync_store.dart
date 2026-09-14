@@ -26,11 +26,16 @@ typedef LogicalTableReplicaJoinedRow = ({
 ///   문자열 비교로 판정한다.
 /// - `putRow(pending: false)`(원격 병합)는 기존 pending 플래그·스냅샷을
 ///   **건드리지 않는다**.
+/// - `pendingRows()` 는 **격리된 행을 빼고**, 로컬 쓰기 순서(스냅샷 HLC)로
+///   정렬해 돌려준다 (B4 #13736 — H9). packed HLC 가 고정폭 사전순이라 SQL
+///   ORDER BY 로 그대로 성립한다.
+/// - `putRow(pending: true)`(로컬 쓰기)는 격리를 **푼다** — 값을 줄여 다시
+///   쓴 것이 가장 흔한 해제 경로다. 원격 병합은 풀지 않는다.
 ///
 /// 계정 전환 시 `clearAll` 을 호출해 이전 계정의 동기화 상태(행·pending·커서)
 /// 노출을 막는 배선은 앱 부트스트랩 책임이다 (S3-3, `CacheRegistry.clearAll`
 /// 로그아웃 선례 kobic#6520 과 동일 사유).
-class DriftClientSyncStore implements ClientSyncStore {
+class DriftClientSyncStore implements ClientSyncStore, QuarantineCapableStore {
   /// `db` 는 보통 `CoSyncDatabase.create()`, 테스트는
   /// `CoSyncDatabase(NativeDatabase.memory())`.
   ///
@@ -121,6 +126,10 @@ class DriftClientSyncStore implements ClientSyncStore {
       // 원격 병합(pending=false)은 기존 pending 부기를 보존한다.
       final keepPending = pending || (existing?.pending ?? false);
       final snapshot = pending ? packedMax : existing?.pendingSnapshotHlc;
+      // 로컬 쓰기는 격리를 푼다 — 사용자가 상한 초과 값을 줄여 다시 쓴 것이
+      // 가장 흔한 해제 경로다. 원격 병합(pending=false)은 풀지 않는다:
+      // 내 pending 필드가 여전히 상한을 넘을 수 있다.
+      final keepQuarantined = !pending && (existing?.quarantined ?? false);
       await _db
           .into(_db.coSyncRows)
           .insertOnConflictUpdate(
@@ -131,6 +140,16 @@ class DriftClientSyncStore implements ClientSyncStore {
               maxHlc: packedMax,
               pending: Value(keepPending),
               pendingSnapshotHlc: Value(snapshot),
+              quarantined: Value(keepQuarantined),
+              quarantineCode: Value(
+                keepQuarantined ? existing?.quarantineCode : null,
+              ),
+              quarantineReason: Value(
+                keepQuarantined ? existing?.quarantineReason : null,
+              ),
+              quarantinedAtMillis: Value(
+                keepQuarantined ? existing?.quarantinedAtMillis : null,
+              ),
               // tombstone 물질화 (S7-2) — 논리 테이블 watch/COUNT 가 JSON
               // 디코드 없이 SQL 로 거를 수 있게 저장 시점에 동기한다.
               deleted: Value(state.isDeleted(_tombstonePolicy)),
@@ -142,9 +161,25 @@ class DriftClientSyncStore implements ClientSyncStore {
 
   @override
   Future<List<PendingRow>> pendingRows() async {
-    final rows = await (_db.select(
-      _db.coSyncRows,
-    )..where((t) => t.pending.equals(true))).get();
+    // 정렬 키는 스냅샷 HLC(없으면 maxHlc) — packed 가 고정폭 사전순이라
+    // 문자열 ORDER BY 가 곧 HLC 순서다. 정렬이 없으면 SQLite 의 물리 순서
+    // (rowid/PK)가 전송 순서가 되어, 나중에 만들어진 자식 행이 앞선 부모
+    // 행보다 먼저 나가는 창이 생긴다 (H9).
+    final orderKey = coalesce([
+      _db.coSyncRows.pendingSnapshotHlc,
+      _db.coSyncRows.maxHlc,
+    ]);
+    final rows =
+        await (_db.select(_db.coSyncRows)
+              ..where(
+                (t) => t.pending.equals(true) & t.quarantined.equals(false),
+              )
+              ..orderBy([
+                (t) => OrderingTerm.asc(orderKey),
+                (t) => OrderingTerm.asc(t.logicalTable),
+                (t) => OrderingTerm.asc(t.rowId),
+              ]))
+            .get();
     return [
       for (final row in rows)
         PendingRow(
@@ -154,6 +189,92 @@ class DriftClientSyncStore implements ClientSyncStore {
         ),
     ];
   }
+
+  // ─── 영구 실패 행 격리 (B4 #13736) ───
+
+  @override
+  Future<void> quarantineRow(
+    String table,
+    String rowId, {
+    required QuarantineReason reason,
+    required DateTime at,
+  }) async {
+    await (_db.update(_db.coSyncRows)
+          ..where((t) => t.logicalTable.equals(table) & t.rowId.equals(rowId)))
+        .write(
+          CoSyncRowsCompanion(
+            quarantined: const Value(true),
+            quarantineCode: Value(reason.code),
+            quarantineReason: Value(reason.message),
+            quarantinedAtMillis: Value(at.toUtc().millisecondsSinceEpoch),
+          ),
+        );
+  }
+
+  @override
+  Future<List<QuarantinedRow>> quarantinedRows() async {
+    final rows =
+        await (_db.select(_db.coSyncRows)
+              ..where((t) => t.quarantined.equals(true))
+              ..orderBy([
+                (t) => OrderingTerm.asc(t.quarantinedAtMillis),
+                (t) => OrderingTerm.asc(t.logicalTable),
+                (t) => OrderingTerm.asc(t.rowId),
+              ]))
+            .get();
+    return [for (final row in rows) _toQuarantinedRow(row)];
+  }
+
+  static QuarantinedRow _toQuarantinedRow(CoSyncRowData row) => QuarantinedRow(
+    table: row.logicalTable,
+    rowId: row.rowId,
+    reason: QuarantineReason(
+      // 코드/설명은 v4 이후 항상 함께 기록된다. 그래도 null 을 빈 문자열로
+      // 접지 않고 명시적 자리표시자를 둔다 — 화면에 빈 칸이 뜨면 "사유가
+      // 없다" 와 "기록에 실패했다" 가 구분되지 않는다.
+      code: row.quarantineCode ?? 'unknown',
+      message: row.quarantineReason ?? '사유 미기록',
+    ),
+    at: DateTime.fromMillisecondsSinceEpoch(
+      row.quarantinedAtMillis ?? 0,
+      isUtc: true,
+    ),
+  );
+
+  @override
+  Future<bool> requeueQuarantined(String table, String rowId) async {
+    final updated =
+        await (_db.update(_db.coSyncRows)..where(
+              (t) =>
+                  t.logicalTable.equals(table) &
+                  t.rowId.equals(rowId) &
+                  t.quarantined.equals(true),
+            ))
+            .write(_clearQuarantine);
+    return updated > 0;
+  }
+
+  @override
+  Future<int> requeueAllQuarantined() => (_db.update(
+    _db.coSyncRows,
+  )..where((t) => t.quarantined.equals(true))).write(_clearQuarantine);
+
+  @override
+  Future<int> quarantinedRowCount() async {
+    final countExp = _db.coSyncRows.rowId.count();
+    final query = _db.selectOnly(_db.coSyncRows)
+      ..addColumns([countExp])
+      ..where(_db.coSyncRows.quarantined.equals(true));
+    final row = await query.getSingle();
+    return row.read(countExp) ?? 0;
+  }
+
+  static const CoSyncRowsCompanion _clearQuarantine = CoSyncRowsCompanion(
+    quarantined: Value(false),
+    quarantineCode: Value(null),
+    quarantineReason: Value(null),
+    quarantinedAtMillis: Value(null),
+  );
 
   @override
   Future<void> clearPending(String table, String rowId, Hlc upTo) async {
@@ -168,6 +289,10 @@ class DriftClientSyncStore implements ClientSyncStore {
           const CoSyncRowsCompanion(
             pending: Value(false),
             pendingSnapshotHlc: Value(null),
+            quarantined: Value(false),
+            quarantineCode: Value(null),
+            quarantineReason: Value(null),
+            quarantinedAtMillis: Value(null),
           ),
         );
   }

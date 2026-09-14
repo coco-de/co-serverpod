@@ -197,7 +197,18 @@ void main() {
         origin: ChangeOrigin.local,
         pending: false,
       );
-      await db.customStatement('ALTER TABLE co_sync_rows DROP COLUMN deleted');
+      // v2 에 없던 컬럼을 모두 지운다 — v3(deleted) · v4(격리 4종).
+      for (final column in const [
+        'deleted',
+        'quarantined',
+        'quarantine_code',
+        'quarantine_reason',
+        'quarantined_at_millis',
+      ]) {
+        await db.customStatement(
+          'ALTER TABLE co_sync_rows DROP COLUMN $column',
+        );
+      }
       await db.customStatement('PRAGMA user_version = 2');
       await db.close();
 

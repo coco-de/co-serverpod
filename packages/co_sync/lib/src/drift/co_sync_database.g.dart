@@ -90,6 +90,53 @@ class $CoSyncRowsTable extends CoSyncRows
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _quarantinedMeta = const VerificationMeta(
+    'quarantined',
+  );
+  @override
+  late final GeneratedColumn<bool> quarantined = GeneratedColumn<bool>(
+    'quarantined',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("quarantined" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _quarantineCodeMeta = const VerificationMeta(
+    'quarantineCode',
+  );
+  @override
+  late final GeneratedColumn<String> quarantineCode = GeneratedColumn<String>(
+    'quarantine_code',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _quarantineReasonMeta = const VerificationMeta(
+    'quarantineReason',
+  );
+  @override
+  late final GeneratedColumn<String> quarantineReason = GeneratedColumn<String>(
+    'quarantine_reason',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _quarantinedAtMillisMeta =
+      const VerificationMeta('quarantinedAtMillis');
+  @override
+  late final GeneratedColumn<int> quarantinedAtMillis = GeneratedColumn<int>(
+    'quarantined_at_millis',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     logicalTable,
@@ -99,6 +146,10 @@ class $CoSyncRowsTable extends CoSyncRows
     pending,
     pendingSnapshotHlc,
     deleted,
+    quarantined,
+    quarantineCode,
+    quarantineReason,
+    quarantinedAtMillis,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -168,6 +219,42 @@ class $CoSyncRowsTable extends CoSyncRows
         deleted.isAcceptableOrUnknown(data['deleted']!, _deletedMeta),
       );
     }
+    if (data.containsKey('quarantined')) {
+      context.handle(
+        _quarantinedMeta,
+        quarantined.isAcceptableOrUnknown(
+          data['quarantined']!,
+          _quarantinedMeta,
+        ),
+      );
+    }
+    if (data.containsKey('quarantine_code')) {
+      context.handle(
+        _quarantineCodeMeta,
+        quarantineCode.isAcceptableOrUnknown(
+          data['quarantine_code']!,
+          _quarantineCodeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('quarantine_reason')) {
+      context.handle(
+        _quarantineReasonMeta,
+        quarantineReason.isAcceptableOrUnknown(
+          data['quarantine_reason']!,
+          _quarantineReasonMeta,
+        ),
+      );
+    }
+    if (data.containsKey('quarantined_at_millis')) {
+      context.handle(
+        _quarantinedAtMillisMeta,
+        quarantinedAtMillis.isAcceptableOrUnknown(
+          data['quarantined_at_millis']!,
+          _quarantinedAtMillisMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -205,6 +292,22 @@ class $CoSyncRowsTable extends CoSyncRows
         DriftSqlType.bool,
         data['${effectivePrefix}deleted'],
       )!,
+      quarantined: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}quarantined'],
+      )!,
+      quarantineCode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}quarantine_code'],
+      ),
+      quarantineReason: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}quarantine_reason'],
+      ),
+      quarantinedAtMillis: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}quarantined_at_millis'],
+      ),
     );
   }
 
@@ -244,6 +347,22 @@ class CoSyncRowData extends DataClass implements Insertable<CoSyncRowData> {
   /// 정책을 바꾸면 기존 행과 어긋나므로, 정책 변경은 재마이그레이션
   /// (전행 재판정)을 동반해야 한다. 판정의 정본은 여전히 `stateJson` 이다.
   final bool deleted;
+
+  /// 영구 거부로 **격리**된 행인가 (B4 #13736 — v4).
+  ///
+  /// 격리는 폐기가 아니라 보류다: `pending` 과 `pendingSnapshotHlc` 는 그대로
+  /// 두고 이 플래그만 세운다. `pendingRows()` 가 이 행을 빼므로 매 회차가 같은
+  /// 자리에서 멈추지 않고, 해제되면 원래 스냅샷 그대로 재전송된다.
+  final bool quarantined;
+
+  /// 격리 사유 코드 (서버 실패 코드 — `payload_too_large` 등).
+  final String? quarantineCode;
+
+  /// 격리 사유 설명 (서버가 남긴 진단 문자열).
+  final String? quarantineReason;
+
+  /// 격리 시각 (epoch millis, UTC).
+  final int? quarantinedAtMillis;
   const CoSyncRowData({
     required this.logicalTable,
     required this.rowId,
@@ -252,6 +371,10 @@ class CoSyncRowData extends DataClass implements Insertable<CoSyncRowData> {
     required this.pending,
     this.pendingSnapshotHlc,
     required this.deleted,
+    required this.quarantined,
+    this.quarantineCode,
+    this.quarantineReason,
+    this.quarantinedAtMillis,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -265,6 +388,16 @@ class CoSyncRowData extends DataClass implements Insertable<CoSyncRowData> {
       map['pending_snapshot_hlc'] = Variable<String>(pendingSnapshotHlc);
     }
     map['deleted'] = Variable<bool>(deleted);
+    map['quarantined'] = Variable<bool>(quarantined);
+    if (!nullToAbsent || quarantineCode != null) {
+      map['quarantine_code'] = Variable<String>(quarantineCode);
+    }
+    if (!nullToAbsent || quarantineReason != null) {
+      map['quarantine_reason'] = Variable<String>(quarantineReason);
+    }
+    if (!nullToAbsent || quarantinedAtMillis != null) {
+      map['quarantined_at_millis'] = Variable<int>(quarantinedAtMillis);
+    }
     return map;
   }
 
@@ -279,6 +412,16 @@ class CoSyncRowData extends DataClass implements Insertable<CoSyncRowData> {
           ? const Value.absent()
           : Value(pendingSnapshotHlc),
       deleted: Value(deleted),
+      quarantined: Value(quarantined),
+      quarantineCode: quarantineCode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(quarantineCode),
+      quarantineReason: quarantineReason == null && nullToAbsent
+          ? const Value.absent()
+          : Value(quarantineReason),
+      quarantinedAtMillis: quarantinedAtMillis == null && nullToAbsent
+          ? const Value.absent()
+          : Value(quarantinedAtMillis),
     );
   }
 
@@ -297,6 +440,12 @@ class CoSyncRowData extends DataClass implements Insertable<CoSyncRowData> {
         json['pendingSnapshotHlc'],
       ),
       deleted: serializer.fromJson<bool>(json['deleted']),
+      quarantined: serializer.fromJson<bool>(json['quarantined']),
+      quarantineCode: serializer.fromJson<String?>(json['quarantineCode']),
+      quarantineReason: serializer.fromJson<String?>(json['quarantineReason']),
+      quarantinedAtMillis: serializer.fromJson<int?>(
+        json['quarantinedAtMillis'],
+      ),
     );
   }
   @override
@@ -310,6 +459,10 @@ class CoSyncRowData extends DataClass implements Insertable<CoSyncRowData> {
       'pending': serializer.toJson<bool>(pending),
       'pendingSnapshotHlc': serializer.toJson<String?>(pendingSnapshotHlc),
       'deleted': serializer.toJson<bool>(deleted),
+      'quarantined': serializer.toJson<bool>(quarantined),
+      'quarantineCode': serializer.toJson<String?>(quarantineCode),
+      'quarantineReason': serializer.toJson<String?>(quarantineReason),
+      'quarantinedAtMillis': serializer.toJson<int?>(quarantinedAtMillis),
     };
   }
 
@@ -321,6 +474,10 @@ class CoSyncRowData extends DataClass implements Insertable<CoSyncRowData> {
     bool? pending,
     Value<String?> pendingSnapshotHlc = const Value.absent(),
     bool? deleted,
+    bool? quarantined,
+    Value<String?> quarantineCode = const Value.absent(),
+    Value<String?> quarantineReason = const Value.absent(),
+    Value<int?> quarantinedAtMillis = const Value.absent(),
   }) => CoSyncRowData(
     logicalTable: logicalTable ?? this.logicalTable,
     rowId: rowId ?? this.rowId,
@@ -331,6 +488,16 @@ class CoSyncRowData extends DataClass implements Insertable<CoSyncRowData> {
         ? pendingSnapshotHlc.value
         : this.pendingSnapshotHlc,
     deleted: deleted ?? this.deleted,
+    quarantined: quarantined ?? this.quarantined,
+    quarantineCode: quarantineCode.present
+        ? quarantineCode.value
+        : this.quarantineCode,
+    quarantineReason: quarantineReason.present
+        ? quarantineReason.value
+        : this.quarantineReason,
+    quarantinedAtMillis: quarantinedAtMillis.present
+        ? quarantinedAtMillis.value
+        : this.quarantinedAtMillis,
   );
   CoSyncRowData copyWithCompanion(CoSyncRowsCompanion data) {
     return CoSyncRowData(
@@ -345,6 +512,18 @@ class CoSyncRowData extends DataClass implements Insertable<CoSyncRowData> {
           ? data.pendingSnapshotHlc.value
           : this.pendingSnapshotHlc,
       deleted: data.deleted.present ? data.deleted.value : this.deleted,
+      quarantined: data.quarantined.present
+          ? data.quarantined.value
+          : this.quarantined,
+      quarantineCode: data.quarantineCode.present
+          ? data.quarantineCode.value
+          : this.quarantineCode,
+      quarantineReason: data.quarantineReason.present
+          ? data.quarantineReason.value
+          : this.quarantineReason,
+      quarantinedAtMillis: data.quarantinedAtMillis.present
+          ? data.quarantinedAtMillis.value
+          : this.quarantinedAtMillis,
     );
   }
 
@@ -357,7 +536,11 @@ class CoSyncRowData extends DataClass implements Insertable<CoSyncRowData> {
           ..write('maxHlc: $maxHlc, ')
           ..write('pending: $pending, ')
           ..write('pendingSnapshotHlc: $pendingSnapshotHlc, ')
-          ..write('deleted: $deleted')
+          ..write('deleted: $deleted, ')
+          ..write('quarantined: $quarantined, ')
+          ..write('quarantineCode: $quarantineCode, ')
+          ..write('quarantineReason: $quarantineReason, ')
+          ..write('quarantinedAtMillis: $quarantinedAtMillis')
           ..write(')'))
         .toString();
   }
@@ -371,6 +554,10 @@ class CoSyncRowData extends DataClass implements Insertable<CoSyncRowData> {
     pending,
     pendingSnapshotHlc,
     deleted,
+    quarantined,
+    quarantineCode,
+    quarantineReason,
+    quarantinedAtMillis,
   );
   @override
   bool operator ==(Object other) =>
@@ -382,7 +569,11 @@ class CoSyncRowData extends DataClass implements Insertable<CoSyncRowData> {
           other.maxHlc == this.maxHlc &&
           other.pending == this.pending &&
           other.pendingSnapshotHlc == this.pendingSnapshotHlc &&
-          other.deleted == this.deleted);
+          other.deleted == this.deleted &&
+          other.quarantined == this.quarantined &&
+          other.quarantineCode == this.quarantineCode &&
+          other.quarantineReason == this.quarantineReason &&
+          other.quarantinedAtMillis == this.quarantinedAtMillis);
 }
 
 class CoSyncRowsCompanion extends UpdateCompanion<CoSyncRowData> {
@@ -393,6 +584,10 @@ class CoSyncRowsCompanion extends UpdateCompanion<CoSyncRowData> {
   final Value<bool> pending;
   final Value<String?> pendingSnapshotHlc;
   final Value<bool> deleted;
+  final Value<bool> quarantined;
+  final Value<String?> quarantineCode;
+  final Value<String?> quarantineReason;
+  final Value<int?> quarantinedAtMillis;
   final Value<int> rowid;
   const CoSyncRowsCompanion({
     this.logicalTable = const Value.absent(),
@@ -402,6 +597,10 @@ class CoSyncRowsCompanion extends UpdateCompanion<CoSyncRowData> {
     this.pending = const Value.absent(),
     this.pendingSnapshotHlc = const Value.absent(),
     this.deleted = const Value.absent(),
+    this.quarantined = const Value.absent(),
+    this.quarantineCode = const Value.absent(),
+    this.quarantineReason = const Value.absent(),
+    this.quarantinedAtMillis = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   CoSyncRowsCompanion.insert({
@@ -412,6 +611,10 @@ class CoSyncRowsCompanion extends UpdateCompanion<CoSyncRowData> {
     this.pending = const Value.absent(),
     this.pendingSnapshotHlc = const Value.absent(),
     this.deleted = const Value.absent(),
+    this.quarantined = const Value.absent(),
+    this.quarantineCode = const Value.absent(),
+    this.quarantineReason = const Value.absent(),
+    this.quarantinedAtMillis = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : logicalTable = Value(logicalTable),
        rowId = Value(rowId),
@@ -425,6 +628,10 @@ class CoSyncRowsCompanion extends UpdateCompanion<CoSyncRowData> {
     Expression<bool>? pending,
     Expression<String>? pendingSnapshotHlc,
     Expression<bool>? deleted,
+    Expression<bool>? quarantined,
+    Expression<String>? quarantineCode,
+    Expression<String>? quarantineReason,
+    Expression<int>? quarantinedAtMillis,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -436,6 +643,11 @@ class CoSyncRowsCompanion extends UpdateCompanion<CoSyncRowData> {
       if (pendingSnapshotHlc != null)
         'pending_snapshot_hlc': pendingSnapshotHlc,
       if (deleted != null) 'deleted': deleted,
+      if (quarantined != null) 'quarantined': quarantined,
+      if (quarantineCode != null) 'quarantine_code': quarantineCode,
+      if (quarantineReason != null) 'quarantine_reason': quarantineReason,
+      if (quarantinedAtMillis != null)
+        'quarantined_at_millis': quarantinedAtMillis,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -448,6 +660,10 @@ class CoSyncRowsCompanion extends UpdateCompanion<CoSyncRowData> {
     Value<bool>? pending,
     Value<String?>? pendingSnapshotHlc,
     Value<bool>? deleted,
+    Value<bool>? quarantined,
+    Value<String?>? quarantineCode,
+    Value<String?>? quarantineReason,
+    Value<int?>? quarantinedAtMillis,
     Value<int>? rowid,
   }) {
     return CoSyncRowsCompanion(
@@ -458,6 +674,10 @@ class CoSyncRowsCompanion extends UpdateCompanion<CoSyncRowData> {
       pending: pending ?? this.pending,
       pendingSnapshotHlc: pendingSnapshotHlc ?? this.pendingSnapshotHlc,
       deleted: deleted ?? this.deleted,
+      quarantined: quarantined ?? this.quarantined,
+      quarantineCode: quarantineCode ?? this.quarantineCode,
+      quarantineReason: quarantineReason ?? this.quarantineReason,
+      quarantinedAtMillis: quarantinedAtMillis ?? this.quarantinedAtMillis,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -486,6 +706,18 @@ class CoSyncRowsCompanion extends UpdateCompanion<CoSyncRowData> {
     if (deleted.present) {
       map['deleted'] = Variable<bool>(deleted.value);
     }
+    if (quarantined.present) {
+      map['quarantined'] = Variable<bool>(quarantined.value);
+    }
+    if (quarantineCode.present) {
+      map['quarantine_code'] = Variable<String>(quarantineCode.value);
+    }
+    if (quarantineReason.present) {
+      map['quarantine_reason'] = Variable<String>(quarantineReason.value);
+    }
+    if (quarantinedAtMillis.present) {
+      map['quarantined_at_millis'] = Variable<int>(quarantinedAtMillis.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -502,6 +734,10 @@ class CoSyncRowsCompanion extends UpdateCompanion<CoSyncRowData> {
           ..write('pending: $pending, ')
           ..write('pendingSnapshotHlc: $pendingSnapshotHlc, ')
           ..write('deleted: $deleted, ')
+          ..write('quarantined: $quarantined, ')
+          ..write('quarantineCode: $quarantineCode, ')
+          ..write('quarantineReason: $quarantineReason, ')
+          ..write('quarantinedAtMillis: $quarantinedAtMillis, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1365,6 +1601,10 @@ typedef $$CoSyncRowsTableCreateCompanionBuilder =
       Value<bool> pending,
       Value<String?> pendingSnapshotHlc,
       Value<bool> deleted,
+      Value<bool> quarantined,
+      Value<String?> quarantineCode,
+      Value<String?> quarantineReason,
+      Value<int?> quarantinedAtMillis,
       Value<int> rowid,
     });
 typedef $$CoSyncRowsTableUpdateCompanionBuilder =
@@ -1376,6 +1616,10 @@ typedef $$CoSyncRowsTableUpdateCompanionBuilder =
       Value<bool> pending,
       Value<String?> pendingSnapshotHlc,
       Value<bool> deleted,
+      Value<bool> quarantined,
+      Value<String?> quarantineCode,
+      Value<String?> quarantineReason,
+      Value<int?> quarantinedAtMillis,
       Value<int> rowid,
     });
 
@@ -1420,6 +1664,26 @@ class $$CoSyncRowsTableFilterComposer
 
   ColumnFilters<bool> get deleted => $composableBuilder(
     column: $table.deleted,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get quarantined => $composableBuilder(
+    column: $table.quarantined,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get quarantineCode => $composableBuilder(
+    column: $table.quarantineCode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get quarantineReason => $composableBuilder(
+    column: $table.quarantineReason,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get quarantinedAtMillis => $composableBuilder(
+    column: $table.quarantinedAtMillis,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -1467,6 +1731,26 @@ class $$CoSyncRowsTableOrderingComposer
     column: $table.deleted,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<bool> get quarantined => $composableBuilder(
+    column: $table.quarantined,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get quarantineCode => $composableBuilder(
+    column: $table.quarantineCode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get quarantineReason => $composableBuilder(
+    column: $table.quarantineReason,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get quarantinedAtMillis => $composableBuilder(
+    column: $table.quarantinedAtMillis,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$CoSyncRowsTableAnnotationComposer
@@ -1502,6 +1786,26 @@ class $$CoSyncRowsTableAnnotationComposer
 
   GeneratedColumn<bool> get deleted =>
       $composableBuilder(column: $table.deleted, builder: (column) => column);
+
+  GeneratedColumn<bool> get quarantined => $composableBuilder(
+    column: $table.quarantined,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get quarantineCode => $composableBuilder(
+    column: $table.quarantineCode,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get quarantineReason => $composableBuilder(
+    column: $table.quarantineReason,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get quarantinedAtMillis => $composableBuilder(
+    column: $table.quarantinedAtMillis,
+    builder: (column) => column,
+  );
 }
 
 class $$CoSyncRowsTableTableManager
@@ -1542,6 +1846,10 @@ class $$CoSyncRowsTableTableManager
                 Value<bool> pending = const Value.absent(),
                 Value<String?> pendingSnapshotHlc = const Value.absent(),
                 Value<bool> deleted = const Value.absent(),
+                Value<bool> quarantined = const Value.absent(),
+                Value<String?> quarantineCode = const Value.absent(),
+                Value<String?> quarantineReason = const Value.absent(),
+                Value<int?> quarantinedAtMillis = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CoSyncRowsCompanion(
                 logicalTable: logicalTable,
@@ -1551,6 +1859,10 @@ class $$CoSyncRowsTableTableManager
                 pending: pending,
                 pendingSnapshotHlc: pendingSnapshotHlc,
                 deleted: deleted,
+                quarantined: quarantined,
+                quarantineCode: quarantineCode,
+                quarantineReason: quarantineReason,
+                quarantinedAtMillis: quarantinedAtMillis,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -1562,6 +1874,10 @@ class $$CoSyncRowsTableTableManager
                 Value<bool> pending = const Value.absent(),
                 Value<String?> pendingSnapshotHlc = const Value.absent(),
                 Value<bool> deleted = const Value.absent(),
+                Value<bool> quarantined = const Value.absent(),
+                Value<String?> quarantineCode = const Value.absent(),
+                Value<String?> quarantineReason = const Value.absent(),
+                Value<int?> quarantinedAtMillis = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => CoSyncRowsCompanion.insert(
                 logicalTable: logicalTable,
@@ -1571,10 +1887,23 @@ class $$CoSyncRowsTableTableManager
                 pending: pending,
                 pendingSnapshotHlc: pendingSnapshotHlc,
                 deleted: deleted,
+                quarantined: quarantined,
+                quarantineCode: quarantineCode,
+                quarantineReason: quarantineReason,
+                quarantinedAtMillis: quarantinedAtMillis,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$CoSyncRowsTable, CoSyncRowData>(table),
+                  BaseReferences<
+                    _$CoSyncDatabase,
+                    $CoSyncRowsTable,
+                    CoSyncRowData
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),
@@ -1717,7 +2046,16 @@ class $$CoSyncMetaTableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$CoSyncMetaTable, CoSyncMetaData>(table),
+                  BaseReferences<
+                    _$CoSyncDatabase,
+                    $CoSyncMetaTable,
+                    CoSyncMetaData
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),
@@ -1925,7 +2263,16 @@ class $$CoReplicaRowsTableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$CoReplicaRowsTable, CoReplicaRowData>(table),
+                  BaseReferences<
+                    _$CoSyncDatabase,
+                    $CoReplicaRowsTable,
+                    CoReplicaRowData
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),
@@ -2074,7 +2421,18 @@ class $$CoReplicaCursorsTableTableManager
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map(
+                (e) => (
+                  e.readTable<$CoReplicaCursorsTable, CoReplicaCursorData>(
+                    table,
+                  ),
+                  BaseReferences<
+                    _$CoSyncDatabase,
+                    $CoReplicaCursorsTable,
+                    CoReplicaCursorData
+                  >(db, table, e),
+                ),
+              )
               .toList(),
           prefetchHooksCallback: null,
         ),

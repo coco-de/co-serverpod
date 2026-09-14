@@ -216,8 +216,13 @@ void main() {
       expect(report, isNull);
       expect(runtime.lastError, isA<CoSyncRemoteException>());
       expect(notified, isNotNull);
-      // pending 은 보존 — 다음 성공 sync 에 재전송된다.
-      expect(await runtime.store.pendingRows(), hasLength(1));
+      // `protocol` 은 행 귀속 영구 실패라 그 행은 **격리**된다 (B4 #13736) —
+      // pending 에서 빠지지만 행 상태는 보존되고 목록에 드러난다. 실패
+      // 자체는 pull 이 같은 코드로 던져 여전히 통지된다.
+      expect(await runtime.store.pendingRows(), isEmpty);
+      expect(await runtime.listQuarantinedRows(), hasLength(1));
+      expect(runtime.quarantinedRowCount.value, 1);
+      expect(await runtime.read('co_sync_probe', 'r1'), isNotNull);
     });
 
     test('영구 실패 코드 판정 (isPermanent)', () {

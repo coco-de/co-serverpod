@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:co_offline_sync/co_offline_sync.dart';
+import 'package:co_sync/src/co_sync_remote_exception.dart';
 import 'package:co_sync/src/drift/co_sync_database.dart';
 import 'package:co_sync/src/drift_client_sync_store.dart';
 import 'package:flutter/foundation.dart';
@@ -125,12 +126,15 @@ class CoSyncRuntime {
     SchemaWindowProbe? schemaProbe,
     bool Function()? isAuthenticated,
     bool Function()? isLifecycleSyncEnabled,
+    PushFailureClassifier? classifyPushFailure,
     this.writeSyncDebounce = const Duration(seconds: 2),
     this.periodicSyncInterval = const Duration(seconds: 60),
+    this.maxQuarantineProbesPerPush = 24,
     this.onSyncError,
     this.onSchemaStatus,
     @visibleForTesting HlcClock Function(String nodeId)? clockFactory,
-  }) : _database = database,
+  }) : _classifyPushFailure = classifyPushFailure ?? classifyCoSyncRowRejection,
+       _database = database,
        _transport = transport,
        _syncSchema = syncSchema,
        _schemaVersion = schemaVersion,
@@ -167,6 +171,7 @@ class CoSyncRuntime {
   final bool Function() _isAuthenticated;
   final bool Function() _onLifecycleSyncEnabled;
   final HlcClock Function(String nodeId) _clockFactory;
+  final PushFailureClassifier _classifyPushFailure;
 
   /// 로컬 쓰기 뒤 push 를 예약하는 디바운스 창 — 연속 편집을 한 요청으로 모은다.
   final Duration writeSyncDebounce;
@@ -174,6 +179,10 @@ class CoSyncRuntime {
   /// 포그라운드에서 원격 변경을 회수하는 주기 (#13215).
   /// [bindForegroundStream] 으로 앱 생명주기가 연결된 경우에만 예약한다.
   final Duration periodicSyncInterval;
+
+  /// 영구 거부 청크를 행 단위로 좁힐 때 쓸 추가 push 요청 예산 (회차당).
+  /// 코어 `CoSyncClient.maxQuarantineProbesPerPush` 로 그대로 전달된다.
+  final int maxQuarantineProbesPerPush;
 
   /// 동기화 실패 통지 (앱이 로깅/모니터링 배선).
   final void Function(Object error, StackTrace stackTrace)? onSyncError;
@@ -223,6 +232,62 @@ class CoSyncRuntime {
   final ValueNotifier<CoSyncSchemaStatus> _schemaStatus = ValueNotifier(
     .unknown,
   );
+
+  /// 현재 격리된 행 수 — 사용자 상태 UI(B5)와 운영 집계의 입력값.
+  ///
+  /// 스토어가 정본이며 이 값은 그 캐시다. 동기화 회차마다·[reset] 시점에
+  /// 다시 읽어 맞춘다 ([refreshQuarantineCount]).
+  ValueListenable<int> get quarantinedRowCount => _quarantinedRowCount;
+
+  final ValueNotifier<int> _quarantinedRowCount = ValueNotifier(0);
+
+  /// 행이 새로 격리될 때마다 발화하는 broadcast 스트림.
+  ///
+  /// ⚠️ 재생·버퍼가 없다 — 구독 이전 격리는 오지 않는다. "지금 몇 건인가" 는
+  /// [quarantinedRowCount] 또는 [listQuarantinedRows] 로 읽어야 한다. 이
+  /// 스트림은 **새로 생긴 사건**의 통지 전용이다(토스트 등).
+  Stream<QuarantinedRow> get quarantineEvents => _quarantineEvents.stream;
+
+  final StreamController<QuarantinedRow> _quarantineEvents =
+      StreamController<QuarantinedRow>.broadcast();
+
+  /// 격리된 행 목록 (사유·시각 포함).
+  Future<List<QuarantinedRow>> listQuarantinedRows() => store.quarantinedRows();
+
+  /// 스토어에서 격리 건수를 다시 읽어 [quarantinedRowCount] 를 맞춘다.
+  Future<void> refreshQuarantineCount() async {
+    if (_disposed) return;
+    final generation = _operationGeneration;
+    final count = await store.quarantinedRowCount();
+    if (!_isCurrent(generation)) return;
+    _quarantinedRowCount.value = count;
+  }
+
+  /// 한 행의 격리를 풀고 동기화를 예약한다 — 그 행이 격리 상태가 아니었으면
+  /// `false`.
+  Future<bool> requeueQuarantinedRow(String table, String rowId) async {
+    final requeued = await store.requeueQuarantined(table, rowId);
+    if (requeued) {
+      await refreshQuarantineCount();
+      scheduleSync();
+    }
+    return requeued;
+  }
+
+  /// 격리를 전부 풀고 동기화를 예약한다 (앱·서버 업데이트 후 일괄 재시도).
+  Future<int> requeueAllQuarantinedRows() async {
+    final requeued = await store.requeueAllQuarantined();
+    if (requeued > 0) {
+      await refreshQuarantineCount();
+      scheduleSync();
+    }
+    return requeued;
+  }
+
+  void _onRowQuarantined(QuarantinedRow row) {
+    _quarantinedRowCount.value = _quarantinedRowCount.value + 1;
+    if (!_quarantineEvents.isClosed) _quarantineEvents.add(row);
+  }
 
   /// 이 앱이 아는 스키마 서명 (서버 현행 서명과 대조 대상).
   String get schemaSignature => computeSchemaSignature(_syncSchema);
@@ -313,8 +378,14 @@ class CoSyncRuntime {
       clock: _clockFactory(nodeId),
       syncSchema: _syncSchema,
       schemaVersion: _schemaVersion,
+      maxQuarantineProbesPerPush: maxQuarantineProbesPerPush,
+      classifyPushFailure: _classifyPushFailure,
+      onRowQuarantined: _onRowQuarantined,
     );
     _syncClient = client;
+    // 엔진을 새로 만든 시점의 잔여 격리(이전 실행에서 남은 것)를 드러낸다 —
+    // 건수와 무관하게 읽는다. 실패해도 동기화를 막지 않는다.
+    unawaited(refreshQuarantineCount());
     return client;
   }
 
@@ -423,6 +494,7 @@ class CoSyncRuntime {
       _checkCurrent(generation);
       var pushedRows = 0;
       var pulledChanges = 0;
+      var quarantinedRows = 0;
       int revision;
       do {
         if (!_canSync) return null;
@@ -433,11 +505,19 @@ class CoSyncRuntime {
         _checkCurrent(generation);
         pushedRows += report.pushedRows;
         pulledChanges += report.pulledChanges;
+        quarantinedRows += report.quarantinedRows;
         lastError = null;
         // 합류한 디바운스가 push 스냅샷 이후의 쓰기를 잃지 않게 한다.
         // 단순 트리거 합류는 추가 왕복을 만들지 않고 새 쓰기만 한 번 더 민다.
       } while (revision != _writeRevision);
-      return SyncReport(pushedRows: pushedRows, pulledChanges: pulledChanges);
+      // 스토어가 정본이다 — 콜백 누적만 믿으면 requeue·로컬 쓰기로 풀린 몫이
+      // 반영되지 않는다.
+      await refreshQuarantineCount();
+      return SyncReport(
+        pushedRows: pushedRows,
+        pulledChanges: pulledChanges,
+        quarantinedRows: quarantinedRows,
+      );
     } on CoSyncCancelled {
       return null;
     } on Object catch (error, stackTrace) {
@@ -645,6 +725,7 @@ class CoSyncRuntime {
     _wasOnline = false;
     lastError = null;
     _schemaStatus.value = .unknown;
+    _quarantinedRowCount.value = 0;
     final inFlight = _inFlight;
     _inFlight = null;
     _automaticInFlight = null;
@@ -675,6 +756,8 @@ class CoSyncRuntime {
     await _onlineSubscription?.cancel();
     await _foregroundSubscription?.cancel();
     _schemaStatus.dispose();
+    _quarantinedRowCount.dispose();
+    await _quarantineEvents.close();
     await store.dispose();
   }
 }
@@ -716,13 +799,18 @@ class _GenerationScopedTransport implements SyncTransport {
 
 /// 세대가 지난 엔진은 읽기·쓰기 모두 종료한다. 쓰기는 트랜잭션 내부에서
 /// 시작·완료를 확인하므로 reset 이 DB await 사이에 끼어들어도 롤백된다.
-class _GenerationScopedStore implements ClientSyncStore {
+/// ⚠️ [QuarantineCapableStore] 도 함께 위임한다 — 위임하지 않으면 안쪽
+/// 스토어가 지원해도 코어가 격리를 켜지 못해 조용히 종전 동작으로 돌아간다.
+class _GenerationScopedStore
+    implements ClientSyncStore, QuarantineCapableStore {
   const _GenerationScopedStore(
     this._inner,
     this._database,
     this._onCheckCurrent,
   );
 
+  /// [QuarantineCapableStore] 도 함께 구현한 스토어여야 한다 (런타임은 항상
+  /// `DriftClientSyncStore` 를 넘긴다).
   final ClientSyncStore _inner;
   final CoSyncDatabase _database;
   final void Function() _onCheckCurrent;
@@ -776,4 +864,41 @@ class _GenerationScopedStore implements ClientSyncStore {
 
   @override
   Future<Hlc?> maxHlc() => _read(_inner.maxHlc);
+
+  QuarantineCapableStore get _quarantine => _inner as QuarantineCapableStore;
+
+  @override
+  Future<void> quarantineRow(
+    String table,
+    String rowId, {
+    required QuarantineReason reason,
+    required DateTime at,
+  }) => _write(
+    () => _quarantine.quarantineRow(table, rowId, reason: reason, at: at),
+  );
+
+  @override
+  Future<List<QuarantinedRow>> quarantinedRows() =>
+      _read(_quarantine.quarantinedRows);
+
+  @override
+  Future<bool> requeueQuarantined(String table, String rowId) async {
+    var requeued = false;
+    await _write(() async {
+      requeued = await _quarantine.requeueQuarantined(table, rowId);
+    });
+    return requeued;
+  }
+
+  @override
+  Future<int> requeueAllQuarantined() async {
+    var requeued = 0;
+    await _write(() async {
+      requeued = await _quarantine.requeueAllQuarantined();
+    });
+    return requeued;
+  }
+
+  @override
+  Future<int> quarantinedRowCount() => _read(_quarantine.quarantinedRowCount);
 }
