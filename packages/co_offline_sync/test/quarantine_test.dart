@@ -156,6 +156,9 @@ void main() {
       }
       expect(await clientStore.pendingRows(), isEmpty);
       expect((await clientStore.quarantinedRows()).map((r) => r.rowId), ['r3']);
+      // ⚠️ 격리분도 여전히 **서버에 없다** — 미전송 여부를 묻는 자리
+      // (로그아웃 wipe 앞 보존 등)는 pendingRows 가 아니라 이쪽을 봐야 한다.
+      expect((await clientStore.unsentRows()).map((r) => r.rowId), ['r3']);
     });
 
     test('⛔ 대조군 — 분류기가 없으면 청크 전체가 실패하고 아무것도 나가지 않는다', () async {

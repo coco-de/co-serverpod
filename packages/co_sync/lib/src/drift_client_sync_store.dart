@@ -160,7 +160,16 @@ class DriftClientSyncStore implements ClientSyncStore, QuarantineCapableStore {
   }
 
   @override
-  Future<List<PendingRow>> pendingRows() async {
+  Future<List<PendingRow>> unsentRows() =>
+      _selectPending(includeQuarantined: true);
+
+  @override
+  Future<List<PendingRow>> pendingRows() =>
+      _selectPending(includeQuarantined: false);
+
+  Future<List<PendingRow>> _selectPending({
+    required bool includeQuarantined,
+  }) async {
     // 정렬 키는 스냅샷 HLC(없으면 maxHlc) — packed 가 고정폭 사전순이라
     // 문자열 ORDER BY 가 곧 HLC 순서다. 정렬이 없으면 SQLite 의 물리 순서
     // (rowid/PK)가 전송 순서가 되어, 나중에 만들어진 자식 행이 앞선 부모
@@ -172,7 +181,9 @@ class DriftClientSyncStore implements ClientSyncStore, QuarantineCapableStore {
     final rows =
         await (_db.select(_db.coSyncRows)
               ..where(
-                (t) => t.pending.equals(true) & t.quarantined.equals(false),
+                (t) => includeQuarantined
+                    ? t.pending.equals(true)
+                    : t.pending.equals(true) & t.quarantined.equals(false),
               )
               ..orderBy([
                 (t) => OrderingTerm.asc(orderKey),

@@ -852,6 +852,9 @@ class _GenerationScopedStore
   Future<List<PendingRow>> pendingRows() => _read(_inner.pendingRows);
 
   @override
+  Future<List<PendingRow>> unsentRows() => _read(_quarantine.unsentRows);
+
+  @override
   Future<void> clearPending(String table, String rowId, Hlc upTo) =>
       _write(() => _inner.clearPending(table, rowId, upTo));
 

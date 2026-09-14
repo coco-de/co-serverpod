@@ -89,6 +89,11 @@ abstract interface class ClientSyncStore {
   ///    자식 행이 앞선 부모 행보다 먼저 나가는 창이 생긴다(H9). 뒤 청크가
   ///    실패하면 그 창이 서버에 그대로 남는다. 동률은 `(table, rowId)` 로
   ///    깨 결정적으로 만든다.
+  ///
+  /// ⚠️ 그래서 이 목록은 **"서버에 닿지 않은 행 전부" 가 아니다.** 격리된 행도
+  /// 여전히 미전송이므로, 로그아웃 wipe 앞 보존이나 "아직 안 올라감" 표시처럼
+  /// *미전송 여부*를 묻는 자리는 [QuarantineCapableStore.unsentRows] 를 써야
+  /// 한다. 여기를 쓰면 격리된 로컬 변경이 조용히 사라진다.
   Future<List<PendingRow>> pendingRows();
 
   /// push ack 후 대기 해제 — 현재 행 maxHlc 가 [upTo] 이하일 때만 해제한다.
@@ -145,6 +150,16 @@ abstract interface class QuarantineCapableStore {
 
   /// 현재 격리된 행 수.
   Future<int> quarantinedRowCount();
+
+  /// **서버에 닿지 않은 행 전부** — pending ∪ 격리. 정렬은
+  /// [ClientSyncStore.pendingRows] 와 같다.
+  ///
+  /// `pendingRows()` 는 전송 대상 목록이라 격리분을 뺀다. 그런데 "이 변경이
+  /// 아직 서버에 없는가" 를 묻는 자리(로그아웃 wipe 앞 보존 · 로컬 원본
+  /// 사본 유지 판정 · "아직 안 올라감" 표시)에서는 격리분이야말로 **가장
+  /// 확실하게** 서버에 없는 행이다. 두 질문을 한 메서드로 답하면 그중 하나가
+  /// 반드시 틀리므로 갈라 둔다.
+  Future<List<PendingRow>> unsentRows();
 }
 
 /// [ServerSyncStore.changesSince] 의 결과 페이지.

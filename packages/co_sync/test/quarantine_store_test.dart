@@ -82,6 +82,10 @@ void main() {
       await store.quarantineRow('co_sync_probe', 'a', reason: _reason, at: at);
 
       expect((await store.pendingRows()).map((p) => p.rowId), ['b']);
+      expect((await store.unsentRows()).map((p) => p.rowId), [
+        'a',
+        'b',
+      ], reason: '격리분도 서버에 없다 — 미전송 판정은 unsentRows 가 답한다');
       expect(await store.quarantinedRowCount(), 1);
       final quarantined = await store.quarantinedRows();
       expect(quarantined.single.rowId, 'a');
@@ -155,6 +159,10 @@ void main() {
         'page',
         'element',
       ]);
+      expect((await store.unsentRows()).map((p) => p.rowId), [
+        'page',
+        'element',
+      ], reason: 'unsentRows 도 같은 정렬 계약을 따른다');
     });
 
     test('clearPending 은 격리 흔적도 함께 지운다 (ack 된 행은 더 이상 보류가 아니다)', () async {
