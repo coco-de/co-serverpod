@@ -6,7 +6,7 @@ import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'json_sync_transport.dart';
+import 'json_sync_transport.dart' as legacy;
 
 void main() {
   test(
@@ -21,7 +21,7 @@ void main() {
         clock: HlcClock(nodeId: 'server-demo'),
         syncSchema: schema,
       );
-      final transport = JsonSyncTransport(
+      final transport = legacy.JsonSyncTransport(
         pushJson: (payload) async => jsonEncode(
           (await server.handlePush(
             SyncPushRequest.fromJson(
