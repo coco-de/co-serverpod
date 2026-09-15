@@ -164,6 +164,18 @@ class DriftClientSyncStore implements ClientSyncStore, QuarantineCapableStore {
       _selectPending(includeQuarantined: true);
 
   @override
+  Future<int> unsentRowCount() async {
+    // COUNT 로 답한다 — `unsentRows().length` 와 같은 값이지만 백로그 전량을
+    // 메모리로 올리지 않는다 (상태 표시는 쓰기마다 갱신된다).
+    final countExp = _db.coSyncRows.rowId.count();
+    final query = _db.selectOnly(_db.coSyncRows)
+      ..addColumns([countExp])
+      ..where(_db.coSyncRows.pending.equals(true));
+    final row = await query.getSingle();
+    return row.read(countExp) ?? 0;
+  }
+
+  @override
   Future<List<PendingRow>> pendingRows() =>
       _selectPending(includeQuarantined: false);
 

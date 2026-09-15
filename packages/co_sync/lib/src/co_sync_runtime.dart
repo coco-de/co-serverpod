@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:co_offline_sync/co_offline_sync.dart';
 import 'package:co_sync/src/co_sync_remote_exception.dart';
+import 'package:co_sync/src/co_sync_status.dart';
 import 'package:co_sync/src/drift/co_sync_database.dart';
 import 'package:co_sync/src/drift_client_sync_store.dart';
 import 'package:flutter/foundation.dart';
@@ -19,29 +20,6 @@ typedef SchemaWindowInfo = ({
 abstract interface class SchemaWindowProbe {
   /// 서버의 현행·최소 지원 버전과 현행 서명.
   Future<SchemaWindowInfo> fetchSchemaWindow();
-}
-
-/// 부팅 시 사전 대조 결과 — 첫 push 실패를 기다리지 않고 사용자 안내를
-/// 갈라 쓰는 근거 (S5 게이트 3번, #12794).
-///
-/// ⚠️ 이 판정은 UX 용이다. 동기화를 실제로 막는 안전장치는 push/pull 의
-/// 서명 대조(서버 `SchemaRegistry.resolve`)이며, 여기서 [compatible] 이
-/// 나와도 그 대조는 그대로 수행된다.
-enum CoSyncSchemaStatus {
-  /// 아직 대조하지 않았거나 조회에 실패했다 (오프라인 등).
-  unknown,
-
-  /// 앱 버전이 서버 창 안이고 서명이 일치한다 (창 안의 구 버전 포함).
-  compatible,
-
-  /// 앱 버전이 서버 최소 지원 버전보다 낮다 — 앱 업데이트 안내.
-  appOutdated,
-
-  /// 앱 버전이 서버 현행보다 높다 — 서버 롤아웃 대기 (일시).
-  serverBehind,
-
-  /// 버전은 창 안인데 현행 서명이 다르다 — 배포 결함 (리포트).
-  signatureConflict,
 }
 
 /// upsert 사전검증 실패 — 필드 값의 직렬화 길이가 상한을 넘는다 (S3-5 #12839).
@@ -158,6 +136,10 @@ class CoSyncRuntime {
       );
     }
     store = DriftClientSyncStore(_database);
+    // 두 축은 이미 각자 notifier 를 갖고 있다 — 집계 값이 그것들과 어긋나지
+    // 않도록 복제 대신 구독한다.
+    _schemaStatus.addListener(_publishStatus);
+    _quarantinedRowCount.addListener(_publishStatus);
   }
 
   static bool _alwaysAuthenticated() => true;
@@ -251,6 +233,63 @@ class CoSyncRuntime {
   final StreamController<QuarantinedRow> _quarantineEvents =
       StreamController<QuarantinedRow>.broadcast();
 
+  /// 관측 가능한 동기화 상태 전부 — 사용자 상태 UI 의 단일 입력값
+  /// (unibook#13737 H6).
+  ///
+  /// [schemaStatus]·[quarantinedRowCount] 를 **포함한다**. 축별 notifier 는
+  /// 기존 소비자를 위해 남지만, 새 UI 는 이것 하나만 구독하면 한 프레임 안의
+  /// 원자적 스냅샷을 얻는다.
+  ///
+  /// ⚠️ [CoSyncStatus.pendingCount] 는 스토어를 읽어 갱신되는 **캐시**다.
+  /// 런타임 밖에서 스토어를 직접 쓰면 (테스트 픽스처 주입 등) 이 값이
+  /// 뒤처진다 — 그때는 [refreshUnsentCount] 로 맞춘다.
+  ValueListenable<CoSyncStatus> get status => _status;
+
+  final ValueNotifier<CoSyncStatus> _status = ValueNotifier(
+    const CoSyncStatus(),
+  );
+
+  int _unsentRowCount = 0;
+  bool _syncInFlight = false;
+  DateTime? _lastSuccessAt;
+  CoSyncFailure? _lastFailure;
+
+  /// [status] 를 현재 축들로 다시 발행한다.
+  ///
+  /// `ValueNotifier` 는 값이 **달라야** 통지하므로 (CoSyncStatus 는 값 동등성을
+  /// 갖는다) 같은 상태의 반복 발행은 리스너를 깨우지 않는다.
+  void _publishStatus() {
+    if (_disposed) return;
+    _status.value = CoSyncStatus(
+      pendingCount: _unsentRowCount,
+      quarantinedCount: _quarantinedRowCount.value,
+      inFlight: _syncInFlight,
+      schemaStatus: _schemaStatus.value,
+      lastSuccessAt: _lastSuccessAt,
+      lastFailure: _lastFailure,
+    );
+  }
+
+  /// 스토어에서 미전송 행 수를 다시 읽어 [status] 를 맞춘다.
+  ///
+  /// 로컬 쓰기·동기화 회차·격리 해제마다 런타임이 스스로 부른다. 앱은 부팅
+  /// 직후(이전 세션의 잔여 pending 을 화면에 드러내려면) 한 번 부르면 된다.
+  Future<void> refreshUnsentCount() async {
+    if (_disposed) return;
+    final generation = _operationGeneration;
+    final int count;
+    try {
+      count = await store.unsentRowCount();
+    } on Object catch (_) {
+      // 상태 표시는 부가 기능이다 — 스토어 조회 실패가 쓰기·동기화 경로를
+      // 깨뜨리면 안 된다. 다음 갱신 시점에 다시 시도한다.
+      return;
+    }
+    if (!_isCurrent(generation)) return;
+    _unsentRowCount = count;
+    _publishStatus();
+  }
+
   /// 격리된 행 목록 (사유·시각 포함).
   Future<List<QuarantinedRow>> listQuarantinedRows() => store.quarantinedRows();
 
@@ -269,6 +308,7 @@ class CoSyncRuntime {
     final requeued = await store.requeueQuarantined(table, rowId);
     if (requeued) {
       await refreshQuarantineCount();
+      await refreshUnsentCount();
       scheduleSync();
     }
     return requeued;
@@ -279,6 +319,7 @@ class CoSyncRuntime {
     final requeued = await store.requeueAllQuarantined();
     if (requeued > 0) {
       await refreshQuarantineCount();
+      await refreshUnsentCount();
       scheduleSync();
     }
     return requeued;
@@ -435,6 +476,9 @@ class CoSyncRuntime {
       await write(client);
       _checkCurrent(generation);
       _writeRevision++;
+      // "아직 안 올라감 N건" 은 쓰기 직후에 올라가야 한다 — 동기화가 돌기를
+      // 기다리면 오프라인에서 영원히 0 으로 보인다(이 표시의 존재 이유).
+      await refreshUnsentCount();
       scheduleSync();
     } on CoSyncCancelled {
       // 로그아웃 중 옛 계정 조작을 새 DB 로 가져오지 않는다.
@@ -496,10 +540,17 @@ class CoSyncRuntime {
     if (existing != null) return existing;
     final work = _syncGuarded(_operationGeneration);
     _inFlight = work;
+    _syncInFlight = true;
+    _publishStatus();
     try {
       return await work;
     } finally {
       if (identical(_inFlight, work)) _inFlight = null;
+      // 합류한 호출은 자기 회차가 아니므로 진행 표시를 끄지 않는다.
+      if (_inFlight == null) {
+        _syncInFlight = false;
+        _publishStatus();
+      }
     }
   }
 
@@ -528,6 +579,10 @@ class CoSyncRuntime {
       // 스토어가 정본이다 — 콜백 누적만 믿으면 requeue·로컬 쓰기로 풀린 몫이
       // 반영되지 않는다.
       await refreshQuarantineCount();
+      _lastSuccessAt = DateTime.now();
+      _lastFailure = null;
+      await refreshUnsentCount();
+      _publishStatus();
       return SyncReport(
         pushedRows: pushedRows,
         pulledChanges: pulledChanges,
@@ -538,6 +593,11 @@ class CoSyncRuntime {
     } on Object catch (error, stackTrace) {
       if (!_isCurrent(generation)) return null;
       lastError = error;
+      _lastFailure = CoSyncFailure.from(error, at: DateTime.now());
+      // 실패해도 미전송 건수는 바뀌었을 수 있다 — 청크 일부가 올라간 뒤
+      // 뒤 청크가 거부된 경우다. 성공 경로에만 두면 그 몫이 안 보인다.
+      await refreshUnsentCount();
+      _publishStatus();
       onSyncError?.call(error, stackTrace);
       return null;
     }
@@ -739,8 +799,15 @@ class CoSyncRuntime {
     _clientInitialization = null;
     _wasOnline = false;
     lastError = null;
+    _lastFailure = null;
+    _lastSuccessAt = null;
+    _unsentRowCount = 0;
+    _syncInFlight = false;
     _schemaStatus.value = .unknown;
     _quarantinedRowCount.value = 0;
+    // 두 notifier 가 이미 unknown/0 이면 리스너가 안 깨므로 직접 발행한다 —
+    // 옛 계정의 "대기 N건" 이 다음 계정 화면에 남는 것을 막는다.
+    _publishStatus();
     final inFlight = _inFlight;
     _inFlight = null;
     _automaticInFlight = null;
@@ -770,8 +837,11 @@ class CoSyncRuntime {
     _periodicTimer = null;
     await _onlineSubscription?.cancel();
     await _foregroundSubscription?.cancel();
+    _schemaStatus.removeListener(_publishStatus);
+    _quarantinedRowCount.removeListener(_publishStatus);
     _schemaStatus.dispose();
     _quarantinedRowCount.dispose();
+    _status.dispose();
     await _quarantineEvents.close();
     await store.dispose();
   }
@@ -919,4 +989,7 @@ class _GenerationScopedStore
 
   @override
   Future<int> quarantinedRowCount() => _read(_quarantine.quarantinedRowCount);
+
+  @override
+  Future<int> unsentRowCount() => _read(_quarantine.unsentRowCount);
 }
