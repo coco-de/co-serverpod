@@ -23,14 +23,17 @@ final _configuration = SignInWithAppleConfiguration(
   key: 'unused-in-tests',
 );
 
-IdentityToken _identityToken({required final String userId}) => IdentityToken(
+IdentityToken _identityToken({
+  required final String userId,
+  final String? nonce,
+}) => IdentityToken(
   userId: userId,
   email: 'user@privaterelay.appleid.com',
   emailVerified: true,
   isPrivateEmail: true,
   realUserStatus: 2,
-  nonce: null,
-  nonceSupported: false,
+  nonce: nonce,
+  nonceSupported: nonce != null,
 );
 
 /// Stubs both Apple network calls so the tests exercise [AppleIdpUtils]'s own
@@ -53,12 +56,32 @@ class _FakeSignInWithApple extends SignInWithApple {
   /// The `useBundleIdentifier` value the exchange was called with.
   bool? lastExchangeUsedBundleIdentifier;
 
+  /// The `nonce` value [verifyIdentityToken] was called with. `null` means the
+  /// caller skipped the nonce check (the official provider's behaviour).
+  String? lastVerifiedNonce;
+
   @override
   Future<IdentityToken> verifyIdentityToken(
     final String identityToken, {
     required final bool useBundleIdentifier,
     required final String? nonce,
-  }) async => token;
+  }) async {
+    lastVerifiedNonce = nonce;
+
+    // Mirror `sign_in_with_apple_server`'s contract exactly: a non-null
+    // `nonce` must equal the token's `nonce` claim, otherwise it throws.
+    // Reproducing this (instead of ignoring `nonce` like a stub would) is what
+    // lets the tests below catch a regression to the official provider's
+    // hard-coded `nonce: null`.
+    if (nonce != null && nonce != token.nonce) {
+      throw Exception(
+        'The identity token\'s nonce ("${token.nonce}") did not match the '
+        'expected one ("$nonce")',
+      );
+    }
+
+    return token;
+  }
 
   @override
   Future<AuthorizationCodeExchangeResponse> exchangeAuthorizationCode(
@@ -244,6 +267,88 @@ void main() {
       expect(repeat.newAccount, isFalse);
       expect(repeat.authUserId, initial.authUserId);
       expect(second.exchangeCallCount, 0);
+    });
+
+    // ⭐ Regression guard for the nonce replay protection that distinguishes
+    // this provider from the official one (coco-de/co-serverpod#2, security
+    // audit kobic#8594). Every test above passes `nonce: null`, so a revert to
+    // the official provider's hard-coded `nonce: null` would leave them all
+    // green — these three are what actually pin the behaviour.
+    test('when a nonce is provided then it is forwarded to '
+        'verifyIdentityToken and accepted when it matches', () async {
+      final signInWithApple = _FakeSignInWithApple(
+        token: _identityToken(
+          userId: 'apple-nonce-match-user',
+          nonce: 'hashed-nonce',
+        ),
+      );
+
+      final result = await _utils(signInWithApple).authenticate(
+        session,
+        identityToken: 'fake-identity-token',
+        authorizationCode: 'fake-authorization-code',
+        isNativeApplePlatformSignIn: true,
+        nonce: 'hashed-nonce',
+        transaction: null,
+      );
+
+      expect(result.newAccount, isTrue);
+      expect(result.details.userIdentifier, 'apple-nonce-match-user');
+      // The whole point: the client's nonce reaches Apple verification.
+      expect(signInWithApple.lastVerifiedNonce, 'hashed-nonce');
+    });
+
+    test('when the provided nonce does not match the identity token then '
+        'authentication is rejected', () async {
+      final signInWithApple = _FakeSignInWithApple(
+        token: _identityToken(
+          userId: 'apple-nonce-mismatch-user',
+          nonce: 'token-nonce',
+        ),
+      );
+
+      await expectLater(
+        _utils(signInWithApple).authenticate(
+          session,
+          identityToken: 'fake-identity-token',
+          authorizationCode: 'fake-authorization-code',
+          isNativeApplePlatformSignIn: true,
+          nonce: 'different-nonce',
+          transaction: null,
+        ),
+        throwsA(isA<Exception>()),
+      );
+      expect(signInWithApple.lastVerifiedNonce, 'different-nonce');
+
+      // The mismatch must be rejected before any account is created.
+      final account = await AppleKrAccount.db.findFirstRow(
+        session,
+        where: (final t) =>
+            t.userIdentifier.equals('apple-nonce-mismatch-user'),
+      );
+      expect(account, isNull);
+    });
+
+    test('when no nonce is provided then the token nonce claim is ignored '
+        '(backwards compatibility)', () async {
+      final signInWithApple = _FakeSignInWithApple(
+        token: _identityToken(
+          userId: 'apple-nonce-absent-user',
+          nonce: 'token-nonce',
+        ),
+      );
+
+      final result = await _utils(signInWithApple).authenticate(
+        session,
+        identityToken: 'fake-identity-token',
+        authorizationCode: 'fake-authorization-code',
+        isNativeApplePlatformSignIn: true,
+        nonce: null,
+        transaction: null,
+      );
+
+      expect(result.newAccount, isTrue);
+      expect(signInWithApple.lastVerifiedNonce, isNull);
     });
   });
 }
