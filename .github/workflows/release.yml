@@ -20,6 +20,13 @@ name: Release
 #    refactor/docs/chore/style/test/ci 는 CHANGELOG 에는 실리지만 버전을 올리지
 #    않는다. 소비자에게 영향이 가는 변경(공개 API 제거·시그니처 변경 등)은
 #    refactor 가 아니라 fix/feat 또는 `!` 접미사를 써야 릴리즈가 나간다.
+#
+# ⚠️ 토큰: coco-de 조직은 GITHUB_TOKEN 의 PR 생성/승인을 막아 두었다
+#    (org workflow permission can_approve_pull_request_reviews=false, 리포 설정으로는
+#    409). PAT 는 만료되므로 GitHub App 설치 토큰을 쓴다.
+#    선례: coco-de/coui `.github/workflows/release.yml` · App slug `coco-de-coui-release`.
+#    시크릿 `RELEASE_APP_ID` / `RELEASE_APP_PRIVATE_KEY` + 이 레포에 App 설치가 필요하다.
+#    추적: coco-de/co-serverpod#18
 
 on:
   push:
@@ -37,8 +44,29 @@ jobs:
   release-please:
     name: Release PR / Tag
     runs-on: ubuntu-latest
+    # 실패 run 실측 ~15s. 성공 표본 없음(B-2). hosted release-please 는 보통 <2m 이라
+    # 과대추정 15m (B-3). 성공 표본이 쌓이면 B-1(실측 최대 × 2) 로 재산정할 것.
+    timeout-minutes: 15
     steps:
+      - name: App 자격증명 확인
+        env:
+          APP_ID: ${{ secrets.RELEASE_APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+        run: |
+          if [ -n "$APP_ID" ] && [ -n "$APP_PRIVATE_KEY" ]; then
+            exit 0
+          fi
+          echo "::error title=릴리스 App 자격증명 없음::RELEASE_APP_ID / RELEASE_APP_PRIVATE_KEY 가 비어 있다. coco-de 조직은 GITHUB_TOKEN 의 PR 생성을 막아 두므로 App 토큰 없이 진행할 수 없다. coco-de-coui-release App 을 이 레포에 설치하고 두 시크릿을 coui 에서 복사한다. 추적: coco-de/co-serverpod#18"
+          exit 1
+
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - uses: googleapis/release-please-action@v4
         with:
+          token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
