@@ -32,6 +32,19 @@ enum CoSyncSchemaStatus {
 /// 분류한 영구 실패는 언제나 [CoSyncRemoteException.code] 를 갖는다.
 const String kCoSyncTransportFailureCode = 'transport';
 
+/// 서버가 거부한 시계 오차의 코드 — 이 단말의 시계가 서버보다 허용 한도를 넘어
+/// **앞섰다** (서버가 push 를 받지 않는다). [CoSyncRemoteException.code] 로 온다.
+const String kCoSyncClockDriftCode = 'clock_drift';
+
+/// 이 단말의 코어 시계가 서버 스탬프를 거부한 실패의 코드 — 단말 시계가 서버보다
+/// 허용 한도(`HlcClock.maxDriftMs`, 기본 1시간) 넘게 **뒤처졌다** (unibook#14051 ·
+/// 계약 §7.2 HLC 거부 ②).
+///
+/// [kCoSyncClockDriftCode] 와 방향이 반대라 코드를 가른다. 둘 다 **일시** 실패다 —
+/// 기기 시계를 고치면 같은 상태가 그대로 올라간다(재스탬프 없음). 이 경우 push 는
+/// 이미 서버에 적용돼 pending 에서 빠졌고, pull 은 커서를 옮기지 않았다.
+const String kCoSyncClockDriftBehindCode = 'clock_drift_behind';
+
 /// 마지막 동기화 실패 요약 — 사용자에게 **사유를 다르게 보여 주기** 위한 값.
 ///
 /// 원본 예외([CoSyncRuntime.lastError])는 그대로 남는다. 이 타입은 UI 가
@@ -46,13 +59,28 @@ class CoSyncFailure {
     this.message,
   });
 
-  /// [error] 를 분류한다 — 타입드 실패면 서버 코드를, 아니면
-  /// [kCoSyncTransportFailureCode] 를 쓴다.
+  /// [error] 를 분류한다 — 타입드 실패면 서버 코드를, 코어 시계의 거부면
+  /// [kCoSyncClockDriftBehindCode] 를, 아니면 [kCoSyncTransportFailureCode] 를 쓴다.
+  ///
+  /// [CoSyncRuntime] 의 동기화 경로가 실패를 기록하는 **유일한** 분류기다 —
+  /// 분기를 여기 한 곳에만 두어 런타임 상태와 다른 소비처의 판정이 갈리지 않는다.
   factory CoSyncFailure.from(Object error, {required DateTime at}) {
     if (error is CoSyncRemoteException) {
       return CoSyncFailure(
         code: error.code,
         isPermanent: error.isPermanent,
+        at: at,
+        message: error.message,
+      );
+    }
+    if (error is ClockDriftException) {
+      // 서버 실패는 전송 어댑터가 [CoSyncRemoteException] 으로 옮긴다(위 분기).
+      // 날것으로 여기 닿는 드리프트는 이 단말의 코어 시계가 **서버 스탬프**를
+      // 거부한 것 = 단말이 뒤처졌다. 종전에는 아래 `transport` 로 접혀 "잠시 뒤
+      // 재시도" 로 보였다 — 사용자가 시계를 고칠 이유를 알 수 없었다 (G3).
+      return CoSyncFailure(
+        code: kCoSyncClockDriftBehindCode,
+        isPermanent: false,
         at: at,
         message: error.message,
       );
@@ -67,12 +95,18 @@ class CoSyncFailure {
     );
   }
 
-  /// 서버 실패 코드 (`schema_outdated`·`clock_drift`·`payload_too_large` 등)
-  /// 또는 [kCoSyncTransportFailureCode].
+  /// 서버 실패 코드 (`schema_outdated`·`clock_drift`·`payload_too_large` 등),
+  /// [kCoSyncClockDriftBehindCode] 또는 [kCoSyncTransportFailureCode].
   final String code;
 
   /// 재시도가 의미 없는 실패인가 ([CoSyncRemoteException.isPermanent]).
   final bool isPermanent;
+
+  /// 기기 시계가 허용 한도를 넘어 어긋난 실패인가 — 방향과 무관하게 "기기 시계를
+  /// 확인하세요" 안내의 대상이다 ([kCoSyncClockDriftCode] · 앞섬,
+  /// [kCoSyncClockDriftBehindCode] · 뒤처짐).
+  bool get isClockDrift =>
+      code == kCoSyncClockDriftCode || code == kCoSyncClockDriftBehindCode;
 
   /// 실패를 관측한 시각.
   final DateTime at;

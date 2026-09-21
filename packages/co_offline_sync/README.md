@@ -100,7 +100,9 @@ dart --enable-asserts run example/sync_example.dart
 
 `read`는 없는 행에 `null`, 삭제된 행에는 `isDeleted == true`인 `RowView`를
 반환합니다. `sync()`는 push 후 pull을 실행하며, 성공 시
-`SyncReport(pushedRows, pulledChanges)`를 반환합니다. 코어에서 발생한 실패는
+`SyncReport(pushedRows, pulledChanges)`를 반환합니다. 서버가 push 응답에 구체화
+보류·거부 건수를 실어 주면 `SyncReport.deferredCount`·`rejectedCount`로 합산되고,
+주지 않는 서버면 `null`(미상 — 0이 아닙니다)입니다. 코어에서 발생한 실패는
 호출자에게 전파됩니다. 자동 재시도와 연결성 감지는 코어가 수행하지 않습니다.
 
 ## 2. 데이터 모델과 병합 규칙
@@ -148,6 +150,10 @@ dart --enable-asserts run example/sync_example.dart
 첫 조작 전에 `ClientSyncStore.maxHlc()`로 시계를 자동 시드합니다. 저장된 HLC를
 잃거나 nodeId를 다른 기기에 복제하면 병합 전제가 깨질 수 있습니다.
 `ClockDriftException`은 허용 범위를 넘어 미래인 원격 시각을 거부합니다.
+클라이언트에서는 서버 응답 스탬프가 기기 시계보다 한도(기본 1시간) 넘게 앞설 때,
+즉 **기기 시계가 뒤처졌을 때** 납니다. 이때 서버가 이미 적용한 push 행은 pending에서
+해제되고(재전송 없음), 그 회차의 pull은 커서를 옮기지 않습니다. 스탬프를 고쳐
+쓰지 않으므로 기기 시계를 바로잡는 것이 해법입니다.
 
 ## 3. 네트워크 전송 연결
 
@@ -281,7 +287,7 @@ final client = CoSyncClient(
 | `SchemaMismatchException` + `serverBehind` | 서버 롤아웃 대기 후 재시도 |
 | `SchemaMismatchException` + `signatureConflict` | 같은 버전 번호의 스키마 불일치. 배포/설정 확인 |
 | `SyncProtocolException` | 잘못된 필드·예약 키·커서·limit·분할 불가능한 크기 등의 계약 위반 |
-| `ClockDriftException` | 기기/서버 시각 확인. 무조건 재시도하지 않음 |
+| `ClockDriftException` | 기기/서버 시각 확인. 무조건 재시도하지 않음. 클라이언트 `sync()`에서 나면 push는 이미 확정(pending 해제), pull 커서는 그대로 |
 | `HlcCounterOverflowException` | 같은 밀리초의 논리 카운터 상한 초과 |
 | 전송 예외 | 네트워크/인증 오류는 전송 어댑터가 전달. 앱에서 재시도 정책 적용 |
 

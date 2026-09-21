@@ -12,10 +12,14 @@ import 'package:co_offline_sync/co_offline_sync.dart';
 /// | `schema_mismatch` | 같은 버전 번호로 다른 스키마 — 배포 결함 | 영구 + 리포트 |
 /// | `protocol` | 페이로드·커서·limit 위반 | 클라 결함 — 재시도 무의미, 리포트 |
 /// | `payload_too_large` | push 하드 게이트 위반 — 요청 바이트·변경 수·필드 값 길이 상한 (S2-3 #12812) | **영구** — 같은 페이로드 재전송은 무의미. 요소 분할(스트로크 포인트 쪼개기)·배치 축소 |
-/// | `clock_drift` | 원격 스탬프가 허용 한도 이상 미래 | 기기 시계 확인 안내 |
+/// | `clock_drift` | 단말이 올린 스탬프가 서버 시계보다 허용 한도 이상 미래 (단말 **앞섬**) | 기기 시계 확인 안내 |
 ///
 /// `schema_server_behind` 는 서버 롤아웃 대기이므로 앱 업데이트 대상으로
 /// 분류하지 않는다. 이 분류에 따른 재시도 정책은 소비 앱이 제공한다.
+///
+/// 반대 방향(단말 **뒤처짐**)은 서버가 아니라 이 단말의 코어 시계가 알아챈다 —
+/// 이 타입이 아니라 `ClockDriftException` 으로 오고, [CoSyncFailure] 는 그것을
+/// `clock_drift_behind`([kCoSyncClockDriftBehindCode])로 기록한다.
 class CoSyncRemoteException implements Exception {
   /// 서버가 부여한 실패 코드와 메시지를 담아 생성한다.
   const CoSyncRemoteException({required this.code, required this.message});

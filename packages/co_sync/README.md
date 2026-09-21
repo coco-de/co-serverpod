@@ -167,7 +167,7 @@ final transport = JsonSyncTransport.map(
 | 메시지 | 필드 |
 |---|---|
 | push 요청 | `node`, `schema`, 선택적 `sv`, `changes` |
-| push 응답 | `applied`(0 이상 정수), `hlc`(packed HLC) |
+| push 응답 | `applied`(0 이상 정수), `hlc`(packed HLC), 선택적 `deferred`·`rejected`(0 이상 정수 — 없거나 형식이 어긋나면 미상) |
 | pull 요청 | `node`, `schema`, 선택적 `sv`, `cursor`(최초 null), `limit` |
 | pull 응답 | `changes`, `cursor`(불투명 문자열), `more`(bool), 선택적 `hlc` |
 | 행 변경 | `tb`, `st: {id, f: {필드명: {v, t}}}` — `t`는 packed HLC |
@@ -192,7 +192,7 @@ final transport = JsonSyncTransport.map(
 | `schema_mismatch` | 동일 버전의 서명 충돌 | 영구, 배포 결함 |
 | `protocol` | 프로토콜/페이로드 계약 위반 | 영구, 앱 결함 |
 | `payload_too_large` | 서버 크기 제한 초과 | 영구, 데이터 분할/크기 조정 |
-| `clock_drift` | 원격 HLC가 허용 범위를 넘음 | 시각 확인 후 재시도 |
+| `clock_drift` | 기기가 올린 HLC가 서버 시계보다 허용 범위를 넘게 미래 (기기 앞섬) | 시각 확인 후 재시도 |
 
 `isPermanent`는 호출자가 분기할 수 있는 정보입니다. 런타임이 이 값만으로 모든
 재시도를 중단하지는 않으므로 같은 영구 실패를 계속 보내지 않도록 앱 정책을 연결하세요.
@@ -288,6 +288,17 @@ if (report != null) {
 않고 null을 반환하며 `lastError`와 `onSyncError`로 알립니다. 미인증, 명시적 오프라인,
 구버전 앱 차단, reset/dispose에 의해 취소된 경우에도 null일 수 있으므로 null만으로
 서버 실패를 단정하지 마세요. 코어 `CoSyncClient.sync()`의 실패 전파 방식과 다릅니다.
+
+자동 트리거(debounce·주기·온라인 복귀)는 `syncNow()`의 반환값을 버립니다. 회차마다의
+집계 — 특히 서버의 구체화 보류·거부 건수 `deferredCount`·`rejectedCount`(서버가 주지
+않으면 `null`, 즉 미상) — 가 필요하면 `runtime.syncReports`(재생 없는 broadcast)를
+구독하세요. 성공한 회차만 발행합니다.
+
+기기 시계가 서버보다 허용 한도(기본 1시간) 넘게 **뒤처지면** 실패 코드
+`status.lastFailure.code`는 `clock_drift_behind`입니다(서버가 거부하는 **앞섬**은
+`clock_drift`). 두 경우 모두 `lastFailure.isClockDrift`가 true이고 일시 실패입니다.
+뒤처짐에서는 그 회차 push가 이미 서버에 적용돼 미전송 건수에서 빠지고, pull 커서는
+전진하지 않습니다.
 
 로그인 게이트를 생략하면 항상 인증된 것으로 간주합니다. 다중 사용자 앱은 반드시
 `isAuthenticated`를 전달하세요. 온라인 스트림이 아직 연결되지 않았다면 수동

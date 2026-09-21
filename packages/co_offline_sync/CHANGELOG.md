@@ -4,6 +4,18 @@
 
 - Add `CoSyncClient.deleteWithFields(table, rowId, fields)` to atomically stamp
   metadata and a tombstone, including for missing rows, without changing `delete`.
+- Fix (unibook#14051 H2): acknowledge pushed rows before adopting the server HLC.
+  A device clock more than `maxDriftMs` behind the server no longer skips
+  `clearPending` for rows the server already applied (endless re-push, false
+  unsent counts). The drift is still reported as `ClockDriftException` at the end
+  of the round, after every chunk has been sent; the pull is skipped for that
+  round, so the cursor does not advance. Post-response failures are no longer
+  routed through `PushFailureClassifier`. No restamping.
+- Add optional `SyncPushResponse.deferredCount`/`rejectedCount` (wire keys
+  `deferred`/`rejected`, written only when known). Missing or malformed values
+  decode as `null` (unknown), never `0`; decoders of earlier versions ignore the
+  new keys. `SyncReport` sums them per round (`null` if any response lacked them,
+  `0` if nothing was pushed) and adds `SyncReport.combinedWith`.
 
 ## [0.2.0](https://github.com/coco-de/co-serverpod/compare/co_offline_sync-v0.1.0...co_offline_sync-v0.2.0) (2026-09-01)
 

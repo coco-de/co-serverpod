@@ -84,6 +84,9 @@ class CoSyncFieldTooLargeError extends ArgumentError {
 ///   [onAuthenticated] 가 트리거다.
 /// - 동기화 실패는 삼키지 않고 [lastError] 에 남기며 [onSyncError] 로
 ///   통지한다 — 침묵 실패 금지, 로그는 건수와 무관하게 남긴다.
+/// - 기기 시계가 서버보다 허용 한도 넘게 **뒤처지면** 실패 코드는
+///   [kCoSyncClockDriftBehindCode] 다(서버가 거부하는 앞섬은 `clock_drift`).
+///   그 회차의 push 는 이미 서버에 적용돼 미전송 건수에서 빠진다(unibook#14051).
 class CoSyncRuntime {
   /// [syncSchema]·[schemaVersion] 은 서버 레지스트리의 현행과 같아야 한다
   /// (스키마는 소비 앱에서 관리한다). [schemaProbe] 가 없으면 사전 대조를
@@ -232,6 +235,21 @@ class CoSyncRuntime {
 
   final StreamController<QuarantinedRow> _quarantineEvents =
       StreamController<QuarantinedRow>.broadcast();
+
+  /// 성공한 동기화 회차마다 그 회차의 집계 보고를 발행하는 broadcast 스트림
+  /// (unibook#14034).
+  ///
+  /// [syncNow] 의 반환값과 같은 보고다. 디바운스·주기·온라인 복귀 같은 자동
+  /// 트리거는 반환값을 버리므로, 서버의 구체화 보류·거부 건수
+  /// ([SyncReport.deferredCount]·[SyncReport.rejectedCount] — null 은 **미상**)를
+  /// 관찰하려면 이 스트림을 구독한다.
+  ///
+  /// ⚠️ 재생·버퍼가 없다 — 구독 이전 회차는 오지 않는다. 실패한 회차는 발행하지
+  /// 않는다(그 몫은 [status] 의 `lastFailure` 다).
+  Stream<SyncReport> get syncReports => _syncReports.stream;
+
+  final StreamController<SyncReport> _syncReports =
+      StreamController<SyncReport>.broadcast();
 
   /// 관측 가능한 동기화 상태 전부 — 사용자 상태 UI 의 단일 입력값
   /// (unibook#13737 H6).
@@ -558,9 +576,7 @@ class CoSyncRuntime {
     try {
       final client = await _ensureClient();
       _checkCurrent(generation);
-      var pushedRows = 0;
-      var pulledChanges = 0;
-      var quarantinedRows = 0;
+      SyncReport? total;
       int revision;
       do {
         if (!_canSync) return null;
@@ -569,9 +585,8 @@ class CoSyncRuntime {
         _debounceTimer = null;
         final report = await client.sync();
         _checkCurrent(generation);
-        pushedRows += report.pushedRows;
-        pulledChanges += report.pulledChanges;
-        quarantinedRows += report.quarantinedRows;
+        // 보류·거부 건수는 한 회차라도 미상이면 합도 미상이다 (unibook#14034).
+        total = total?.combinedWith(report) ?? report;
         lastError = null;
         // 합류한 디바운스가 push 스냅샷 이후의 쓰기를 잃지 않게 한다.
         // 단순 트리거 합류는 추가 왕복을 만들지 않고 새 쓰기만 한 번 더 민다.
@@ -583,16 +598,19 @@ class CoSyncRuntime {
       _lastFailure = null;
       await refreshUnsentCount();
       _publishStatus();
-      return SyncReport(
-        pushedRows: pushedRows,
-        pulledChanges: pulledChanges,
-        quarantinedRows: quarantinedRows,
-      );
+      if (_isCurrent(generation) && !_syncReports.isClosed) {
+        _syncReports.add(total);
+      }
+      return total;
     } on CoSyncCancelled {
       return null;
     } on Object catch (error, stackTrace) {
       if (!_isCurrent(generation)) return null;
       lastError = error;
+      // `ClockDriftException`(코어 시계가 서버 스탬프를 거부 = 단말 뒤처짐)은
+      // `CoSyncFailure.from` 이 `clock_drift_behind` 로 가른다 — 계약 §7.2 ② 의
+      // 명시 분기를 분류기 한 곳에 둔다(두 곳이면 한쪽이 죽은 코드가 된다).
+      // push 는 이미 확정돼 있으니 아래 미전송 건수 갱신이 그것을 드러낸다.
       _lastFailure = CoSyncFailure.from(error, at: DateTime.now());
       // 실패해도 미전송 건수는 바뀌었을 수 있다 — 청크 일부가 올라간 뒤
       // 뒤 청크가 거부된 경우다. 성공 경로에만 두면 그 몫이 안 보인다.
@@ -843,6 +861,7 @@ class CoSyncRuntime {
     _quarantinedRowCount.dispose();
     _status.dispose();
     await _quarantineEvents.close();
+    await _syncReports.close();
     await store.dispose();
   }
 }
