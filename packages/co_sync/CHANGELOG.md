@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Classify `ClockDriftException` from the core client as
+  `kCoSyncClockDriftBehindCode` (`clock_drift_behind`, transient) instead of
+  `transport`, distinct from the server's `clock_drift` (device ahead). Add
+  `kCoSyncClockDriftCode` and `CoSyncFailure.isClockDrift` (unibook#14051).
+- Add `CoSyncRuntime.syncReports`, a broadcast stream of each successful round's
+  `SyncReport`, including the server's deferred/rejected projection counts
+  (`null` = unknown); `syncNow()` returns the same combined report.
 - Export `JsonSyncTransport` with JSON string and decoded-map callbacks for
   application-owned Serverpod, HTTP/OpenAPI and GraphQL clients, without SDK
   dependencies or changes to the core transport, runtime or persisted state.

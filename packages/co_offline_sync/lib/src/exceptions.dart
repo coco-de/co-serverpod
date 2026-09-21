@@ -13,6 +13,13 @@ sealed class CoOfflineSyncException implements Exception {
 ///
 /// 상대 노드의 시계가 심하게 틀어졌다는 뜻이므로, 그 스탬프를 받아들이면
 /// 이후 모든 로컬 스탬프가 그 미래 시각에 끌려간다 — 받아들이지 않고 실패시킨다.
+///
+/// 어느 쪽이 던졌는가에 따라 방향이 반대다:
+///
+/// | 던진 곳 | 원격 | 뜻 |
+/// |---|---|---|
+/// | [CoSyncServer.handlePush] | 클라이언트가 올린 스탬프 | 단말 시계가 **앞섰다** — push 거부 |
+/// | [CoSyncClient.sync] | 서버 응답 스탬프 | 단말 시계가 **뒤처졌다** — push 는 이미 확정, pull 은 커서 미전진 (unibook#14051) |
 class ClockDriftException extends CoOfflineSyncException {
   /// 드리프트 판정에 쓰인 값들을 담아 생성한다.
   ClockDriftException({

@@ -20,6 +20,25 @@ int? _schemaVersionFromJson(Object? raw) => switch (raw) {
   _ => throw const SyncProtocolException('sv must be an integer'),
 };
 
+/// push 응답의 선택 건수(`deferred`·`rejected`)를 **관대하게** 읽는다 — 0 이상
+/// 정수(또는 정수값의 유한 num)면 그 값, 없거나 형식이 어긋나면 null(미상).
+///
+/// ⚠️ 여기서 던지면 안 된다 — `sv` 는 서버가 **요청**을 검증하는 자리라 거부가
+/// 맞지만, 이 값은 클라이언트가 **서버가 이미 적용한** push 의 응답에서 읽는다.
+/// 디코드가 실패하면 그 청크가 전송 실패로 보여 적용된 행이 pending 에 남고 매
+/// 회차 재전송된다(unibook#14051 H2 와 같은 모양). 관측용 값이라 모르면 모른다고
+/// 답하면 충분하다 — 0 으로 접지 않는다(판정 불가는 통과가 아니다).
+int? _countFromJson(Object? raw) {
+  if (raw is int) return raw >= 0 ? raw : null;
+  if (raw is double &&
+      raw.isFinite &&
+      raw >= 0 &&
+      raw == raw.truncateToDouble()) {
+    return raw.toInt();
+  }
+  return null;
+}
+
 /// 클라이언트 → 서버: 로컬에서 쌓인 변경을 밀어 올리는 요청.
 class SyncPushRequest {
   /// [schemaSignature] 는 [SchemaMismatchException] 판정에 쓰인다.
@@ -62,12 +81,36 @@ class SyncPushRequest {
 }
 
 /// 서버 → 클라이언트: push 적용 결과.
+///
+/// ## 보류·거부 건수 (unibook#14034, 와이어 가산적)
+///
+/// 병합(`appliedCount`)은 서버가 행을 **받았다**는 뜻이지, 그 행이 서버 쪽 도메인
+/// 모델로 **구체화됐다**는 뜻이 아니다. 구체화 계층이 있는 서버는 그 결과를
+/// [deferredCount](보류 — 서버가 나중에 재시도)·[rejectedCount](거부 — 상태가
+/// 바뀔 때까지 재시도 안 함)로 함께 알려 준다. 둘 다 **선택**이다:
+///
+/// | 서버 | 키 | 클라이언트가 읽는 값 |
+/// |---|---|---|
+/// | 셀 수 있는 서버 | 항상 싣는다 (0 포함) | 그 값 |
+/// | 구 서버 · 구체화 계층이 없는 서버 | 없음 | **null(미상)** — 0 이 아니다 |
+///
+/// 구 클라이언트의 [fromJson] 은 모르는 키를 읽지 않으므로 그대로 동작한다.
 class SyncPushResponse {
   /// [serverHlcPacked] 는 서버 시계의 최신 스탬프 ([Hlc.pack] 형식).
+  /// [deferredCount]·[rejectedCount] 는 서버가 셀 수 있을 때만 준다 (0 이상).
   const SyncPushResponse({
     required this.appliedCount,
     required this.serverHlcPacked,
-  });
+    this.deferredCount,
+    this.rejectedCount,
+  }) : assert(
+         deferredCount == null || deferredCount >= 0,
+         'deferredCount must be >= 0',
+       ),
+       assert(
+         rejectedCount == null || rejectedCount >= 0,
+         'rejectedCount must be >= 0',
+       );
 
   /// 적용(병합)된 변경 수.
   final int appliedCount;
@@ -75,17 +118,33 @@ class SyncPushResponse {
   /// 응답 시점 서버 HLC (packed) — 클라이언트 시계 동기화용.
   final String serverHlcPacked;
 
-  /// JSON 표현.
+  /// 서버가 받았지만 구체화를 **보류**한 변경 수 — 서버가 나중에 재시도한다.
+  ///
+  /// null 은 **미상**이다 — 이 값을 주지 않는 서버의 응답이다. 0 으로 읽지 말 것
+  /// (판정 불가는 통과가 아니다).
+  final int? deferredCount;
+
+  /// 서버가 받았지만 구체화를 **거부**한 변경 수 — 행은 서버에 남고, 그 행의
+  /// 상태가 다시 바뀔 때까지 재시도하지 않는다. null 은 미상 ([deferredCount]).
+  final int? rejectedCount;
+
+  /// JSON 표현. `deferred`·`rejected` 는 값이 있을 때만 실린다 (와이어 가산적).
   Map<String, Object?> toJson() => {
     'applied': appliedCount,
     'hlc': serverHlcPacked,
+    if (deferredCount != null) 'deferred': deferredCount,
+    if (rejectedCount != null) 'rejected': rejectedCount,
   };
 
-  /// [toJson] 의 역연산.
+  /// [toJson] 의 역연산. `deferred`·`rejected` 가 없거나 형식이 어긋나면
+  /// null(미상)이다 — 관측용 값의 디코드 실패가 서버가 이미 적용한 push 를
+  /// 실패로 보이게 해서는 안 된다(이 파일의 `_countFromJson` 참조).
   factory SyncPushResponse.fromJson(Map<String, Object?> json) =>
       SyncPushResponse(
         appliedCount: json['applied']! as int,
         serverHlcPacked: json['hlc']! as String,
+        deferredCount: _countFromJson(json['deferred']),
+        rejectedCount: _countFromJson(json['rejected']),
       );
 }
 
