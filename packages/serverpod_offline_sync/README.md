@@ -24,7 +24,14 @@ drift의 `watch()`처럼 로컬 쓰기와 동기화 병합을 화면에 자동�
   도메인 행을 건드리지 않고 `crdt_data_rows`·`crdt_data_tombstone`에만 씁니다. 가시성 필터는 raw SQL
   `Expression`이라 Serverpod가 트리거 테이블로 수집하지도 않습니다.
 
-업스트림이 Serverpod 4.1과 watch를 지원하면 이 포크를 지우고 pub 패키지로 돌아갑니다([포크 제거](#포크-제거)).
+- 앱이 의존하는 **포크 전용 API·동작**이 늘었습니다(업스트림에 없음). 시계 오차 허용치 설정(`maxClockDrift`,
+  unibook#14182), 와이어 실패 코드와 분류기(`OfflineSyncRemoteException`·`offlineSyncWireErrors`·
+  `OfflineSyncFailure`, unibook#14182), 동기화 상태와 미전송 건수(`OfflineSyncStatusTracker`·
+  `unsentRowCount`·`watchUnsentRowCount`, 그 근거인 기기의 서버 확인 체크포인트 기록, unibook#14183)입니다.
+  목록은 [변경점 표](#업스트림-기준과-변경점)가 정본입니다.
+
+그래서 업스트림이 Serverpod 4.1과 watch를 지원하는 것만으로는 이 포크를 지울 수 없습니다. 위 포크 전용 API·동작의
+대응물이 업스트림에 생기거나 업스트림에 넣은 뒤에 pub 패키지로 돌아갑니다([포크 제거](#포크-제거)).
 
 ## 업스트림 기준과 변경점
 
@@ -45,16 +52,16 @@ drift의 `watch()`처럼 로컬 쓰기와 동기화 병합을 화면에 자동�
 | `lib/src/database/merge.dart` | `_updateHlcFromIncomingOperations`: 배치 최대값 하나만 보던 것을 다른 노드 최대값 `merge` → 자기 노드 최대값 `adoptOwn` 순서로 나눔. 업스트림은 최대값이 자기 노드 id 면 검사 없이 채택했다 ([위조 노드 id](#시계-오차-허용치와-동기화-실패-분류)) |
 | `lib/src/database/recorder.dart`·`merge_utils/recorder_context.dart` | `OfflineSyncDatabaseContext.maxClockDrift`(0 이하 `ArgumentError`)·`resolve`, `hlcManagerFor` 가 그 값을 전달 |
 | `lib/src/database/database.dart`·`session.dart`·`lib/src/sync/engine.dart` | `maxClockDrift` named 인자(공유 context 와 다르면 `ArgumentError`)와 getter. 동기화 루프·프로토콜은 무변경 |
-| `lib/src/sync/engine.dart`·`space_state.dart` | 미전송 건수의 근거(unibook#14183): 기기(follower)가 서버 핸드셰이크의 자기 노드 체크포인트로 (space, 자기 노드) `offline_sync_space_nodes.lastReceivedHlc` 를 **덮어쓰고**(A), `once` 세션에서 서버 `OfflineSyncClose` 를 받은 뒤에만 보낸 변경의 최대값을 기록한다(B). 동기화 루프에 기기 쪽 DB 쓰기가 늘었고, 와이어 프로토콜·스키마·권위 피어 동작은 무변경. `countUnsentRows`(수집 필터를 자기 노드로 좁힌 3쿼리), `OfflineSyncSpaceState.checkpointOf`·`handshakenSpaceIds` ([동기화 상태](#동기화-상태와-미전송-건수)) |
-| `lib/src/database/database.dart`·`recorder.dart` | `unsentRowCount`·`watchUnsentRowCount`·`watchUnsentRowCountTriggers`, `@internal replaceSyncCheckpoint`(단조 증가가 아닌 덮어쓰기) |
+| `lib/src/sync/engine.dart`·`space_state.dart` | 미전송 건수의 근거(unibook#14183): 기기(follower)가 서버 핸드셰이크의 자기 노드 체크포인트로 (space, 자기 노드) `offline_sync_space_nodes.lastReceivedHlc` 를 **덮어쓰고**(A), `once` 세션에서 서버 `OfflineSyncClose` 를 받은 뒤에만 보낸 변경의 최대값을 기록한다(B). 동기화 루프에 기기 쪽 DB 쓰기가 늘었고, 와이어 프로토콜·스키마·권위 피어 동작은 무변경. 이 쓰기는 새 `OfflineSyncDatabase` 래퍼가 아니라 plain DB 위의 recorder 로 한다(래퍼의 첫 작업은 레지스트리가 바뀐 프로세스에서 전 space 를 재투영한다). `countUnsentRows`(수집 필터를 자기 노드로 좁힌 3쿼리, 행을 읽은 뒤 체크포인트를 다시 읽어 내려갔으면 다시 셈), 테스트 훅 `@visibleForTesting debugOnUnsentRowCheckpointsRead`, `OfflineSyncSpaceState.checkpointOf`·`handshakenSpaceIds` ([동기화 상태](#동기화-상태와-미전송-건수)) |
+| `lib/src/database/database.dart`·`recorder.dart`·`unsent_row_count.dart` (신규, 배럴 미export) | `unsentRowCount`·`watchUnsentRowCount`(파이프라인 `countOnEachTrigger`)·`watchUnsentRowCountTriggers`, `@internal replaceSyncCheckpoint`(단조 증가가 아닌 덮어쓰기), 테스트 훅 `@visibleForTesting CrdtMutationRecorder.debugProjectionRebuildCount` |
 | `lib/src/sync/failure_code.spy.yaml`·`remote_exception.spy.yaml`·`failure_mapping.dart` (신규) | 와이어 예외 `OfflineSyncRemoteException`·`OfflineSyncFailureCode`(`unknown` + `default: unknown`), 매퍼 `toOfflineSyncWireError`(`driftMs` 올림, 무결성 위반은 식별자 없는 고정 문구)·`offlineSyncWireErrors(onMapped:)`. 생성 코드 2개 추가 |
 | `lib/serverpod_offline_sync.dart` (배럴) | `src/sync/failure_mapping.dart` export 추가 — 공개 API 가 늘어남 |
 | `test/hlc/hlc_fixtures.dart`·`hlc_increment_test.dart`·`hlc_merge_test.dart` (업스트림 테스트) | 1분 초과를 거부하던 케이스를 "기본값에서는 통과" 로 바꾸고 거부 경계를 1시간(`Hlc.defaultMaxDrift`)으로 옮김, `kind` 단언 추가, fixture 주석(밀리초 정렬 이유) |
 | `serverpod_offline_sync_server` `business/offline_sync.dart` | `initializeOfflineSync(maxClockDrift:)`, `OfflineSyncSession.sync` 에 매퍼 적용·바꾼 실패의 원본을 세션 로그(`LogLevel.error`)에 기록, `maxClockDrift` getter. `initializeOfflineSync` dartdoc 에 "설정은 한 번에 모두" 경고(unibook#14183, 동작 무변경) |
 | `serverpod_offline_sync_client` `lib/src/sync/failure.dart` (신규) | 앱 분류기 `OfflineSyncFailure.from`·`OfflineSyncFailureReason` (열기 거부 `OpenMethodStreamException` 3종 포함) |
-| `serverpod_offline_sync_client` `lib/src/sync/sync_status.dart` (신규)·`pubspec.yaml` | 상태 API `OfflineSyncStatusTracker`·`OfflineSyncStatus`·`OfflineSyncPhase` (unibook#14183), `clock` 의존 추가 |
+| `serverpod_offline_sync_client` `lib/src/sync/sync_status.dart` (신규)·`pubspec.yaml` | 상태 API `OfflineSyncStatusTracker`·`OfflineSyncStatus`·`OfflineSyncPhase` (unibook#14183), 테스트용 `@visibleForTesting unsentRowCounter`, `clock`·`meta` 의존 추가 |
 | `serverpod_offline_sync_client` `lib/offline_sync.dart`·`lib/serverpod_offline_sync_client.dart` (배럴) | `src/sync/failure.dart`·`src/sync/sync_status.dart` export 추가 — 공개 API 가 늘어남 |
-| **포크 전용 테스트** (업스트림에 없음) | 엔진 `test/hlc/hlc_max_drift_test.dart`·`test/managers/hlc_manager_test.dart`·`test/sync/failure_mapping_test.dart`·`test/sync/max_clock_drift_config_test.dart`, 클라이언트 `test/failure_test.dart`·`test/sync_status_test.dart`, 서버 모듈 `test/integration/failure_mapping_test.dart`·`test/integration/continuous_sync_interval_test.dart`. 업스트림을 새로 풀면 **지워진다** — [업스트림 따라가기](#업스트림-따라가기) 1단계 |
+| **포크 전용 테스트** (업스트림에 없음) | 엔진 `test/hlc/hlc_max_drift_test.dart`·`test/managers/hlc_manager_test.dart`·`test/sync/failure_mapping_test.dart`·`test/sync/max_clock_drift_config_test.dart`·`test/database/unsent_row_count_test.dart`, 클라이언트 `test/failure_test.dart`·`test/sync_status_test.dart`, 서버 모듈 `test/integration/failure_mapping_test.dart`·`test/integration/continuous_sync_interval_test.dart`. 업스트림을 새로 풀면 **지워진다** — [업스트림 따라가기](#업스트림-따라가기) 1단계 |
 
 ## 설치
 
@@ -255,7 +262,12 @@ final unsent = await tracker.countUnsentRows();
   뒤에만 닫는다), ③ 서버가 되돌려 보낸 자기 변경(업스트림 병합 경로, 보장 아님).
 - **적게 세지 않고, 많이 셀 수는 있습니다.** 서버가 거부한 회차(K2 등)와 기기 쪽 실패는 ②에 닿지 않아 줄지
   않습니다. 서버는 병합했는데 기기가 실패한 회차, 연속 동기화(회차마다 확인 시점이 없다)는 다음 `syncOnce`
-  까지 많게 셉니다. 서버가 이 사용자와 더 동기화하지 않는 space 의 자기 행은 계속 셉니다.
+  까지 많게 셉니다. 서버가 이 사용자와 더 동기화하지 않는 space 의 자기 행은 계속 셉니다. 셈 도중에 ①이
+  체크포인트를 내리면(데이터를 잃은 서버) 옛 높은 값으로 세지 않도록, 행을 읽은 뒤 체크포인트를 다시 읽어
+  내려갔으면 새 값으로 다시 셉니다(최대 3회, 그래도 계속 내려가면 자기 행 전부 = 상한). 셈 도중 커밋된
+  **로컬 쓰기**는 들어갈 수도 빠질 수도 있으니, 로그아웃 경고는 쓰기를 멈춘 뒤 셉니다.
+- **건수를 셀 수 없으면 `null`**: 조회가 실패하면(예: DB 가 닫힘) 추적기는 0 도 직전 값도 아닌 `null` 을
+  발행합니다. `watchUnsentRowCount` 는 실패한 셈을 오류 이벤트로 내고 다음 커밋에서 다시 셉니다.
 - **한 이벤트로 발행**: `syncOnce` 가 끝나면 결과(`lastSuccessAt` 또는 `lastFailure`)와 **그 뒤에 읽은** 건수를
   한 번에 냅니다. "성공 시각 이후 + 미전송 0" 으로 판정하는 소비자가 중간 상태를 보지 않습니다. 건수 조회는
   한 번에 하나씩, 요청 이후에 시작한 조회로만 갱신합니다.
@@ -263,16 +275,26 @@ final unsent = await tracker.countUnsentRows();
   없는 DB 에서는 생성 시·회차 뒤·`refreshUnsentRowCount` 에서만 셉니다. 웹은 검증하지 않았습니다.
 - **`syncOnce` 는 합류합니다**: 진행 중에 부르면 같은 회차를 기다리고, 그 호출의 `onMergeSuccess` 는 불리지
   않습니다. 회차 중에 쓴 행은 그 회차에 실리지 않을 수 있으니 성공 뒤 건수가 0 이 아니면 다시 예약하세요.
-- **비용**: 행·필드·tombstone 3쿼리의 행 id 합집합입니다. 데스크톱 SQLite 실측(2026-09-24, 이 구현):
-  1천 행 8–16ms·1만 행 49–56ms(확인값 없음, 전량), 확인값 이후 10% 갱신 시 1천 행 3–5ms·1만 행 13–16ms.
+- **비용**: 행·필드·tombstone 3쿼리의 행 id 합집합과, 앞뒤 체크포인트 조회(자기 노드 행만)입니다. 데스크톱
+  SQLite 실측(2026-09-24, 재검증 포함, 각 5회): 1천 행 8–18ms·1만 행 46–58ms(확인값 없음, 전량), 확인값 이후
+  10% 갱신 시 1천 행 3–5ms·1만 행 13–16ms.
   모바일은 측정하지 않았습니다. 행에 필드 조건을 `any` 로 거는 한 쿼리는 설계 프로브에서 1만 행 1.3–2.4초여서
   쓰지 않습니다.
 
 ### 서버 연속 동기화 간격
 
-`initializeOfflineSync(continuousSyncInterval:)` 이 연속 동기화 회차 사이 대기(기본 200ms, 업스트림과 같음)를
-정합니다. 유휴 회차 주기는 대략 유휴 타임아웃 1초 + 이 간격입니다. 기기 쪽은
-`OfflineSyncDatabaseSession.wraps(continuousSyncInterval:)` 로 따로 정합니다.
+`initializeOfflineSync(continuousSyncInterval:)` 이 서버 쪽 연속 동기화 회차 사이 대기(기본 200ms, 업스트림과
+같음)를 정합니다. 두 피어는 각자 루프를 돌고, 각자 자기 간격만 봅니다.
+
+| 간격 | 정하는 곳 | 좌우하는 것 |
+|---|---|---|
+| 서버 | `initializeOfflineSync(continuousSyncInterval:)` — **서버 전체에 하나** | 서버가 자기 쪽 변경(다른 기기가 올린 쓰기 포함)을 모아 이 기기로 보내는 주기. 기기가 보낼 것이 없으면 서버는 유휴 타임아웃 1초를 기다린 뒤 이 간격만큼 쉬고 다시 모읍니다(대략 1초 + 간격) |
+| 기기 | `OfflineSyncDatabaseSession.wraps(continuousSyncInterval:)` | 기기가 로컬 쓰기를 모아 보내는 주기와, 받아 둔 서버 배치를 적용하는 주기 |
+
+⚠️ 기기 간격을 줄여도 **서버가 보내는 주기는 그대로입니다**. 보낼 것이 없는 기기는 배치 끝을 보내지 않아서, 서버는
+여전히 유휴 타임아웃과 자기 간격을 기다립니다. 내려오는 쪽 지연은 서버 주기와 기기 주기를 둘 다 거칩니다. 화면
+(세션)마다 다른 간격 — ADR §5.4 의 "실시간이 필요한 화면에서만" — 은 이 포크에 **없습니다**. 전역 설정만 있고,
+세션별 간격은 후속 작업입니다.
 
 ⚠️ 생성된 `Serverpod` 생성자가 이미 **기본값으로** `initializeOfflineSync(syncTables: ...)` 를 부릅니다. 값을 바꾸려면
 생성 뒤에 다시 부르되, 호출마다 엔진을 통째로 교체하므로 **모든 설정을 한 번에** 넘기세요 — 간격만 넘기면
@@ -287,7 +309,7 @@ pod.initializeOfflineSync(
 );
 ```
 
-간격은 서버 전체에 하나입니다. 화면마다(세션마다) 다른 간격은 아직 없습니다.
+간격은 서버 전체에 하나입니다. 줄이면 모든 사용자의 모든 연속 세션이 더 자주 모읍니다.
 
 ## 동작과 주의점
 
@@ -348,8 +370,14 @@ dart run serverpod_cli create-migration
 
 ## 포크 제거
 
-업스트림이 Serverpod 4.1과 `watch`를 지원하는 버전을 내면 다음 순서로 돌아갑니다.
+업스트림이 Serverpod 4.1과 `watch`를 지원하는 버전을 내고, [왜 포크인가](#왜-포크인가)의 포크 전용 API·동작에
+대응물이 생기면 다음 순서로 돌아갑니다.
 
-1. watch fixture 테스트를 업스트림 버전으로 돌려 삭제·병합 삭제가 반영되는지 확인합니다.
-2. 앱의 git 의존을 pub 버전으로 바꿉니다. 패키지 이름과 모듈 이름이 같아서 생성 코드와 DB는 그대로입니다.
-3. 세 패키지와 `test/offline_sync_watch_test_*`를 삭제합니다.
+1. [변경점 표](#업스트림-기준과-변경점)의 포크 전용 항목마다 업스트림 대응물을 찾고, 앱 호출부를 그쪽으로 옮깁니다.
+   대응물이 없는 API 를 쓰는 앱은 컴파일되지 않으니 그대로 지우지 마세요. 동작 차이(시계 오차 기본값 1시간,
+   기기의 서버 확인 체크포인트 기록)는 컴파일 오류로 드러나지 않습니다 — 업스트림 고정값(1분)으로 돌아가면
+   1분을 넘는 기기 시계 차이가 다시 K1·K2 로 거부됩니다. 기기 DB 에 남은 자기 노드 체크포인트 행은 업스트림
+   핸드셰이크가 읽지 않아(`createSyncSinceHlc` 는 현재 노드 행을 제외) 무해합니다.
+2. watch fixture 테스트를 업스트림 버전으로 돌려 삭제·병합 삭제가 반영되는지 확인합니다.
+3. 앱의 git 의존을 pub 버전으로 바꿉니다. 패키지 이름과 모듈 이름이 같아서 생성 코드와 DB는 그대로입니다.
+4. 세 패키지와 `test/offline_sync_watch_test_*`를 삭제합니다.

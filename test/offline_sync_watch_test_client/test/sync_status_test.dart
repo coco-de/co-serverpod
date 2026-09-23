@@ -29,6 +29,13 @@ import 'support/sync_harness.dart';
 /// | Server merged, device failed | Unchanged until the next round |
 /// | Reopened after a round | 0 (persisted) |
 /// | Server that lost the data | All rows again, from its handshake |
+/// | Server restored from a backup | The rows after its lower checkpoint |
+/// | Rows in a shared space too | 0 after a round: every space confirmed |
+/// | Checkpoint lowered during a count | Counted again from the lower one |
+/// | A count that fails | Unknown (null), never 0 or the last count |
+///
+/// The device's checkpoint writes must not re-project every space on an idle
+/// round, and a count read before a round ended is never the round's outcome.
 void main() {
   late Directory tempDir;
   final client = Client('http://localhost:1/');

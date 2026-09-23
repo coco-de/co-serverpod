@@ -12,11 +12,21 @@
   - `OfflineSyncDatabase.unsentRowCount()` counts rows (not changes) of the
     synced tables with a change this node wrote after that checkpoint, with
     the collection filters narrowed to this node (three queries, row ids
-    united). It reads the checkpoints before the rows, so a concurrent sync
-    can make it high, never low. `watchUnsentRowCount()` and
-    `watchUnsentRowCountTriggers()` (SQLite only) re-count on commits.
+    united). It reads the checkpoints before the rows and again after them,
+    and counts again from the new ones when one went back meanwhile, so a
+    concurrent sync can make it high, never low. `watchUnsentRowCount()` and
+    `watchUnsentRowCountTriggers()` (SQLite only) re-count on commits, one
+    count at a time; a failed count is an error event and the stream goes on.
+  - The device writes those checkpoints through a recorder over the plain
+    database, not a new `OfflineSyncDatabase` wrapper: a wrapper's first
+    operation re-projects every space while the schema registry changed in
+    this process, which made every idle round pay it once per handshaken space
+    plus one.
   - `OfflineSyncEngine.countUnsentRows`, `@internal replaceSyncCheckpoint` on
     the database and the recorder.
+  - Test hooks (`@visibleForTesting`):
+    `CrdtMutationRecorder.debugProjectionRebuildCount` and
+    `OfflineSyncEngine.debugOnUnsentRowCheckpointsRead`.
   - The count can stay high until the next successful `once` session: after a
     round the server merged but the device failed, during continuous sync, and
     for a space the server no longer syncs with the user.

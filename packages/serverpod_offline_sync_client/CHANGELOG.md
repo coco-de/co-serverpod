@@ -8,9 +8,10 @@
   with the count read after it in one event, then rethrows a failure.
   `syncContinuously` records a failure without touching the phase or the last
   success. Counts run one at a time, each started after its trigger; on SQLite
-  a commit watch picks up offline writes. `countUnsentRows()` reads the count
-  fresh for a sign-out warning.
-- chore: Depend on `clock`.
+  a commit watch picks up offline writes. A failed count publishes null.
+  `countUnsentRows()` reads the count fresh for a sign-out warning. The
+  `@visibleForTesting` `unsentRowCounter` replaces the count in tests.
+- chore: Depend on `clock` and `meta`.
 
 - feat: `OfflineSyncFailure.from(error)` classifies a sync error into an
   `OfflineSyncFailureReason` with `isPermanent` and `isClockDrift`
