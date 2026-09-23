@@ -65,11 +65,16 @@ void main() {
   /// server stream maps its failures the way the server module facade does.
   /// Every change the device sends is appended to [sent]. With [rewrite], each
   /// change the device sends reaches the server as [rewrite] returns it.
+  ///
+  /// With [holdServerDataUntil], the server runs without back-pressure from
+  /// the device, as over a WebSocket, and the device receives nothing from the
+  /// server's first merge chunk on until the returned future completes.
   OfflineSyncClient peerOf(
     OfflineSyncDatabaseSession server, {
     bool wire = false,
     List<CrdtMergeChange>? sent,
     CrdtMergeChange Function(CrdtMergeChange change)? rewrite,
+    Future<void> Function()? holdServerDataUntil,
   }) {
     return OfflineSyncClient(({required changes, required once}) {
       final inbound = changes.map((event) {
@@ -80,12 +85,15 @@ void main() {
           changes: event.changes.map(rewrite).toList(),
         );
       });
-      final stream = server.db.sync(
+      var stream = server.db.sync(
         inbound: inbound,
         once: once,
         mode: OfflineSyncPeerMode.authoritative,
       );
-      return wire ? stream.transform(offlineSyncWireErrors()) : stream;
+      if (wire) stream = stream.transform(offlineSyncWireErrors());
+      return holdServerDataUntil == null
+          ? stream
+          : _holdDataUntil(stream, holdServerDataUntil);
     });
   }
 
@@ -99,6 +107,23 @@ void main() {
       return error;
     }
     fail('syncOnce completed, but a clock drift failure was expected.');
+  }
+
+  /// The checkpoint [server] persisted for the changes it merged from [nodeId].
+  /// It is what the server's next handshake tells that node to resume from.
+  Future<Hlc?> checkpointOf(
+    OfflineSyncDatabaseSession server,
+    UuidValue nodeId,
+  ) async {
+    final spaceNodes = await OfflineSyncSpaceNode.db.find(
+      server,
+      include: OfflineSyncSpaceNode.include(node: CrdtNode.include()),
+    );
+    return spaceNodes
+        .where((spaceNode) => spaceNode.node?.uuidNodeId == nodeId)
+        .map((spaceNode) => spaceNode.lastReceivedHlc)
+        .nonNulls
+        .firstOrNull;
   }
 
   Future<Hlc?> nodeClockOf(OfflineSyncDatabaseSession session) async {
@@ -151,57 +176,76 @@ void main() {
     // The fork has no ACK: whether the device re-sends a row is decided by the
     // checkpoint the server persisted when it merged it. So a row the server
     // kept must not be sent again, and a row it never merged must be. co_sync
-    // needed a fix for this (unibook#14051); this pins it for the fork.
+    // needed a fix for this (unibook#14051); these pin both halves for the
+    // fork, each in a harness that forces its case.
     //
-    // In this in-process harness the server never reads the device batch of
-    // the failed round: its generator is paused at `yield` by the device's
-    // iterator until the device fails and cancels it. Over a WebSocket the
-    // server is not paused by the device and may merge that batch. The
-    // assertions hold either way.
-    test(
-      'should_resend_the_device_push_of_the_failed_round_only_if_the_server_missed_it',
-      () async {
-        final userId = const Uuid().v7obj();
-        final server = await openReplica(userId);
-        final device = await openReplica(userId);
-        final sent = <CrdtMergeChange>[];
-        final peer = peerOf(server, sent: sent);
-        final deviceNodeId = await device.db.currentNodeId();
-        // Only the device's own rows count. The device also echoes the server's
-        // row back while that row is stamped ahead of the server wall clock:
-        // the server excludes its own changes with a wall-clock checkpoint
-        // (`Hlc.now`), not its last HLC. Upstream behavior, harmless.
-        Iterable<CrdtMergeChange> sentByDevice() =>
-            sent.where((change) => change.uuidNodeId == deviceNodeId);
-        await at(t0, () => Note.db.insertRow(device, Note(title: 'device')));
-        await at(t0.add(oneHour + oneMillisecond), () {
-          return Note.db.insertRow(server, Note(title: 'from the future'));
-        });
+    // Only the device's own rows count. The device also echoes the server's
+    // row back while that row is stamped ahead of the server wall clock: the
+    // server excludes its own changes with a wall-clock checkpoint (`Hlc.now`),
+    // not its last HLC. Upstream behavior, harmless.
+    for (final serverMergesFirst in [false, true]) {
+      test(
+        serverMergesFirst
+            ? 'should_not_resend_the_device_push_of_the_failed_round_that_the_server_merged'
+            : 'should_resend_the_device_push_of_the_failed_round_that_the_server_missed',
+        () async {
+          final userId = const Uuid().v7obj();
+          final server = await openReplica(userId);
+          final device = await openReplica(userId);
+          final deviceNodeId = await device.db.currentNodeId();
+          final sent = <CrdtMergeChange>[];
+          Iterable<CrdtMergeChange> sentByDevice() =>
+              sent.where((change) => change.uuidNodeId == deviceNodeId);
+          // Directly connected, the device iterator pauses the server generator
+          // at `yield`, so the server never reads the device batch of a round
+          // the device fails. Held, the server runs ahead as over a WebSocket
+          // and the device sees the server batch only after the server has
+          // merged the device batch and persisted its checkpoint.
+          final failingPeer = peerOf(
+            server,
+            sent: sent,
+            holdServerDataUntil: serverMergesFirst
+                ? () => _eventually(
+                    () async =>
+                        await checkpointOf(server, deviceNodeId) != null,
+                  )
+                : null,
+          );
+          final peer = peerOf(server, sent: sent);
+          await at(t0, () => Note.db.insertRow(device, Note(title: 'device')));
+          await at(t0.add(oneHour + oneMillisecond), () {
+            return Note.db.insertRow(server, Note(title: 'from the future'));
+          });
 
-        expect(
-          await at(t0, () => syncFailure(peer, device)),
-          isA<ClockDriftException>(),
-        );
-        if (sentByDevice().isNotEmpty) {
-          await _eventually(() async => await Note.db.count(server) == 2);
-        }
-        final serverKeptIt = await Note.db.count(server) == 2;
+          expect(
+            await at(t0, () => syncFailure(failingPeer, device)),
+            isA<ClockDriftException>(),
+          );
+          // [sent] records what the server read, so it also shows whether the
+          // failed round's device batch reached the server at all.
+          expect(sentByDevice(), hasLength(serverMergesFirst ? 1 : 0));
+          expect(await Note.db.count(server), serverMergesFirst ? 2 : 1);
+          expect(
+            await checkpointOf(server, deviceNodeId),
+            serverMergesFirst ? isNotNull : isNull,
+          );
 
-        sent.clear();
-        await at(t0.add(oneMillisecond), () => peer.syncOnce(device));
-        expect(sentByDevice(), hasLength(serverKeptIt ? 0 : 1));
-        expect(await Note.db.count(server), 2);
-        expect(await Note.db.count(device), 2);
+          sent.clear();
+          await at(t0.add(oneMillisecond), () => peer.syncOnce(device));
+          expect(sentByDevice(), hasLength(serverMergesFirst ? 0 : 1));
+          expect(await Note.db.count(server), 2);
+          expect(await Note.db.count(device), 2);
 
-        sent.clear();
-        await at(t0.add(oneMillisecond * 2), () => peer.syncOnce(device));
-        expect(
-          sentByDevice(),
-          isEmpty,
-          reason: 'the server checkpoint covers the row',
-        );
-      },
-    );
+          sent.clear();
+          await at(t0.add(oneMillisecond * 2), () => peer.syncOnce(device));
+          expect(
+            sentByDevice(),
+            isEmpty,
+            reason: 'the server checkpoint covers the row',
+          );
+        },
+      );
+    }
   });
 
   group('K2 — given a device row stamped past the server limit,', () {
@@ -436,7 +480,77 @@ void main() {
         );
       },
     );
+
+    test(
+      'should_accept_wrapping_again_with_the_same_maxClockDrift_or_none',
+      () async {
+        const fiveMinutes = Duration(minutes: 5);
+        final session = await openReplica(
+          const Uuid().v7obj(),
+          maxClockDrift: fiveMinutes,
+        );
+
+        for (final maxClockDrift in [fiveMinutes, null]) {
+          final wrapped = OfflineSyncDatabaseSession.wraps(
+            session,
+            syncTables: syncTables,
+            maxClockDrift: maxClockDrift,
+          );
+
+          expect(wrapped.db, same(session.db));
+          expect(wrapped.db.maxClockDrift, fiveMinutes);
+        }
+      },
+    );
   });
+}
+
+/// Forwards [source] without back-pressure on it, holding back every event
+/// from the first [OfflineSyncMergeChunk] on until [release] completes.
+///
+/// Cancelling the returned stream cancels [source] without waiting for it:
+/// the device's teardown must not inherit the server's own failure.
+Stream<OfflineSyncStreamEvent> _holdDataUntil(
+  Stream<OfflineSyncStreamEvent> source,
+  Future<void> Function() release,
+) {
+  final controller = StreamController<OfflineSyncStreamEvent>();
+  final held = <void Function()>[];
+  var holding = false;
+  var released = false;
+  StreamSubscription<OfflineSyncStreamEvent>? subscription;
+
+  void deliver(void Function() emit) => holding ? held.add(emit) : emit();
+
+  controller
+    ..onListen = () {
+      subscription = source.listen(
+        (event) {
+          if (event is OfflineSyncMergeChunk && !holding && !released) {
+            holding = true;
+            unawaited(
+              release().then((_) {
+                released = true;
+                holding = false;
+                for (final emit in held) {
+                  emit();
+                }
+                held.clear();
+              }),
+            );
+          }
+          deliver(() => controller.add(event));
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          deliver(() => controller.addError(error, stackTrace));
+        },
+        onDone: () => deliver(() => unawaited(controller.close())),
+      );
+    }
+    ..onCancel = () {
+      subscription?.cancel().ignore();
+    };
+  return controller.stream;
 }
 
 /// [change] as if [nodeId] had authored it.
