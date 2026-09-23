@@ -60,6 +60,11 @@ cd test/offline_sync_watch_test_client && dart pub get && dart test
 > 못하는 것은 이 하네스의 성질이며, WebSocket 에서는 다를 수 있습니다. 그래서 재전송 테스트는 WebSocket 쪽
 > 경우를 `peerOf(holdServerDataUntil:)` 로 따로 강제합니다 — 서버는 back-pressure 없이 달리고, 기기는 서버가
 > 기기 배치를 병합해 체크포인트를 남긴 뒤에야 서버 배치를 받습니다. 관측한 상태로 기대값을 고르지 마세요.
+>
+> 보낼 변경 수집의 스냅샷(unibook#14183)은 SQLite 에서는 쓰기 잠금이, PostgreSQL 에서는 `repeatable read` 가
+> 만듭니다. 수집을 돌리는 테스트는 모두 SQLite 라서 **PostgreSQL 쪽 격리 수준 인자는 검증하지 않습니다** —
+> 그 인자를 지운 변이는 전 테스트를 통과합니다(SQLite 는 `isolationLevel` 을 무시). 동기화 모델이 PostgreSQL
+> 에 올라가는 단계(unibook#14186)에서 서버 수집 테스트로 메우세요.
 
 > **로컬 재실행 주의**: 서버 모듈의 `untracked_update_test.dart`는 Serverpod 내장 PostgreSQL을 띄우는데,
 > 테스트가 끝나도 그 프로세스가 남습니다(업스트림 Serverpod 4.0.0에서도 동일). 남은 프로세스가 있으면
