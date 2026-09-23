@@ -503,6 +503,92 @@ void main() {
       },
     );
   });
+
+  // The constructors wrapping a plain database take the limit from a shared
+  // context when one is given. A different maxClockDrift must throw instead
+  // of being ignored: the caller would otherwise run with a limit it did not
+  // ask for.
+  group('Given a plain database and a shared context with its own limit,', () {
+    const fiveMinutes = Duration(minutes: 5);
+
+    // The return type is inferred: the plain session's type lives in
+    // serverpod_database, which this package does not depend on directly.
+    openPlain() async {
+      final plain = await client.createSession(
+        p.join(tempDir.path, 'plain-${++databaseCount}.db'),
+      );
+      addTearDown(plain.close);
+      final context = OfflineSyncDatabaseContext(
+        syncTables: syncTables,
+        serializationManager: plain.db.serializationManager,
+        maxClockDrift: fiveMinutes,
+      );
+      return (plain, context);
+    }
+
+    test(
+      'should_reject_a_different_maxClockDrift_in_every_wrapping_constructor',
+      () async {
+        final (plain, context) = await openPlain();
+
+        expect(
+          () => OfflineSyncDatabase(
+            plain.db,
+            syncTables: syncTables,
+            context: context,
+            maxClockDrift: oneHour,
+          ),
+          throwsArgumentError,
+        );
+        expect(
+          () => OfflineSyncDatabaseSession(
+            plain.db,
+            syncTables: syncTables,
+            context: context,
+            maxClockDrift: oneHour,
+          ),
+          throwsArgumentError,
+        );
+        expect(
+          () => OfflineSyncDatabaseSession.wraps(
+            plain,
+            syncTables: syncTables,
+            context: context,
+            maxClockDrift: oneHour,
+          ),
+          throwsArgumentError,
+        );
+      },
+    );
+
+    test(
+      'should_use_the_context_limit_when_the_same_maxClockDrift_or_none_is_passed',
+      () async {
+        final (plain, context) = await openPlain();
+
+        for (final maxClockDrift in [fiveMinutes, null]) {
+          expect(
+            OfflineSyncDatabase(
+              plain.db,
+              syncTables: syncTables,
+              context: context,
+              maxClockDrift: maxClockDrift,
+            ).maxClockDrift,
+            fiveMinutes,
+          );
+          expect(
+            OfflineSyncDatabaseSession(
+              plain.db,
+              syncTables: syncTables,
+              context: context,
+              maxClockDrift: maxClockDrift,
+            ).db.maxClockDrift,
+            fiveMinutes,
+          );
+        }
+      },
+    );
+  });
 }
 
 /// Forwards [source] without back-pressure on it, holding back every event
