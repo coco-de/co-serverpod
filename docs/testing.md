@@ -17,6 +17,7 @@ cd packages/serverpod_auth_idp_kakao_server && dart test test/kakao_profile_test
 
 ```bash
 cd packages/serverpod_offline_sync && dart pub get && dart test
+cd packages/serverpod_offline_sync_client && dart pub get && dart test
 cd packages/serverpod_offline_sync_server && dart pub get && dart test --concurrency=1
 cd test/offline_sync_watch_test_client && dart pub get && dart test
 ```
@@ -29,6 +30,22 @@ cd test/offline_sync_watch_test_client && dart pub get && dart test
 | 롤백·무관한 동기화 테이블 쓰기 | 결과가 같으면 emit하지 않음 |
 | 동기화 병합 insert/update/delete, 연속 동기화 | 다른 복제본의 변경이 병합 즉시 반영 |
 | `database: client` 테이블, `unsafeWatch` | 동기화 세션을 거쳐도 동작 |
+
+시계 오차 허용치와 실패 분류(unibook#14182)는 네 곳에서 나눠 검증합니다.
+
+| 위치 | 검증 |
+|---|---|
+| 엔진 `test/hlc/hlc_max_drift_test.dart`·`test/managers/hlc_manager_test.dart` | 기본 1시간, 정확히 한도는 허용·1ms 초과는 거부(`merge`·`increment` 양쪽), 5분 사용자 값, `merge` 가 받은 스탬프 뒤 `increment` 성공(한 값 공유), `kind`·`remoteNodeId`·`toString` |
+| 엔진 `test/sync/` | context·엔진의 값 전달과 충돌 `ArgumentError`, 와이어 매퍼 구조 단언과 메서드 스트림 메시지 왕복, 알 수 없는 예외 통과 |
+| 클라이언트 `test/failure_test.dart` | `OfflineSyncFailure.from` 전 분기, `isPermanent`·`isClockDrift` 집합, 생성 client Protocol 로 복호 |
+| 서버 모듈 `failure_mapping_test.dart` | `initializeOfflineSync(maxClockDrift:)` 배선, 파사드 매핑, 생성 endpoint 경유 `integrityViolation` |
+| watch `clock_drift_test.dart` | 고정 시계(`withClock`)로 K1(기기 뒤처짐)·K2(기기 앞섬, 타입 있는 예외)·K3(로컬 역행)·허용치 차이(C ≥ S)·실패 회차 재전송 |
+
+> **하네스 한계**: `serverpod_test` 는 스트리밍 endpoint 의 오류를 원본 그대로 넘기므로, 실제 소켓에서
+> `SerializableException` 이 아닌 예외가 사라지는 것을 재현하지 못합니다 — 그래서 매퍼가 메서드 스트림
+> 메시지 왕복을 따로 단언합니다. watch 하네스는 두 복제본을 한 프로세스에서 직접 잇기 때문에, 기기
+> iterator 가 서버 생성기를 `yield` 에서 멈춰 둡니다. 기기 병합이 실패한 회차에 서버가 기기 배치를 읽지
+> 못하는 것은 이 하네스의 성질이며, WebSocket 에서는 다를 수 있습니다.
 
 > **로컬 재실행 주의**: 서버 모듈의 `untracked_update_test.dart`는 Serverpod 내장 PostgreSQL을 띄우는데,
 > 테스트가 끝나도 그 프로세스가 남습니다(업스트림 Serverpod 4.0.0에서도 동일). 남은 프로세스가 있으면

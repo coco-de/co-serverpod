@@ -1,3 +1,29 @@
+## Unreleased (co-serverpod fork)
+
+- feat: Configurable clock drift allowance (unibook#14182). Upstream hard-coded
+  one minute; the fork defaults to one hour (`Hlc.defaultMaxDrift`).
+  - `Hlc.increment` and `Hlc.merge` take `maxDrift`. The one-minute literal in
+    `increment` is gone, so both checks share one limit and a timestamp `merge`
+    accepts no longer blocks the next local write. The local clock rollback
+    check in `increment` stays as upstream.
+  - `OfflineSyncDatabaseContext.maxClockDrift` (must be positive) holds the
+    value; `OfflineSyncEngine`, `OfflineSyncDatabase` and
+    `OfflineSyncDatabaseSession` (+ `.wraps`) take `maxClockDrift` and throw
+    `ArgumentError` when it conflicts with a shared context or an already
+    wrapped database. `HlcManager.forSpace(maxDrift:)` applies it.
+  - BREAKING: `ClockDriftException` requires `kind` (`ClockDriftKind.remoteAhead`
+    from `merge`, `localAhead` from `increment`) and carries `remoteNodeId`. Its
+    `toString` no longer prints "ms" after a `Duration`.
+- feat: Typed sync failures on the wire. Serverpod forwards only
+  `SerializableException`s from a streaming endpoint, so a server-side
+  `ClockDriftException` reached the device as a plain connection error.
+  - New models `OfflineSyncRemoteException` (`code`, `message`, `driftMs`,
+    `maxDriftMs`) and `OfflineSyncFailureCode` (`clockDrift`,
+    `serverClockDrift`, `hlcOverflow`, `duplicateNode`, `integrityViolation`).
+  - `toOfflineSyncWireError` and the `offlineSyncWireErrors()` stream
+    transformer map server-side failures and pass anything else through. A
+    schema hash mismatch is not mapped.
+
 ## 0.0.8+co.1 (co-serverpod fork)
 
 Forked from upstream
