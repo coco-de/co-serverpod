@@ -11,17 +11,31 @@ class HlcManager {
     this.normalizedSpaceId,
     this.normalizedNodeId,
     this._node,
+    this.maxDrift,
   );
 
   /// Creates a new [HlcManager] for the current node of [space].
-  factory HlcManager.forSpace(OfflineSyncSpace space) {
+  ///
+  /// [maxDrift] bounds both [increment] (and [peekNext]) and [merge], so a
+  /// timestamp [merge] accepts never blocks the next local write.
+  factory HlcManager.forSpace(
+    OfflineSyncSpace space, {
+    Duration maxDrift = Hlc.defaultMaxDrift,
+  }) {
+    if (maxDrift <= Duration.zero) {
+      throw ArgumentError.value(maxDrift, 'maxDrift', 'Must be greater than zero');
+    }
     return HlcManager._(
       space.uuidSpaceId,
       space.id!,
       space.currentNodeId!,
       space.currentNode!,
+      maxDrift,
     );
   }
+
+  /// The maximum clock drift passed to every [Hlc.increment] and [Hlc.merge].
+  final Duration maxDrift;
 
   /// The UUID of the space this manager is for.
   final UuidValue uuidSpaceId;
@@ -44,7 +58,7 @@ class HlcManager {
 
   /// Returns the next HLC timestamp for the current node.
   Hlc increment() {
-    lastHlc = lastHlc.increment();
+    lastHlc = lastHlc.increment(maxDrift: maxDrift);
     return lastHlc;
   }
 
@@ -53,11 +67,11 @@ class HlcManager {
   /// Planning needs a timestamp to order a not-yet-written row against stored
   /// ones. It must not advance the clock, because the write that follows takes
   /// its own timestamp.
-  Hlc peekNext() => lastHlc.increment();
+  Hlc peekNext() => lastHlc.increment(maxDrift: maxDrift);
 
   /// Merges another [Hlc] instance into the current one.
   void merge(Hlc other) {
-    lastHlc = lastHlc.merge(other);
+    lastHlc = lastHlc.merge(other, maxDrift: maxDrift);
   }
 
   /// Converts this manager state to the persisted current-node model.

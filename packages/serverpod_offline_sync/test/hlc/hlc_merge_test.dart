@@ -85,8 +85,11 @@ void main() {
     });
   });
 
+  // Upstream rejected this remote: its limit was one minute. The fork defaults
+  // to Hlc.defaultMaxDrift (one hour), so the upstream case now merges and the
+  // rejection moves to the one-hour edge below.
   group(
-    'Given local canonical Hlc and remote with time more than one minute ahead of wall',
+    'Given local canonical Hlc and remote with time two minutes ahead of wall',
     () {
       final canonical = Hlc(hlcTime, 17, hlcNodeId);
       final remote = Hlc(
@@ -95,10 +98,38 @@ void main() {
         hlcSecondNodeId,
       );
 
+      test(
+        'when merging with the default drift then the remote time is adopted '
+        '(upstream threw ClockDriftException).',
+        () {
+          final hlc = atWallTime(hlcTime, () => canonical.merge(remote));
+
+          expect(hlc, Hlc(remote.datetime, remote.counter, canonical.nodeId));
+        },
+      );
+    },
+  );
+
+  group(
+    'Given local canonical Hlc and remote with time more than one hour ahead of wall',
+    () {
+      final canonical = Hlc(hlcTime, 17, hlcNodeId);
+      final remote = Hlc(
+        hlcTime.add(Hlc.defaultMaxDrift).advance(),
+        17,
+        hlcSecondNodeId,
+      );
+
       test('when merging then ClockDriftException is thrown.', () {
         expect(
           () => atWallTime(hlcTime, () => canonical.merge(remote)),
-          throwsA(isA<ClockDriftException>()),
+          throwsA(
+            isA<ClockDriftException>().having(
+              (e) => e.kind,
+              'kind',
+              ClockDriftKind.remoteAhead,
+            ),
+          ),
         );
       });
     },

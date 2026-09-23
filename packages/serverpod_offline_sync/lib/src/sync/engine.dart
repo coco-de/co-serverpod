@@ -50,14 +50,19 @@ class OfflineSyncEngine {
 
     /// Delay between continuous sync rounds.
     this._continuousSyncInterval = defaultContinuousSyncInterval,
+
+    /// The maximum clock drift, see [OfflineSyncDatabaseContext.maxClockDrift].
+    /// Configures the new context when `databaseContext` is null. When
+    /// `databaseContext` is given, a different value throws [ArgumentError].
+    Duration? maxClockDrift,
   }) : _syncTables = syncTables,
        _serializationManager = serializationManager,
-       _databaseContext =
-           databaseContext ??
-           OfflineSyncDatabaseContext(
-             syncTables: syncTables,
-             serializationManager: serializationManager,
-           ),
+       _databaseContext = OfflineSyncDatabaseContext.resolve(
+         databaseContext,
+         syncTables: syncTables,
+         serializationManager: serializationManager,
+         maxClockDrift: maxClockDrift,
+       ),
        _syncBatchSize = syncBatchSize {
     if (syncBatchSize < 1) {
       throw ArgumentError.value(syncBatchSize, 'syncBatchSize', 'Must be >= 1');
@@ -73,6 +78,10 @@ class OfflineSyncEngine {
   final List<Table> _syncTables;
   final DatabaseSerializationManager _serializationManager;
   final OfflineSyncDatabaseContext _databaseContext;
+
+  /// The maximum clock drift of every database this engine wraps, see
+  /// [OfflineSyncDatabaseContext.maxClockDrift].
+  Duration get maxClockDrift => _databaseContext.maxClockDrift;
   final int _syncBatchSize;
   final Duration _continuousSyncInterval;
 
