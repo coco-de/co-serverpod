@@ -102,6 +102,37 @@ void main() {
     );
   });
 
+  group('Given an HlcManager with a five-minute drift and its own timestamp,', () {
+    test(
+      'when its own timestamp comes back exactly five minutes ahead, '
+      'then the clock adopts it.',
+      () {
+        final manager = managerAt(Hlc(hlcTime, 0, hlcNodeId), maxDrift: fiveMinutes);
+        final own = Hlc(hlcTime.add(fiveMinutes), 4, hlcNodeId);
+
+        atWallTime(hlcTime, () => manager.adoptOwn(own));
+
+        expect(manager.lastHlc, own);
+      },
+    );
+
+    test(
+      'when its own timestamp comes back one millisecond past five minutes, '
+      'then adoptOwn throws remoteAhead and the clock is unchanged.',
+      () {
+        final lastHlc = Hlc(hlcTime, 0, hlcNodeId);
+        final manager = managerAt(lastHlc, maxDrift: fiveMinutes);
+        final own = Hlc(hlcTime.add(fiveMinutes + oneMillisecond), 4, hlcNodeId);
+
+        expect(
+          () => atWallTime(hlcTime, () => manager.adoptOwn(own)),
+          throwsDrift(ClockDriftKind.remoteAhead),
+        );
+        expect(manager.lastHlc, lastHlc);
+      },
+    );
+  });
+
   group('Given a drift that is not positive,', () {
     for (final maxDrift in [Duration.zero, const Duration(seconds: -1)]) {
       test('when creating a manager with $maxDrift, then it throws ArgumentError.', () {

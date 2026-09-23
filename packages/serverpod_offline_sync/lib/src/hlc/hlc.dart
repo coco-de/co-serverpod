@@ -163,6 +163,40 @@ class Hlc implements Comparable<Hlc> {
     return remote.copyWith(nodeId: nodeId);
   }
 
+  /// Adopts [own], a timestamp of this node that came back from a peer, when
+  /// it is newer than this clock.
+  ///
+  /// [merge] refuses this node's own id ([DuplicateNodeException]), so a merge
+  /// takes this node's returning timestamps here instead. Throws
+  /// [ClockDriftException] with [ClockDriftKind.remoteAhead] and
+  /// [ClockDriftException.remoteNodeId] set to this node when [own] is newer
+  /// than this clock and more than [maxDrift] ahead of the local wall clock,
+  /// the same bound [merge] applies to other nodes. A drift of exactly
+  /// [maxDrift] is accepted.
+  ///
+  /// Fork: upstream adopted such a timestamp without any check. A peer can send
+  /// a change under any node id, including this one, so without the bound one
+  /// peer could move this clock arbitrarily far ahead, and on the server every
+  /// space shares that clock.
+  Hlc adoptOwn(Hlc own, {Duration maxDrift = defaultMaxDrift}) {
+    if (own.nodeId != nodeId) {
+      throw ArgumentError.value(own, 'own', 'Must carry this node id ($nodeId)');
+    }
+    if (own <= this) return this;
+
+    final localWallTime = clock.now().toUtc();
+    if (own.datetime.difference(localWallTime) > maxDrift) {
+      throw ClockDriftException(
+        own.datetime,
+        localWallTime,
+        maxDrift,
+        kind: ClockDriftKind.remoteAhead,
+        remoteNodeId: own.nodeId,
+      );
+    }
+    return own;
+  }
+
   /// Create a copy of this object replacing the optional properties.
   Hlc copyWith({DateTime? datetime, int? counter, UuidValue? nodeId}) => Hlc(
     datetime ?? this.datetime,

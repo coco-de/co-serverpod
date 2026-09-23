@@ -16,8 +16,8 @@ class HlcManager {
 
   /// Creates a new [HlcManager] for the current node of [space].
   ///
-  /// [maxDrift] bounds both [increment] (and [peekNext]) and [merge], so a
-  /// timestamp [merge] accepts never blocks the next local write.
+  /// [maxDrift] bounds [increment] (and [peekNext]), [merge] and [adoptOwn],
+  /// so a timestamp [merge] accepts never blocks the next local write.
   factory HlcManager.forSpace(
     OfflineSyncSpace space, {
     Duration maxDrift = Hlc.defaultMaxDrift,
@@ -34,7 +34,8 @@ class HlcManager {
     );
   }
 
-  /// The maximum clock drift passed to every [Hlc.increment] and [Hlc.merge].
+  /// The maximum clock drift passed to every [Hlc.increment], [Hlc.merge] and
+  /// [Hlc.adoptOwn].
   final Duration maxDrift;
 
   /// The UUID of the space this manager is for.
@@ -72,6 +73,12 @@ class HlcManager {
   /// Merges another [Hlc] instance into the current one.
   void merge(Hlc other) {
     lastHlc = lastHlc.merge(other, maxDrift: maxDrift);
+  }
+
+  /// Adopts a timestamp of this node that came back from a peer, bounded by
+  /// the same [maxDrift] as [merge]. See [Hlc.adoptOwn].
+  void adoptOwn(Hlc own) {
+    lastHlc = lastHlc.adoptOwn(own, maxDrift: maxDrift);
   }
 
   /// Converts this manager state to the persisted current-node model.

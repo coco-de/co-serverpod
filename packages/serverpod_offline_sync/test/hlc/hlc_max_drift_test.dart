@@ -224,4 +224,86 @@ void main() {
       },
     );
   });
+
+  // Merge hands this node's own returning timestamps to adoptOwn, because merge
+  // refuses this node's id. Upstream adopted them unchecked, so one change sent
+  // under the server's node id could move the shared server clock anywhere.
+  group('Given a timestamp of this node coming back from a peer,', () {
+    final canonical = Hlc(hlcTime, 17, hlcNodeId);
+
+    Hlc ownAhead(Duration drift) => Hlc(hlcTime.add(drift), 3, hlcNodeId);
+
+    test('when it is exactly the drift ahead, then adoptOwn adopts it.', () {
+      final own = ownAhead(Hlc.defaultMaxDrift);
+
+      expect(atWallTime(hlcTime, () => canonical.adoptOwn(own)), own);
+    });
+
+    test(
+      'when it is one millisecond past the drift, '
+      'then adoptOwn throws remoteAhead naming this node.',
+      () {
+        final own = ownAhead(Hlc.defaultMaxDrift + oneMillisecond);
+
+        expect(
+          () => atWallTime(hlcTime, () => canonical.adoptOwn(own)),
+          throwsA(
+            isA<ClockDriftException>()
+                .having((e) => e.kind, 'kind', ClockDriftKind.remoteAhead)
+                .having((e) => e.remoteNodeId, 'remoteNodeId', hlcNodeId)
+                .having((e) => e.maxDrift, 'maxDrift', Hlc.defaultMaxDrift),
+          ),
+        );
+      },
+    );
+
+    test(
+      'when a five-minute drift is passed, then that limit applies instead.',
+      () {
+        expect(
+          atWallTime(
+            hlcTime,
+            () => canonical.adoptOwn(ownAhead(fiveMinutes), maxDrift: fiveMinutes),
+          ),
+          ownAhead(fiveMinutes),
+        );
+        expect(
+          () => atWallTime(
+            hlcTime,
+            () => canonical.adoptOwn(
+              ownAhead(fiveMinutes + oneMillisecond),
+              maxDrift: fiveMinutes,
+            ),
+          ),
+          throwsA(isA<ClockDriftException>()),
+        );
+      },
+    );
+
+    test(
+      'when it is not newer than this clock, '
+      'then adoptOwn keeps this clock without checking the drift.',
+      () {
+        final ahead = Hlc(hlcTime.add(const Duration(hours: 3)), 5, hlcNodeId);
+
+        final kept = atWallTime(
+          hlcTime,
+          () => ahead.adoptOwn(Hlc(ahead.datetime, 4, hlcNodeId)),
+        );
+
+        expect(kept, same(ahead));
+      },
+    );
+
+    test('when it carries another node id, then adoptOwn throws ArgumentError.', () {
+      expect(
+        () => atWallTime(
+          hlcTime,
+          () =>
+              canonical.adoptOwn(Hlc(hlcTime.add(oneMillisecond), 0, hlcSecondNodeId)),
+        ),
+        throwsArgumentError,
+      );
+    });
+  });
 }

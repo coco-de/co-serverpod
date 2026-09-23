@@ -63,19 +63,23 @@ void main() {
 
   /// Syncs through [server] acting as the authoritative peer. With [wire], the
   /// server stream maps its failures the way the server module facade does.
-  /// Every change the device sends is appended to [sent].
+  /// Every change the device sends is appended to [sent]. With [rewrite], each
+  /// change the device sends reaches the server as [rewrite] returns it.
   OfflineSyncClient peerOf(
     OfflineSyncDatabaseSession server, {
     bool wire = false,
     List<CrdtMergeChange>? sent,
+    CrdtMergeChange Function(CrdtMergeChange change)? rewrite,
   }) {
     return OfflineSyncClient(({required changes, required once}) {
-      final inbound = sent == null
-          ? changes
-          : changes.map((event) {
-              if (event is OfflineSyncMergeChunk) sent.addAll(event.changes);
-              return event;
-            });
+      final inbound = changes.map((event) {
+        if (event is! OfflineSyncMergeChunk) return event;
+        sent?.addAll(event.changes);
+        if (rewrite == null) return event;
+        return OfflineSyncMergeChunk(
+          changes: event.changes.map(rewrite).toList(),
+        );
+      });
       final stream = server.db.sync(
         inbound: inbound,
         once: once,
@@ -237,6 +241,86 @@ void main() {
     );
   });
 
+  // A peer can send a change under any node id. Upstream checked only the
+  // batch maximum and adopted it unchecked when it carried the receiver's own
+  // id, so one change sent under the server's node id moved the clock every
+  // space shares and let the rest of the batch skip the drift check.
+  group('K2 — given a device batch that claims the server node id,', () {
+    test(
+      'should_reject_a_change_stamped_past_the_server_limit_without_moving_its_clock',
+      () async {
+        final userId = const Uuid().v7obj();
+        final server = await openReplica(userId);
+        final device = await openReplica(userId);
+        final serverNodeId = await server.db.currentNodeId();
+        final serverClock = await nodeClockOf(server);
+        final peer = peerOf(
+          server,
+          wire: true,
+          rewrite: (change) => _underNode(change, serverNodeId),
+        );
+        await at(t0.add(const Duration(hours: 3)), () {
+          return Note.db.insertRow(device, Note(title: 'forged'));
+        });
+
+        final error = await at(t0, () => syncFailure(peer, device));
+
+        expect(
+          error,
+          isA<OfflineSyncRemoteException>()
+              .having((e) => e.code, 'code', OfflineSyncFailureCode.clockDrift)
+              .having((e) => e.driftMs, 'driftMs', 3 * 3600000)
+              .having((e) => e.maxDriftMs, 'maxDriftMs', 3600000),
+        );
+        expect(await Note.db.count(server), 0);
+        expect(await nodeClockOf(server), serverClock);
+        // The shared server clock was not pulled ahead, so the server can still
+        // write at the correct time.
+        await at(t0, () => Note.db.insertRow(server, Note(title: 'server')));
+        expect(await Note.db.count(server), 1);
+      },
+    );
+
+    test(
+      'should_still_check_the_other_changes_in_the_batch_against_the_server_limit',
+      () async {
+        final userId = const Uuid().v7obj();
+        final server = await openReplica(userId);
+        final device = await openReplica(userId);
+        final serverNodeId = await server.db.currentNodeId();
+        final serverClock = await nodeClockOf(server);
+        final forgedAt = t0.add(const Duration(hours: 3));
+        // Only the newest change is sent under the server node id, so it is the
+        // batch maximum; the other change stays the device's own.
+        final peer = peerOf(
+          server,
+          wire: true,
+          rewrite: (change) => change.hlcDatetime == forgedAt
+              ? _underNode(change, serverNodeId)
+              : change,
+        );
+        await at(t0.add(const Duration(hours: 2)), () {
+          return Note.db.insertRow(device, Note(title: 'ahead'));
+        });
+        await at(
+          forgedAt,
+          () => Note.db.insertRow(device, Note(title: 'forged')),
+        );
+
+        final error = await at(t0, () => syncFailure(peer, device));
+
+        expect(
+          error,
+          isA<OfflineSyncRemoteException>()
+              .having((e) => e.code, 'code', OfflineSyncFailureCode.clockDrift)
+              .having((e) => e.driftMs, 'driftMs', 2 * 3600000),
+        );
+        expect(await Note.db.count(server), 0);
+        expect(await nodeClockOf(server), serverClock);
+      },
+    );
+  });
+
   group('K3 — given a device whose clock moved back after a write,', () {
     // The five-minute case writes only ten minutes ahead: over its own limit
     // but within the one-hour default, so a device that fell back to the
@@ -353,6 +437,15 @@ void main() {
       },
     );
   });
+}
+
+/// [change] as if [nodeId] had authored it.
+CrdtMergeChange _underNode(CrdtMergeChange change, UuidValue nodeId) {
+  return switch (change) {
+    CrdtMergeInsert() => change.copyWith(uuidNodeId: nodeId),
+    CrdtMergeUpdate() => change.copyWith(uuidNodeId: nodeId),
+    CrdtMergeDelete() => change.copyWith(uuidNodeId: nodeId),
+  };
 }
 
 /// The error [future] completes with, or null when it succeeds.
