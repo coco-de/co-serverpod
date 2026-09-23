@@ -53,6 +53,7 @@ drift의 `watch()`처럼 로컬 쓰기와 동기화 병합을 화면에 자동�
 | `lib/src/database/recorder.dart`·`merge_utils/recorder_context.dart` | `OfflineSyncDatabaseContext.maxClockDrift`(0 이하 `ArgumentError`)·`resolve`, `hlcManagerFor` 가 그 값을 전달 |
 | `lib/src/database/database.dart`·`session.dart`·`lib/src/sync/engine.dart` | `maxClockDrift` named 인자(공유 context 와 다르면 `ArgumentError`)와 getter. 동기화 루프·프로토콜은 무변경 |
 | `lib/src/sync/engine.dart`·`space_state.dart` | 미전송 건수의 근거(unibook#14183): 기기(follower)가 서버 핸드셰이크의 자기 노드 체크포인트로 (space, 자기 노드) `offline_sync_space_nodes.lastReceivedHlc` 를 **덮어쓰고**(A), `once` 세션에서 서버 `OfflineSyncClose` 를 받은 뒤에만 보낸 변경의 최대값을 기록한다(B). 동기화 루프에 기기 쪽 DB 쓰기가 늘었고, 와이어 프로토콜·스키마·권위 피어 동작은 무변경. 이 쓰기는 새 `OfflineSyncDatabase` 래퍼가 아니라 plain DB 위의 recorder 로 한다(래퍼의 첫 작업은 레지스트리가 바뀐 프로세스에서 전 space 를 재투영한다). `countUnsentRows`(수집 필터를 자기 노드로 좁힌 3쿼리, 행을 읽은 뒤 체크포인트를 다시 읽어 내려갔으면 다시 셈), 테스트 훅 `@visibleForTesting debugOnUnsentRowCheckpointsRead`, `OfflineSyncSpaceState.checkpointOf`·`handshakenSpaceIds` ([동기화 상태](#동기화-상태와-미전송-건수)) |
+| `lib/src/sync/engine.dart` (`_readPendingChanges`) | 보낼 변경 수집의 **유실 수정**(unibook#14183): 업스트림은 삽입·갱신·삭제 쿼리를 각 스트림이 시작할 때 따로 돌려, 그 사이 커밋된 쓰기를 뒤 쿼리만 봤다. 뒤에 읽힌 갱신이 먼저 놓친 삽입보다 높은 HLC 로 체크포인트를 올려 그 삽입은 다음 세션에도 보내지지 않았다. 세 쿼리를 첫 변경을 내기 전에 **한 스냅샷**(PostgreSQL repeatable read · SQLite 쓰기 잠금 트랜잭션)에서 읽는다. 와이어·스키마 무변경. 테스트 훅 `@visibleForTesting debugOnPendingRowsRead`(삽입과 갱신 조회 사이) |
 | `lib/src/database/database.dart`·`recorder.dart`·`unsent_row_count.dart` (신규, 배럴 미export) | `unsentRowCount`·`watchUnsentRowCount`(파이프라인 `countOnEachTrigger`)·`watchUnsentRowCountTriggers`, `@internal replaceSyncCheckpoint`(단조 증가가 아닌 덮어쓰기), 테스트 훅 `@visibleForTesting CrdtMutationRecorder.debugProjectionRebuildCount` |
 | `lib/src/sync/failure_code.spy.yaml`·`remote_exception.spy.yaml`·`failure_mapping.dart` (신규) | 와이어 예외 `OfflineSyncRemoteException`·`OfflineSyncFailureCode`(`unknown` + `default: unknown`), 매퍼 `toOfflineSyncWireError`(`driftMs` 올림, 무결성 위반은 식별자 없는 고정 문구)·`offlineSyncWireErrors(onMapped:)`. 생성 코드 2개 추가 |
 | `lib/serverpod_offline_sync.dart` (배럴) | `src/sync/failure_mapping.dart` export 추가 — 공개 API 가 늘어남 |
@@ -266,6 +267,11 @@ final unsent = await tracker.countUnsentRows();
   체크포인트를 내리면(데이터를 잃은 서버) 옛 높은 값으로 세지 않도록, 행을 읽은 뒤 체크포인트를 다시 읽어
   내려갔으면 새 값으로 다시 셉니다(최대 3회, 그래도 계속 내려가면 자기 행 전부 = 상한). 셈 도중 커밋된
   **로컬 쓰기**는 들어갈 수도 빠질 수도 있으니, 로그아웃 경고는 쓰기를 멈춘 뒤 셉니다.
+- **보낼 변경은 한 스냅샷에서 모읍니다.** 회차는 삽입·갱신·삭제를 쿼리 셋으로 읽습니다. 업스트림은 셋을 따로
+  읽어서, 회차가 모으는 도중 커밋된 쓰기(삽입 뒤 갱신)를 갱신 쿼리만 보고 보냈고, 체크포인트가 그 갱신까지
+  올라가 놓친 삽입은 **다시 보내지지 않았습니다**(건수도 0). 포크는 셋을 한 스냅샷에서 먼저 읽습니다. 노드의
+  쓰기는 노드를 잠그고 스탬프를 찍으므로 HLC 순서로 커밋되고, 스냅샷에 든 것은 어떤 HLC 까지의 전부입니다 —
+  스냅샷 뒤의 쓰기는 다음 회차가 보내고 그동안 건수에 남습니다.
 - **건수를 셀 수 없으면 `null`**: 조회가 실패하면(예: DB 가 닫힘) 추적기는 0 도 직전 값도 아닌 `null` 을
   발행합니다. `watchUnsentRowCount` 는 실패한 셈을 오류 이벤트로 내고 다음 커밋에서 다시 셉니다.
 - **한 이벤트로 발행**: `syncOnce` 가 끝나면 결과(`lastSuccessAt` 또는 `lastFailure`)와 **그 뒤에 읽은** 건수를

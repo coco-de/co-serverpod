@@ -31,6 +31,7 @@ import 'support/sync_harness.dart';
 /// | Server that lost the data | All rows again, from its handshake |
 /// | Server restored from a backup | The rows after its lower checkpoint |
 /// | Rows in a shared space too | 0 after a round: every space confirmed |
+/// | Writes committed while a round collects | Counted after it, sent next |
 /// | Checkpoint lowered during a count | Counted again from the lower one |
 /// | A count that fails | Unknown (null), never 0 or the last count |
 ///
@@ -60,11 +61,13 @@ void main() {
   Future<OfflineSyncDatabaseSession> openReplica(
     UuidValue userId, {
     String? path,
+    int syncBatchSize = OfflineSyncEngine.defaultSyncBatchSize,
   }) async {
     final session = OfflineSyncDatabaseSession.wraps(
       await client.createSession(path ?? newPath()),
       syncTables: syncTables,
       persistentUserId: userId,
+      syncBatchSize: syncBatchSize,
     );
     addTearDown(session.close);
     await session.db.initialize();
@@ -299,6 +302,89 @@ void main() {
 
         expect(await device.db.unsentRowCount(), 2);
         expect(reads, 2, reason: 'the second attempt reads the lowered one');
+      },
+    );
+  });
+
+  group('Given local writes committed while a round collects its changes,', () {
+    // The round reads the pending inserts, updates and deletes with one query
+    // each. Read at different moments, a later update (read after the inserts)
+    // could be sent while an earlier insert was missed, and the checkpoint
+    // advanced past the update then skipped the insert for good: the server
+    // never got it and the count said 0.
+    test(
+      'should_count_both_after_the_round_and_send_both_in_the_next_instead_of_losing_the_insert',
+      () async {
+        final userId = const Uuid().v7obj();
+        final server = await openReplica(userId);
+        // One change per chunk, so the round yields between the change kinds.
+        final device = await openReplica(userId, syncBatchSize: 1);
+        final q = await Note.db.insertRow(device, Note(title: 'q'));
+        await peerOf(server).syncOnce(device);
+        await Note.db.insertRow(device, Note(title: 'p'));
+        expect(await device.db.unsentRowCount(), 1);
+
+        await _syncOnceWritingAtFirstChunk(server, device, () async {
+          // An insert, then an update in a later transaction (a higher HLC).
+          await Note.db.insertRow(device, Note(title: 'r'));
+          await Note.db.updateRow(device, q.copyWith(title: 'q2'));
+        });
+
+        expect(await _titlesOf(server), {'q', 'p'});
+        expect(await device.db.unsentRowCount(), 2);
+
+        await peerOf(server).syncOnce(device);
+
+        expect(await _titlesOf(server), {'q2', 'p', 'r'});
+        expect(await device.db.unsentRowCount(), 0);
+      },
+    );
+
+    // Within the snapshot the three queries still run one after another. A
+    // write committing between them must stay out of all three, or the update
+    // read last goes without the insert read first, as above.
+    test(
+      'should_keep_writes_committed_between_the_pending_reads_out_of_the_round',
+      () async {
+        final userId = const Uuid().v7obj();
+        final server = await openReplica(userId);
+        final deviceDatabase = await client.createSession(newPath());
+        final device = OfflineSyncDatabaseSession.wraps(
+          deviceDatabase,
+          syncTables: syncTables,
+          persistentUserId: userId,
+        );
+        addTearDown(device.close);
+        await device.db.initialize();
+        final q = await Note.db.insertRow(device, Note(title: 'q'));
+        await peerOf(server).syncOnce(device);
+
+        Future<void>? writes;
+        addTearDown(() => OfflineSyncEngine.debugOnPendingRowsRead = null);
+        OfflineSyncEngine.debugOnPendingRowsRead = (session) async {
+          if (writes != null || !identical(session.db, deviceDatabase.db)) {
+            return;
+          }
+          // Outside the collection's zone, as another caller would write.
+          writes = Zone.root.run(() async {
+            await Note.db.insertRow(device, Note(title: 'r'));
+            await Note.db.updateRow(device, q.copyWith(title: 'q2'));
+          });
+          // Time to commit both, unless the snapshot holds them off.
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        };
+
+        await peerOf(server).syncOnce(device);
+        expect(writes, isNotNull, reason: 'the device must have collected');
+        await writes;
+
+        expect(await _titlesOf(server), {'q'});
+        expect(await device.db.unsentRowCount(), 2);
+
+        await peerOf(server).syncOnce(device);
+
+        expect(await _titlesOf(server), {'q2', 'r'});
+        expect(await device.db.unsentRowCount(), 0);
       },
     );
   });
@@ -782,6 +868,46 @@ void main() {
 /// Forwards [source] up to and including its first [OfflineSyncEndOfBatch],
 /// the end of the server's handshake, then fails as a dropped connection would
 /// and stops reading the server.
+/// The note titles stored in [session].
+Future<Set<String>> _titlesOf(DatabaseSession session) async => {
+  for (final note in await Note.db.find(session)) note.title,
+};
+
+/// Runs one `once` round of [device] against [server], pausing the device's
+/// stream at its first [OfflineSyncMergeChunk] to run [write] meanwhile.
+Future<void> _syncOnceWritingAtFirstChunk(
+  OfflineSyncDatabaseSession server,
+  OfflineSyncDatabaseSession device,
+  Future<void> Function() write,
+) async {
+  final toServer = StreamController<OfflineSyncStreamEvent>();
+  final fromServer = server.db.sync(
+    inbound: toServer.stream,
+    once: true,
+    mode: OfflineSyncPeerMode.authoritative,
+  );
+  var wrote = false;
+  final done = Completer<void>();
+  late final StreamSubscription<OfflineSyncStreamEvent> subscription;
+  subscription = device.db
+      .sync(inbound: fromServer, once: true, mode: OfflineSyncPeerMode.follower)
+      .listen(
+        (event) async {
+          toServer.add(event);
+          if (event is OfflineSyncClose) unawaited(toServer.close());
+          if (wrote || event is! OfflineSyncMergeChunk) return;
+          wrote = true;
+          subscription.pause();
+          await write();
+          subscription.resume();
+        },
+        onDone: done.complete,
+        onError: done.completeError,
+      );
+  await done.future;
+  expect(wrote, isTrue, reason: 'the round must have sent a chunk');
+}
+
 Stream<OfflineSyncStreamEvent> _cutAfterFirstBatch(
   Stream<OfflineSyncStreamEvent> source,
 ) async* {

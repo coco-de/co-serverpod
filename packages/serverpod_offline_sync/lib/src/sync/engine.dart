@@ -147,8 +147,9 @@ class OfflineSyncEngine {
   /// scoped by those internal ids. Node ids are stable per replica and may
   /// appear in multiple spaces, so checkpoint filtering must compare both
   /// `spaceId` and `uuidNodeId`. This still runs one query per change kind for
-  /// the whole pass. Per-row ownership and integrity checks resolve against
-  /// each row's own space.
+  /// the whole pass, all three from one snapshot before the first change is
+  /// yielded (fork, unibook#14183: see [_readPendingChanges]). Per-row
+  /// ownership and integrity checks resolve against each row's own space.
   ///
   /// All changes for nodes that are not present in a space's checkpoint list
   /// are collected and emitted. Passing an empty list for a space will collect
@@ -786,29 +787,94 @@ class OfflineSyncEngine {
     Map<int, UuidValue> spaceUuidById,
     Map<int, List<Hlc>> checkpointsBySpaceId,
   ) async* {
+    final pending = await _readPendingChanges(session, checkpointsBySpaceId);
     // Domain ownership is immutable while a collection runs, so read each
     // row's owner at most once across all three streams.
     final ownerCache = DomainRowOwnerCache();
-    yield* _streamInserts(session, spaceUuidById, checkpointsBySpaceId, ownerCache);
-    yield* _streamUpdates(session, spaceUuidById, checkpointsBySpaceId, ownerCache);
-    yield* _streamDeletes(session, spaceUuidById, checkpointsBySpaceId, ownerCache);
+    yield* _streamInserts(session, spaceUuidById, pending.rows, ownerCache);
+    yield* _streamUpdates(session, spaceUuidById, pending.fields, ownerCache);
+    yield* _streamDeletes(session, spaceUuidById, pending.tombstones, ownerCache);
   }
+
+  /// Reads the pending inserts, updates and deletes after
+  /// [checkpointsBySpaceId] from one snapshot of the database.
+  ///
+  /// Fork (unibook#14183): upstream ran each kind's query when its stream
+  /// started, so a write committed between two of them was seen by the later
+  /// one only. An update read after a missed insert then advanced the node's
+  /// checkpoint past the insert, and no later session sent it. A node's writes
+  /// commit in HLC order (each locks the node before stamping), so what one
+  /// snapshot holds of a node is everything up to some HLC: advancing past the
+  /// highest change sent skips none. A write committed after the snapshot is
+  /// above it and waits for the next collection.
+  ///
+  /// A transaction takes the snapshot: repeatable read on PostgreSQL, the
+  /// write lock on SQLite. It holds only these three queries; domain values
+  /// are read afterwards, as each change is yielded.
+  Future<
+    ({
+      List<CrdtDataRow> rows,
+      List<CrdtDataField> fields,
+      List<CrdtDataDeleted> tombstones,
+    })
+  >
+  _readPendingChanges(
+    DatabaseSession session,
+    Map<int, List<Hlc>> checkpointsBySpaceId,
+  ) => session.db.transaction(
+    (transaction) async {
+      final rows = await CrdtDataRow.db.find(
+        session,
+        where: (t) => _rowHlcAfterFilter(t, checkpointsBySpaceId),
+        include: CrdtDataRow.include(
+          tbl: CrdtSchemaTable.include(),
+          node: CrdtNode.include(),
+        ),
+        transaction: transaction,
+      );
+      await debugOnPendingRowsRead?.call(session);
+      final fields = await CrdtDataField.db.find(
+        session,
+        where: (t) => _fieldHlcAfterFilter(t, checkpointsBySpaceId),
+        include: CrdtDataField.include(
+          row: CrdtDataRow.include(tbl: CrdtSchemaTable.include()),
+          column: CrdtSchemaColumn.include(),
+          node: CrdtNode.include(),
+          attemptedValue: CrdtDataAttemptedValue.include(),
+        ),
+        transaction: transaction,
+      );
+      final tombstones = await CrdtDataDeleted.db.find(
+        session,
+        where: (t) => _tombstoneHlcAfterFilter(t, checkpointsBySpaceId),
+        include: CrdtDataDeleted.include(
+          row: CrdtDataRow.include(tbl: CrdtSchemaTable.include()),
+          node: CrdtNode.include(),
+        ),
+        transaction: transaction,
+      );
+      return (rows: rows, fields: fields, tombstones: tombstones);
+    },
+    settings: const TransactionSettings(
+      isolationLevel: IsolationLevel.repeatableRead,
+    ),
+  );
+
+  /// Called by the pending-change collection with its session, inside its
+  /// snapshot, after it reads the pending inserts and before it reads the
+  /// updates.
+  ///
+  /// Fork (unibook#14183): lets a test commit a write in between, which the
+  /// snapshot must keep out of the collection.
+  @visibleForTesting
+  static Future<void> Function(DatabaseSession session)? debugOnPendingRowsRead;
 
   Stream<CrdtMergeInsert> _streamInserts(
     DatabaseSession session,
     Map<int, UuidValue> spaceUuidById,
-    Map<int, List<Hlc>> checkpointsBySpaceId,
+    List<CrdtDataRow> rows,
     DomainRowOwnerCache ownerCache,
   ) async* {
-    final rows = await CrdtDataRow.db.find(
-      session,
-      where: (t) => _rowHlcAfterFilter(t, checkpointsBySpaceId),
-      include: CrdtDataRow.include(
-        tbl: CrdtSchemaTable.include(),
-        node: CrdtNode.include(),
-      ),
-    );
-
     final attemptedValueFieldsByRowId = await _loadAttemptedValueFields(
       session,
       rows,
@@ -877,20 +943,9 @@ class OfflineSyncEngine {
   Stream<CrdtMergeUpdate> _streamUpdates(
     DatabaseSession session,
     Map<int, UuidValue> spaceUuidById,
-    Map<int, List<Hlc>> checkpointsBySpaceId,
+    List<CrdtDataField> fields,
     DomainRowOwnerCache ownerCache,
   ) async* {
-    final fields = await CrdtDataField.db.find(
-      session,
-      where: (t) => _fieldHlcAfterFilter(t, checkpointsBySpaceId),
-      include: CrdtDataField.include(
-        row: CrdtDataRow.include(tbl: CrdtSchemaTable.include()),
-        column: CrdtSchemaColumn.include(),
-        node: CrdtNode.include(),
-        attemptedValue: CrdtDataAttemptedValue.include(),
-      ),
-    );
-
     for (final field in fields) {
       final tableName = field.row!.tbl!.name;
       if (!_syncTablesByName.containsKey(tableName)) continue;
@@ -955,18 +1010,9 @@ class OfflineSyncEngine {
   Stream<CrdtMergeDelete> _streamDeletes(
     DatabaseSession session,
     Map<int, UuidValue> spaceUuidById,
-    Map<int, List<Hlc>> checkpointsBySpaceId,
+    List<CrdtDataDeleted> tombstones,
     DomainRowOwnerCache ownerCache,
   ) async* {
-    final tombstones = await CrdtDataDeleted.db.find(
-      session,
-      where: (t) => _tombstoneHlcAfterFilter(t, checkpointsBySpaceId),
-      include: CrdtDataDeleted.include(
-        row: CrdtDataRow.include(tbl: CrdtSchemaTable.include()),
-        node: CrdtNode.include(),
-      ),
-    );
-
     for (final tombstone in tombstones) {
       if (!tombstone.reason.isSynced) continue;
 

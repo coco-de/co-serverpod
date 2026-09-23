@@ -31,6 +31,19 @@
     round the server merged but the device failed, during continuous sync, and
     for a space the server no longer syncs with the user.
 
+- fix: A sync round no longer loses a local write committed while it collects
+  its changes (unibook#14183). Upstream ran the insert, update and delete
+  queries as each stream started, so a write committed between two of them
+  was seen by the later one only: an update read after a missed insert
+  advanced the node's checkpoint past the insert, and no later session sent
+  it. The three queries now read one snapshot (a repeatable read transaction
+  on PostgreSQL, the write lock on SQLite) before the first change is
+  yielded. A node's writes commit in HLC order, so a snapshot holds all of a
+  node's changes up to some HLC; later writes wait for the next round.
+  Test hook (`@visibleForTesting`):
+  `OfflineSyncEngine.debugOnPendingRowsRead`, between the insert and update
+  queries.
+
 - feat: Configurable clock drift allowance (unibook#14182). Upstream hard-coded
   one minute; the fork defaults to one hour (`Hlc.defaultMaxDrift`).
   - `Hlc.increment` and `Hlc.merge` take `maxDrift`. The one-minute literal in
