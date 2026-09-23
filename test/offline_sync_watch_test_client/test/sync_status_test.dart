@@ -32,8 +32,10 @@ import 'support/sync_harness.dart';
 /// | Server restored from a backup | The rows after its lower checkpoint |
 /// | Rows in a shared space too | 0 after a round: every space confirmed |
 /// | Writes committed while a round collects | Counted after it, sent next |
-/// | Checkpoint lowered during a count | Counted again from the lower one |
+/// | Checkpoint cleared or lowered during a count | Counted again from the new one |
+/// | Checkpoint lowered on every recount | Every row of the node (upper bound) |
 /// | A count that fails | Unknown (null), never 0 or the last count |
+/// | A continuous session ends | Counted again (the only recount without the watch) |
 ///
 /// The device's checkpoint writes must not re-project every space on an idle
 /// round, and a count read before a round ended is never the round's outcome.
@@ -302,6 +304,67 @@ void main() {
 
         expect(await device.db.unsentRowCount(), 2);
         expect(reads, 2, reason: 'the second attempt reads the lowered one');
+      },
+    );
+
+    // A server restored from a backup lowers the checkpoint to an older one,
+    // not to none. Only the comparison of the two catches that.
+    test(
+      'should_count_again_from_a_lower_checkpoint_that_is_not_null',
+      () async {
+        final userId = const Uuid().v7obj();
+        final server = await openReplica(userId);
+        final device = await openReplica(userId);
+        final deviceNodeId = await device.db.currentNodeId();
+        final older = await _syncRowsConfirmingEach(server, device, ['a', 'b']);
+        expect(await device.db.unsentRowCount(), 0);
+
+        var reads = 0;
+        OfflineSyncEngine.debugOnUnsentRowCheckpointsRead = () async {
+          if (reads++ > 0) return;
+          await _setOwnCheckpoint(device, deviceNodeId, older.first);
+        };
+
+        expect(await device.db.unsentRowCount(), 1);
+        expect(reads, 2, reason: 'the second attempt reads the lowered one');
+      },
+    );
+
+    // After three counts that each saw the checkpoint go lower, the count
+    // gives up on checkpoints and counts every row of the node: an upper
+    // bound, never the last, possibly still stale, checkpoint's count.
+    test(
+      'should_count_every_row_of_the_node_when_the_checkpoint_keeps_going_back',
+      () async {
+        final userId = const Uuid().v7obj();
+        final server = await openReplica(userId);
+        final device = await openReplica(userId);
+        final deviceNodeId = await device.db.currentNodeId();
+        final confirmed = await _syncRowsConfirmingEach(server, device, [
+          'a',
+          'b',
+          'c',
+          'd',
+        ]);
+        expect(await device.db.unsentRowCount(), 0);
+
+        // Each count reads a checkpoint one row lower than the one before.
+        final lowered = confirmed.reversed.skip(1).toList();
+        var reads = 0;
+        OfflineSyncEngine.debugOnUnsentRowCheckpointsRead = () async {
+          final read = reads++;
+          if (read >= lowered.length) return;
+          await _setOwnCheckpoint(device, deviceNodeId, lowered[read]);
+        };
+
+        expect(await device.db.unsentRowCount(), 4);
+        expect(reads, 3, reason: 'three counts, then the fallback');
+        OfflineSyncEngine.debugOnUnsentRowCheckpointsRead = null;
+        expect(
+          await device.db.unsentRowCount(),
+          3,
+          reason: 'the last checkpoint alone would have counted fewer',
+        );
       },
     );
   });
@@ -753,6 +816,39 @@ void main() {
       },
     );
 
+    // Without the watch, the end of a continuous session is its only recount.
+    // Its handshake with a server that never saw the device cleared the
+    // checkpoint, and continuous rounds confirm nothing, so the count read at
+    // the end is every row.
+    test(
+      'should_count_again_when_a_continuous_session_ends_normally',
+      () async {
+        final userId = const Uuid().v7obj();
+        final server = await openReplica(userId);
+        final device = await openReplica(userId);
+        await Note.db.insertRow(device, Note(title: 'a'));
+        await Note.db.insertRow(device, Note(title: 'b'));
+        await peerOf(server).syncOnce(device);
+        final restored = await openReplica(userId);
+        final tracker = trackerOf(
+          peerOf(restored),
+          device,
+          watchUnsentRows: false,
+        );
+        await countSettles(tracker, 0);
+
+        final live = tracker.syncContinuously();
+        addTearDown(live.cancel);
+        await eventually(() async => await device.db.unsentRowCount() == 2);
+        expect(tracker.status.unsentRowCount, 0, reason: 'not counted since');
+        await live.cancel();
+        await live.done;
+
+        await countSettles(tracker, 2);
+        expect(tracker.status.lastFailure, isNull);
+      },
+    );
+
     // The sign-out warning rests on this: a count that fails is unknown, never
     // zero and never the last count.
     test(
@@ -868,6 +964,55 @@ void main() {
 /// Forwards [source] up to and including its first [OfflineSyncEndOfBatch],
 /// the end of the server's handshake, then fails as a dropped connection would
 /// and stops reading the server.
+/// Inserts one note per title into [device], each followed by a `once` round
+/// with [server], and returns the checkpoint the device recorded after each.
+Future<List<Hlc>> _syncRowsConfirmingEach(
+  OfflineSyncDatabaseSession server,
+  OfflineSyncDatabaseSession device,
+  List<String> titles,
+) async {
+  final nodeId = await device.db.currentNodeId();
+  final confirmed = <Hlc>[];
+  for (final title in titles) {
+    await Note.db.insertRow(device, Note(title: title));
+    await peerOf(server).syncOnce(device);
+    final own = await OfflineSyncSpaceNode.db.find(
+      device,
+      where: (t) => t.node.uuidNodeId.equals(nodeId),
+    );
+    confirmed.add(own.single.lastReceivedHlc!);
+  }
+  expect(
+    [
+      for (var i = 1; i < confirmed.length; i++)
+        confirmed[i - 1] < confirmed[i],
+    ],
+    everyElement(isTrue),
+    reason: 'each round must have confirmed a higher checkpoint',
+  );
+  return confirmed;
+}
+
+/// Replaces the checkpoint [device] recorded for its own node [nodeId].
+Future<void> _setOwnCheckpoint(
+  OfflineSyncDatabaseSession device,
+  UuidValue nodeId,
+  Hlc? hlc,
+) async {
+  final own = await OfflineSyncSpaceNode.db.find(
+    device,
+    where: (t) => t.node.uuidNodeId.equals(nodeId),
+  );
+  expect(own, hasLength(1));
+  for (final spaceNode in own) {
+    await OfflineSyncSpaceNode.db.updateRow(
+      device,
+      spaceNode.copyWith(lastReceivedHlc: hlc),
+      columns: (t) => [t.lastReceivedHlc],
+    );
+  }
+}
+
 /// The note titles stored in [session].
 Future<Set<String>> _titlesOf(DatabaseSession session) async => {
   for (final note in await Note.db.find(session)) note.title,
