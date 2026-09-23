@@ -22,6 +22,7 @@ import 'merge_utils/database_helpers.dart';
 import 'recorder.dart';
 import 'session.dart';
 import 'tombstone.dart';
+import 'unsent_row_count.dart';
 
 part 'space.dart';
 
@@ -251,9 +252,10 @@ class OfflineSyncDatabase implements Database {
   Stream<int> watchUnsentRowCount({
     Duration? throttle = const Duration(milliseconds: 250),
   }) {
-    return watchUnsentRowCountTriggers(
-      throttle: throttle,
-    ).asyncMap((_) => unsentRowCount()).distinct();
+    return countOnEachTrigger(
+      watchUnsentRowCountTriggers(throttle: throttle),
+      unsentRowCount,
+    );
   }
 
   /// Merges remote CRDT changes into the local database for the given space.

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:clock/clock.dart';
+import 'package:meta/meta.dart' show visibleForTesting;
 import 'package:serverpod_client/serverpod_client.dart';
 import 'package:serverpod_database/serverpod_database.dart' show DatabaseDialect;
 import 'package:serverpod_offline_sync/serverpod_offline_sync.dart';
@@ -132,11 +133,15 @@ class OfflineSyncStatusTracker {
   /// trigger a recount, at most once per [unsentRowsThrottle]. Where the
   /// database cannot watch (not SQLite), the count is read on creation, after
   /// rounds, and on [refreshUnsentRowCount] only.
+  ///
+  /// `unsentRowCounter` replaces [OfflineSyncDatabase.unsentRowCount] as the
+  /// count, so a test can hold or fail one.
   OfflineSyncStatusTracker(
     this._client,
     this._session, {
     bool watchUnsentRows = true,
     Duration unsentRowsThrottle = const Duration(milliseconds: 250),
+    @visibleForTesting this._unsentRowCounter,
   }) {
     if (watchUnsentRows) _watchUnsentRows(unsentRowsThrottle);
     // The watch emits on listen, which counts. Without it, count once now.
@@ -145,6 +150,7 @@ class OfflineSyncStatusTracker {
 
   final OfflineSyncClient _client;
   final OfflineSyncDatabaseSession _session;
+  final Future<int> Function()? _unsentRowCounter;
 
   final _statusChanges = StreamController<OfflineSyncStatus>.broadcast();
   var _status = const OfflineSyncStatus();
@@ -251,7 +257,10 @@ class OfflineSyncStatusTracker {
   /// Reads the unsent row count from the database now, for a decision that
   /// must not use a stale value, such as a sign-out warning. Throws when the
   /// count fails. Does not change [status].
-  Future<int> countUnsentRows() => _session.db.unsentRowCount();
+  Future<int> countUnsentRows() => _countUnsentRows();
+
+  Future<int> _countUnsentRows() =>
+      _unsentRowCounter?.call() ?? _session.db.unsentRowCount();
 
   /// Counts the unsent rows again and publishes the result. A failed count
   /// publishes null (unknown) instead of throwing.
@@ -304,7 +313,7 @@ class OfflineSyncStatusTracker {
         _nextCountRound = null;
         int? count;
         try {
-          count = await _session.db.unsentRowCount();
+          count = await _countUnsentRows();
         } on Object catch (_) {
           // Unknown, not zero: the status must not claim nothing is unsent.
           count = null;

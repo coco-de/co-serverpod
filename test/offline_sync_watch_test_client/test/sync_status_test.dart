@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:clock/clock.dart';
 import 'package:offline_sync_watch_test_client/offline_sync_watch_test_client.dart';
 import 'package:path/path.dart' as p;
+import 'package:serverpod_database/serverpod_database.dart'
+    show DatabaseSession;
 import 'package:serverpod_offline_sync_client/serverpod_offline_sync_client.dart';
 import 'package:test/test.dart';
 
@@ -405,6 +407,155 @@ void main() {
         expect(await Note.db.count(restored), 0);
       },
     );
+
+    // The case above clears the checkpoint (a server that never saw the
+    // device). A server restored from a backup reports a lower one instead,
+    // which must replace the higher one the device recorded.
+    test(
+      'should_count_the_rows_after_the_lower_checkpoint_a_restored_server_reports',
+      () async {
+        final userId = const Uuid().v7obj();
+        final serverPath = newPath();
+        final server = await openReplica(userId, path: serverPath);
+        final device = await openReplica(userId);
+        final deviceNodeId = await device.db.currentNodeId();
+        await Note.db.insertRow(device, Note(title: 'a'));
+        await trackerOf(peerOf(server), device).syncOnce();
+
+        // A backup holding only the first row, then the server goes on.
+        await server.close();
+        final backupPath = newPath();
+        for (final suffix in ['', '-wal', '-shm']) {
+          final file = File('$serverPath$suffix');
+          if (file.existsSync()) await file.copy('$backupPath$suffix');
+        }
+        final live = await openReplica(userId, path: serverPath);
+        await Note.db.insertRow(device, Note(title: 'b'));
+        await Note.db.insertRow(device, Note(title: 'c'));
+        final liveTracker = trackerOf(peerOf(live), device);
+        await liveTracker.syncOnce();
+        expect(liveTracker.status.unsentRowCount, 0);
+
+        final restored = await openReplica(userId, path: backupPath);
+        expect(
+          await checkpointOf(restored, deviceNodeId),
+          isNotNull,
+          reason: 'a lower checkpoint, not none',
+        );
+        final cutTracker = trackerOf(
+          peerOf(restored, mapServerStream: _cutAfterFirstBatch),
+          device,
+        );
+
+        expect(await errorOf(cutTracker.syncOnce()), isA<StateError>());
+        expect(cutTracker.status.unsentRowCount, 2);
+        expect(await device.db.unsentRowCount(), 2);
+        expect(await Note.db.count(restored), 1);
+      },
+    );
+  });
+
+  group('Given a device that also writes in a shared space,', () {
+    // Each space has its own checkpoint. A round confirms every space it
+    // handshook, not only the first.
+    test(
+      'should_confirm_every_handshaken_space_at_the_end_of_a_round',
+      () async {
+        final userId = const Uuid().v7obj();
+        final shared = const Uuid().v7obj();
+        final server = await openReplica(userId);
+        final device = await openReplica(userId);
+        final deviceNodeId = await device.db.currentNodeId();
+        final sharedSpace = await OfflineSyncSpace.db.insertRow(
+          server,
+          OfflineSyncSpace(uuidSpaceId: shared),
+        );
+        await OfflineSyncSpaceMember.db.insertRow(
+          server,
+          OfflineSyncSpaceMember(
+            spaceId: sharedSpace.id!,
+            userUuid: userId,
+            role: OfflineSyncSpaceRole.readWrite,
+          ),
+        );
+        final tracker = trackerOf(
+          peerOf(server),
+          device,
+          watchUnsentRows: false,
+        );
+        // The first round tells the device about the shared space.
+        await tracker.syncOnce();
+
+        await Note.db.insertRow(device, Note(title: 'personal'));
+        await device.db.transactionForUser(
+          userId,
+          (transaction) => Note.db.insertRow(
+            device,
+            Note(title: 'shared'),
+            transaction: transaction,
+          ),
+          spaceId: shared,
+        );
+        expect(await device.db.unsentRowCount(), 2);
+
+        await tracker.syncOnce();
+
+        expect(tracker.status.unsentRowCount, 0);
+        final own = await OfflineSyncSpaceNode.db.find(
+          device,
+          where: (t) => t.node.uuidNodeId.equals(deviceNodeId),
+        );
+        expect(
+          own.where((spaceNode) => spaceNode.lastReceivedHlc != null),
+          hasLength(2),
+          reason: 'one confirmed checkpoint per space',
+        );
+      },
+    );
+  });
+
+  group('Given watchUnsentRowCount,', () {
+    test(
+      'should_emit_on_listen_after_offline_writes_and_after_a_round_but_not_for_an_unchanged_count',
+      () async {
+        final userId = const Uuid().v7obj();
+        final server = await openReplica(userId);
+        final device = await openReplica(userId);
+        const throttle = Duration(milliseconds: 30);
+        final counts = <int>[];
+        final countSubscription = device.db
+            .watchUnsentRowCount(throttle: throttle)
+            .listen(counts.add);
+        addTearDown(countSubscription.cancel);
+        var triggers = 0;
+        final triggerSubscription = device.db
+            .watchUnsentRowCountTriggers(throttle: throttle)
+            .listen((_) => triggers++);
+        addTearDown(triggerSubscription.cancel);
+
+        await eventually(() async => counts.length == 1 && triggers == 1);
+        expect(counts, [0]);
+
+        final a = await Note.db.insertRow(device, Note(title: 'a'));
+        await eventually(() async => counts.length == 2);
+        expect(counts, [0, 1]);
+
+        // A commit that leaves the count as it is.
+        final before = triggers;
+        await Note.db.updateRow(device, a.copyWith(title: 'a2'));
+        await eventually(() async => triggers > before);
+        await Future<void>.delayed(throttle * 4);
+        expect(counts, [0, 1]);
+
+        await Note.db.insertRow(device, Note(title: 'b'));
+        await eventually(() async => counts.length == 3);
+        expect(counts, [0, 1, 2]);
+
+        await peerOf(server).syncOnce(device);
+        await eventually(() async => counts.last == 0);
+        expect(counts, [0, 1, 2, 0]);
+      },
+    );
   });
 
   group('Given the status stream,', () {
@@ -509,6 +660,97 @@ void main() {
       },
     );
 
+    // The sign-out warning rests on this: a count that fails is unknown, never
+    // zero and never the last count.
+    test(
+      'should_publish_an_unknown_count_instead_of_zero_or_the_last_one_when_counting_fails',
+      () async {
+        final userId = const Uuid().v7obj();
+        final server = await openReplica(userId);
+        final device = await openReplica(userId);
+        await Note.db.insertRow(device, Note(title: 'a'));
+        final tracker = trackerOf(
+          peerOf(server),
+          device,
+          watchUnsentRows: false,
+        );
+        await countSettles(tracker, 1);
+        final events = eventsOf(tracker);
+
+        await device.close();
+        expect(await errorOf(tracker.countUnsentRows()), isNotNull);
+        await tracker.refreshUnsentRowCount();
+
+        expect(tracker.status.unsentRowCount, isNull);
+        expect(tracker.status.isIdle, isFalse);
+
+        expect(await errorOf(tracker.syncOnce()), isNotNull);
+        await pumpEventQueue();
+
+        expect(
+          [
+            for (final event in events)
+              (event.phase, event.unsentRowCount, event.lastFailure != null),
+          ],
+          [
+            (OfflineSyncPhase.idle, null, false),
+            (OfflineSyncPhase.syncing, null, false),
+            (OfflineSyncPhase.idle, null, true),
+          ],
+        );
+      },
+    );
+
+    // A count that read the row before the round sent it must not be
+    // published as the round's outcome: that would pair lastSuccessAt with a
+    // count the round already made stale.
+    test(
+      'should_publish_the_outcome_with_a_count_started_after_the_round_not_one_in_progress',
+      () async {
+        final userId = const Uuid().v7obj();
+        final server = await openReplica(userId);
+        final device = await openReplica(userId);
+        await Note.db.insertRow(device, Note(title: 'a'));
+        final roundEnded = Completer<void>();
+        Completer<void>? hold;
+        final countRead = Completer<void>();
+        var counts = 0;
+        final tracker = OfflineSyncStatusTracker(
+          _SignalingClient(peerOf(server), roundEnded),
+          device,
+          watchUnsentRows: false,
+          unsentRowCounter: () async {
+            counts++;
+            final count = await device.db.unsentRowCount();
+            if (hold case final gate?) {
+              hold = null;
+              countRead.complete();
+              await gate.future;
+            }
+            return count;
+          },
+        );
+        addTearDown(tracker.dispose);
+        await countSettles(tracker, 1);
+        final events = eventsOf(tracker);
+
+        final release = hold = Completer<void>();
+        final heldCount = tracker.refreshUnsentRowCount();
+        await countRead.future;
+        final round = tracker.syncOnce();
+        await roundEnded.future;
+        // Let the tracker take the end of the round while the count is held.
+        await pumpEventQueue();
+        release.complete();
+        await Future.wait([heldCount, round]);
+
+        expect(counts, 3, reason: 'on creation, the held one, one after');
+        final success = events.firstWhere((e) => e.lastSuccessAt != null);
+        expect(success.unsentRowCount, 0);
+        expect(tracker.status.unsentRowCount, 0);
+      },
+    );
+
     test('should_publish_nothing_and_refuse_to_sync_after_dispose', () async {
       final userId = const Uuid().v7obj();
       final server = await openReplica(userId);
@@ -541,5 +783,26 @@ Stream<OfflineSyncStreamEvent> _cutAfterFirstBatch(
     if (event is OfflineSyncEndOfBatch) {
       throw StateError('Connection cut after the handshake.');
     }
+  }
+}
+
+/// Delegates to [_inner] and completes [_roundEnded] when its first
+/// [syncOnce] returns, before the caller resumes.
+class _SignalingClient extends OfflineSyncClient {
+  _SignalingClient(this._inner, this._roundEnded)
+    : super(({required changes, required once}) {
+        throw UnsupportedError('Syncs through the inner client.');
+      });
+
+  final OfflineSyncClient _inner;
+  final Completer<void> _roundEnded;
+
+  @override
+  Future<void> syncOnce(
+    DatabaseSession session, {
+    OfflineSyncOnMergeSuccess? onMergeSuccess,
+  }) async {
+    await _inner.syncOnce(session, onMergeSuccess: onMergeSuccess);
+    if (!_roundEnded.isCompleted) _roundEnded.complete();
   }
 }
