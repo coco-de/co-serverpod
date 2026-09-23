@@ -36,6 +36,15 @@
   - `toOfflineSyncWireError` and the `offlineSyncWireErrors()` stream
     transformer map server-side failures and pass anything else through. A
     schema hash mismatch is not mapped.
+  - An integrity violation reaches the device as a fixed message without
+    identifiers. The server message names the space that owns the row, which
+    for a personal space is another user's id, and the persisted violation id.
+    `offlineSyncWireErrors(onMapped:)` hands the original to the caller, after
+    the replacement is emitted, so the server can log it.
+  - A build that predates `OfflineSyncRemoteException` cannot decode it, and
+    Serverpod's client then closes the whole WebSocket connection: `unknown`
+    covers new codes, not new classes. Ship apps that know a new wire class
+    before the server sends it.
 
 ## 0.0.8+co.1 (co-serverpod fork)
 

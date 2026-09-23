@@ -35,7 +35,7 @@ drift의 `watch()`처럼 로컬 쓰기와 동기화 병합을 화면에 자동�
 | 대상 | 변경 |
 |---|---|
 | `lib/src/database/database.dart` | `watch`·`unsafeWatch` 구현, 트리거 테이블 수집·include 복원 헬퍼 |
-| `lib/src/generated/**` | CLI 4.1.0-beta.1로 재생성. 테이블 저장소마다 `watch`가 추가되고 삭제된 줄은 없음 |
+| `lib/src/generated/**` | CLI 4.1.0-beta.1로 재생성. 테이블 저장소마다 `watch`가 추가되고 삭제된 줄은 없음. 아래 새 모델 2개(`sync/failure_code.dart`·`sync/remote_exception.dart`)와 그 `protocol.dart` 등록(import·export·역직렬화 분기)도 재생성 산출물 |
 | 세 패키지 `pubspec.yaml` | Serverpod `^4.1.0-beta.1`, 형제 path 의존, 워크스페이스 해제, `publish_to: none` |
 | 세 패키지 `analysis_options.yaml` | 업스트림 루트 린트를 `analysis_options.upstream.yaml`로 옮겨 include |
 | `README.md`·`CHANGELOG.md` | 업스트림 루트를 가리키던 심볼릭 링크를 실제 파일로 교체 |
@@ -45,9 +45,13 @@ drift의 `watch()`처럼 로컬 쓰기와 동기화 병합을 화면에 자동�
 | `lib/src/database/merge.dart` | `_updateHlcFromIncomingOperations`: 배치 최대값 하나만 보던 것을 다른 노드 최대값 `merge` → 자기 노드 최대값 `adoptOwn` 순서로 나눔. 업스트림은 최대값이 자기 노드 id 면 검사 없이 채택했다 ([위조 노드 id](#시계-오차-허용치와-동기화-실패-분류)) |
 | `lib/src/database/recorder.dart`·`merge_utils/recorder_context.dart` | `OfflineSyncDatabaseContext.maxClockDrift`(0 이하 `ArgumentError`)·`resolve`, `hlcManagerFor` 가 그 값을 전달 |
 | `lib/src/database/database.dart`·`session.dart`·`lib/src/sync/engine.dart` | `maxClockDrift` named 인자(공유 context 와 다르면 `ArgumentError`)와 getter. 동기화 루프·프로토콜은 무변경 |
-| `lib/src/sync/failure_code.spy.yaml`·`remote_exception.spy.yaml`·`failure_mapping.dart` (신규) | 와이어 예외 `OfflineSyncRemoteException`·`OfflineSyncFailureCode`(`unknown` + `default: unknown`), 매퍼 `toOfflineSyncWireError`(`driftMs` 올림)·`offlineSyncWireErrors`. 생성 코드 2개 추가 |
-| `serverpod_offline_sync_server` `business/offline_sync.dart` | `initializeOfflineSync(maxClockDrift:)`, `OfflineSyncSession.sync` 에 매퍼 적용, `maxClockDrift` getter |
+| `lib/src/sync/failure_code.spy.yaml`·`remote_exception.spy.yaml`·`failure_mapping.dart` (신규) | 와이어 예외 `OfflineSyncRemoteException`·`OfflineSyncFailureCode`(`unknown` + `default: unknown`), 매퍼 `toOfflineSyncWireError`(`driftMs` 올림, 무결성 위반은 식별자 없는 고정 문구)·`offlineSyncWireErrors(onMapped:)`. 생성 코드 2개 추가 |
+| `lib/serverpod_offline_sync.dart` (배럴) | `src/sync/failure_mapping.dart` export 추가 — 공개 API 가 늘어남 |
+| `test/hlc/hlc_fixtures.dart`·`hlc_increment_test.dart`·`hlc_merge_test.dart` (업스트림 테스트) | 1분 초과를 거부하던 케이스를 "기본값에서는 통과" 로 바꾸고 거부 경계를 1시간(`Hlc.defaultMaxDrift`)으로 옮김, `kind` 단언 추가, fixture 주석(밀리초 정렬 이유) |
+| `serverpod_offline_sync_server` `business/offline_sync.dart` | `initializeOfflineSync(maxClockDrift:)`, `OfflineSyncSession.sync` 에 매퍼 적용·바꾼 실패의 원본을 세션 로그(`LogLevel.error`)에 기록, `maxClockDrift` getter |
 | `serverpod_offline_sync_client` `lib/src/sync/failure.dart` (신규) | 앱 분류기 `OfflineSyncFailure.from`·`OfflineSyncFailureReason` (열기 거부 `OpenMethodStreamException` 3종 포함) |
+| `serverpod_offline_sync_client` `lib/offline_sync.dart`·`lib/serverpod_offline_sync_client.dart` (배럴) | `src/sync/failure.dart` export 추가 — 공개 API 가 늘어남 |
+| **포크 전용 테스트** (업스트림에 없음) | 엔진 `test/hlc/hlc_max_drift_test.dart`·`test/managers/hlc_manager_test.dart`·`test/sync/failure_mapping_test.dart`·`test/sync/max_clock_drift_config_test.dart`, 클라이언트 `test/failure_test.dart`, 서버 모듈 `test/integration/failure_mapping_test.dart`. 업스트림을 새로 풀면 **지워진다** — [업스트림 따라가기](#업스트림-따라가기) 1단계 |
 
 ## 설치
 
@@ -159,9 +163,16 @@ await session.db.initialize();
 - **K2 의 타입**: Serverpod 스트리밍 endpoint 는 `SerializableException` 만 기기로 보냅니다. 그 밖의 예외는
   `ConnectionClosedException` 이 되어 네트워크 끊김과 구분되지 않습니다. 서버 파사드
   `session.offlineSync.sync` 가 `offlineSyncWireErrors()` 로 시계 오차·카운터 오버플로·중복 노드·무결성
-  위반을 `OfflineSyncRemoteException` 으로 바꿉니다. **앱 endpoint 는 이 파사드를 써야 합니다** — 엔진
-  (`session.db.offlineSyncDb.sync`)을 직접 부르면 타입이 다시 사라집니다. 스키마 해시 불일치는 매핑하지
-  않습니다. 각 피어가 상대 해시를 직접 검증해 이미 타입 있는 예외를 받고, 방향 판정은 앱 몫입니다.
+  위반을 `OfflineSyncRemoteException` 으로 바꿉니다. **앱 endpoint 는 이 파사드를 써야 합니다** — 엔진을
+  직접 부르면(`session.offlineSyncDb.sync(...)` — 서버 `Session` 은 `DatabaseSession` 이고 인터셉터가
+  `session.db` 를 `OfflineSyncDatabase` 로 감싸므로 이 호출이 컴파일된다) 타입이 다시 사라집니다. 스키마 해시
+  불일치는 매핑하지 않습니다. 각 피어가 상대 해시를 직접 검증해 이미 타입 있는 예외를 받고, 방향 판정은 앱
+  몫입니다.
+- **무결성 위반은 코드와 고정 문구만**: 서버 쪽 원래 메시지는 행을 소유한 space(개인 space 면 **다른 사용자
+  id**)와 영속된 위반 행 id 를 담습니다. 그래서 기기에는 `integrityViolation` 과 식별자 없는 고정 문구만 보내고,
+  원본은 파사드가 `offlineSyncWireErrors(onMapped:)` 로 세션 로그(`LogLevel.error`)에 남깁니다 — Serverpod 는
+  스트림을 끝낸 오류(대체본)만 기록하기 때문입니다. 매퍼를 직접 적용하는 endpoint 도 `onMapped` 로 같은 로그를
+  남기세요. 다른 코드의 `message` 는 서버 메시지 그대로입니다(시계 오차의 노드 id 는 기기가 보낸 스탬프의 것).
 - **C ≥ S + 기기의 예상 지연**: 서버는 모든 space 가 **노드 하나를 공유**합니다(`managers/space.dart`). S 이내로
   앞선 기기 한 대가 서버 노드를 서버 벽시계 + S 까지 끌어올리면, 그 뒤 서버가 쓰는 스탬프도 그만큼 앞섭니다.
   서버보다 δ 만큼 뒤처진 기기는 그 스탬프를 S + δ 앞선 것으로 보므로, C 가 S + δ 보다 작으면 K1 로 멈춥니다
@@ -197,6 +208,12 @@ await session.db.initialize();
   던지게 두면 서버가 나중에 코드를 더했을 때 구버전 앱에서 `UnknownMessageException` 이 나고, Serverpod 클라이언트가
   **WebSocket 연결 전체**(그 위의 모든 메서드 스트림)를 닫습니다. 이 기본값과 `unknown` 값은 지우지 마세요.
   서버는 `unknown` 을 보내지 않습니다.
+- ⚠️ **`unknown` 은 모르는 코드만 막습니다 — 모르는 클래스는 못 막습니다.** `OfflineSyncRemoteException` 이 생기기
+  전의 포크로 빌드한 앱은 이 클래스 자체를 복호하지 못해 같은 `UnknownMessageException` 이 나고 연결 전체가
+  닫힙니다(`serverpod_client` 4.1.0-beta.1 `client_method_stream_manager.dart` 의 `UnknownMessageException`
+  catch → rethrow → 연결 종료). 이 포크에 의존해 배포된 앱이 없으면 영향이 없습니다(unibook 은 2026-09-24
+  기준 의존하지 않음). 앞으로 기기로 보내는 **새 직렬화 클래스**(예외든 이벤트든)를 더할 때는 그 클래스를 아는
+  앱을 먼저 배포하고 서버가 나중에 보내기 시작하게 하거나, 핸드셰이크에서 기기가 아는지 확인해 게이트하세요.
 - **`driftMs` 는 올림**: `merge` 는 벽시계를 마이크로초로 비교하므로 한도를 1ms 미만 넘긴 거부가 있습니다.
   `driftMs` 는 올리고 `maxDriftMs` 는 내려서, 거부된 경우 항상 `driftMs > maxDriftMs` 입니다.
 - **후속 후보 (하지 않음)**: 병합의 시계 검사는 `mergeChanges` 끝(`_updateHlcFromIncomingOperations`)에 있어서
@@ -252,8 +269,10 @@ dart run serverpod_cli create-migration
 ## 업스트림 따라가기
 
 1. 새 기준 커밋에서 `git archive <sha> packages/serverpod_offline_sync packages/serverpod_offline_sync_client packages/serverpod_offline_sync_server`로
-   세 패키지를 다시 풀고, [변경점 표](#업스트림-기준과-변경점)의 항목을 다시 적용합니다. ⚠️ 시계 오차 항목을
-   빠뜨리면 **조용히 1분으로 돌아갑니다** — `hlc_max_drift_test.dart` 가 그 회귀를 잡습니다.
+   세 패키지를 다시 풀고, [변경점 표](#업스트림-기준과-변경점)의 항목을 다시 적용합니다. ⚠️ 디렉터리를 새로 풀면
+   표의 **포크 전용 테스트**와 신규 파일이 사라집니다 — 푼 직후 `git checkout <직전 포크 커밋> -- <파일>` 로
+   되살리세요. ⚠️ 시계 오차 항목을 빠뜨리면 **조용히 1분으로 돌아갑니다** — 그 회귀를 잡는
+   `hlc_max_drift_test.dart` 도 포크 전용이라, 되살리지 않으면 회귀와 가드가 함께 사라집니다.
 2. `cd packages/serverpod_offline_sync_server && dart run serverpod_cli generate`
 3. 위 테스트를 모두 실행합니다.
 4. 이 README의 기준 커밋과 `CHANGELOG.md`를 갱신합니다.

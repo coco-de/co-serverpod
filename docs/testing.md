@@ -36,10 +36,10 @@ cd test/offline_sync_watch_test_client && dart pub get && dart test
 | 위치 | 검증 |
 |---|---|
 | 엔진 `test/hlc/hlc_max_drift_test.dart`·`test/managers/hlc_manager_test.dart` | 기본 1시간, 정확히 한도는 허용·1ms 초과는 거부(`merge`·`increment`·`adoptOwn`), 5분 사용자 값, `merge` 가 받은 스탬프 뒤 `increment` 성공(한 값 공유), `kind`·`remoteNodeId`·`toString` |
-| 엔진 `test/sync/` | context·엔진의 값 전달과 충돌 `ArgumentError`, 와이어 매퍼 구조 단언과 메서드 스트림 메시지 왕복, 알 수 없는 예외 통과, 모르는 코드 → `unknown`, 1ms 미만 초과의 `driftMs` 올림 |
+| 엔진 `test/sync/` | context·엔진의 값 전달과 충돌 `ArgumentError`, 와이어 매퍼 구조 단언과 메서드 스트림 메시지 왕복, 알 수 없는 예외 통과, 모르는 코드 → `unknown`, 1ms 미만 초과의 `driftMs` 올림, 무결성 위반 메시지에 소유 space·행·위반 id 없음(원본엔 있음을 대조), `onMapped` 순서·미호출 |
 | 클라이언트 `test/failure_test.dart` | `OfflineSyncFailure.from` 전 분기(기기 로컬 무결성 위반·열기 거부 4종·모르는 서버 코드 포함), `isPermanent`·`isClockDrift` 집합, 생성 client Protocol 로 복호(모르는 코드도 연결을 닫지 않고 복호) |
-| 서버 모듈 `failure_mapping_test.dart` | `initializeOfflineSync(maxClockDrift:)` 배선, 파사드 매핑, 생성 endpoint 경유 `integrityViolation` |
-| watch `clock_drift_test.dart` | 고정 시계(`withClock`)로 K1(기기 뒤처짐)·K2(기기 앞섬, 타입 있는 예외, 서버 노드 id 위조)·K3(로컬 역행)·허용치 차이(C < S 면 시계가 정확한 기기도 K1)·실패 회차 재전송(서버가 놓친 경우·병합한 경우 각각)·같은 한도 재래핑 |
+| 서버 모듈 `failure_mapping_test.dart` | `initializeOfflineSync(maxClockDrift:)` 배선, 파사드 매핑과 원본의 세션 로그 기록(통과시킨 실패는 기록 안 함), 생성 endpoint 경유 `integrityViolation`(메시지에 space id 없음) |
+| watch `clock_drift_test.dart` | 고정 시계(`withClock`)로 K1(기기 뒤처짐)·K2(기기 앞섬, 타입 있는 예외, 서버 노드 id 위조)·K3(로컬 역행)·허용치 차이(C < S 면 시계가 정확한 기기도 K1)·실패 회차 재전송(서버가 놓친 경우·병합한 경우 각각)·같은 한도 재래핑·감싸지 않은 DB 에 context 와 다른 한도를 넘기면 생성자 3종 모두 `ArgumentError` |
 
 > **하네스 한계**: `serverpod_test` 는 스트리밍 endpoint 의 오류를 원본 그대로 넘기므로, 실제 소켓에서
 > `SerializableException` 이 아닌 예외가 사라지는 것을 재현하지 못합니다 — 그래서 매퍼가 메서드 스트림
