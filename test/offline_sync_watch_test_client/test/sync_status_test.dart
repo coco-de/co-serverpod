@@ -221,6 +221,35 @@ void main() {
     );
   });
 
+  group('Given a process whose schema registry changed,', () {
+    // A fresh replica registers the synchronized schema, so every new wrapper
+    // over it re-projects every space on its first operation. The device's
+    // checkpoint writes must not open one: an idle round used to pay it twice
+    // (the handshake and the close), once per handshaken space plus one.
+    test('should_not_rebuild_projections_in_an_idle_round', () async {
+      final userId = const Uuid().v7obj();
+      final opening = CrdtMutationRecorder.debugProjectionRebuildCount;
+      final server = await openReplica(userId);
+      final device = await openReplica(userId);
+      expect(
+        CrdtMutationRecorder.debugProjectionRebuildCount - opening,
+        greaterThan(0),
+        reason: 'the fixture must have a changed registry, else this is vacuous',
+      );
+      await Note.db.insertRow(device, Note(title: 'a'));
+      final tracker = trackerOf(peerOf(server), device, watchUnsentRows: false);
+      await tracker.syncOnce();
+      expect(tracker.status.unsentRowCount, 0);
+
+      final idle = CrdtMutationRecorder.debugProjectionRebuildCount;
+      await tracker.syncOnce();
+      await tracker.syncOnce();
+
+      expect(CrdtMutationRecorder.debugProjectionRebuildCount - idle, 0);
+      expect(tracker.status.unsentRowCount, 0);
+    });
+  });
+
   group('Given a round that fails,', () {
     test(
       'should_keep_the_count_and_record_a_typed_failure_when_the_server_rejects_the_push',

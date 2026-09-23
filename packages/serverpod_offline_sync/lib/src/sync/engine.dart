@@ -434,10 +434,11 @@ class OfflineSyncEngine {
           // unsent row count starts from, replacing the recorded one even when
           // it is lower (the server lost data), since this is the checkpoint
           // this session sends from.
-          await _openOfflineSyncDatabase(session).replaceSyncCheckpoint(
-            localNodeId,
-            spaces.checkpointOf(entry.key, localNodeId),
-            userId: entry.key,
+          await _replaceOwnCheckpoint(
+            session,
+            spaceId: entry.key,
+            nodeId: localNodeId,
+            hlc: spaces.checkpointOf(entry.key, localNodeId),
           );
         }
       }
@@ -532,17 +533,67 @@ class OfflineSyncEngine {
     OfflineSyncSpaceState spaces,
     UuidValue localNodeId,
   ) async {
-    final offlineSyncDb = _openOfflineSyncDatabase(session);
     for (final spaceId in spaces.handshakenSpaceIds.toList()) {
       final confirmed = spaces.checkpointOf(spaceId, localNodeId);
       if (confirmed == null) continue;
-      await offlineSyncDb.recordSyncCheckpoint(
-        localNodeId,
-        confirmed,
-        userId: spaceId,
+      await _recordOwnCheckpoint(
+        session,
+        spaceId: spaceId,
+        nodeId: localNodeId,
+        hlc: confirmed,
       );
     }
   }
+
+  /// Advances this device's own checkpoint in [spaceId] to [hlc], see
+  /// [CrdtMutationRecorder.recordSyncCheckpoint].
+  Future<void> _recordOwnCheckpoint(
+    DatabaseSession session, {
+    required UuidValue spaceId,
+    required UuidValue nodeId,
+    required Hlc hlc,
+  }) async {
+    final db = session.db;
+    if (db is OfflineSyncDatabase) {
+      await db.recordSyncCheckpoint(nodeId, hlc, userId: spaceId);
+    } else {
+      await _checkpointRecorder(db).recordSyncCheckpoint(spaceId, nodeId, hlc);
+    }
+  }
+
+  /// Sets this device's own checkpoint in [spaceId] to what the peer reported,
+  /// see [CrdtMutationRecorder.replaceSyncCheckpoint].
+  Future<void> _replaceOwnCheckpoint(
+    DatabaseSession session, {
+    required UuidValue spaceId,
+    required UuidValue nodeId,
+    required Hlc? hlc,
+  }) async {
+    final db = session.db;
+    if (db is OfflineSyncDatabase) {
+      await db.replaceSyncCheckpoint(nodeId, hlc, userId: spaceId);
+    } else {
+      await _checkpointRecorder(db).replaceSyncCheckpoint(spaceId, nodeId, hlc);
+    }
+  }
+
+  /// A recorder over the plain [db] for the device's own checkpoint writes.
+  ///
+  /// Fork (unibook#14183): unlike [_openOfflineSyncDatabase], this opens no
+  /// [OfflineSyncDatabase] wrapper, so it skips the recorder initialization a
+  /// new wrapper runs on its first operation. That initialization re-projects
+  /// every space while the schema registry changed in this process (a fresh
+  /// install, an app update that changed the synchronized schema). The
+  /// checkpoint writes run on every round and touch only
+  /// `offline_sync_space_nodes`; through a wrapper they made each idle round
+  /// pay that pass over the data once per handshaken space plus one. They need
+  /// no initialization: the sync that makes them already initialized the
+  /// shared context.
+  CrdtMutationRecorder _checkpointRecorder(Database db) => CrdtMutationRecorder(
+    db,
+    context: _databaseContext,
+    persistentUserId: null,
+  );
 
   /// Counts the rows of the synchronized tables holding a change authored by
   /// [localNodeId] after the checkpoint recorded for it in the row's space, see

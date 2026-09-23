@@ -350,7 +350,18 @@ class CrdtMutationRecorder {
     _isInitialized = true;
   }
 
+  /// How many times a recorder in this isolate has re-projected every space on
+  /// initialization, see [ensureInitialized].
+  ///
+  /// Fork (unibook#14183): for tests that pin how often a sync pays for it. It
+  /// happens on the first operation of each new wrapper while the schema
+  /// registry changed in this process (a fresh install, an app update that
+  /// changed the synchronized schema), and costs a pass over every row.
+  @visibleForTesting
+  static int debugProjectionRebuildCount = 0;
+
   Future<void> _rebuildProjectionsForAllSpaces() async {
+    debugProjectionRebuildCount++;
     final spaces = await OfflineSyncSpace.db.find(
       _session,
       include: OfflineSyncSpace.include(currentNode: CrdtNode.include()),
