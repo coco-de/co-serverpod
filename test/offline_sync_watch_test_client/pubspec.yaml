@@ -1,0 +1,20 @@
+name: offline_sync_watch_test_client
+description: >-
+  Generated client for the serverpod_offline_sync watch test fixture, with the
+  SQLite watch tests.
+publish_to: none
+
+environment:
+  sdk: '^3.12.2'
+
+dependencies:
+  serverpod_client: ^4.1.0-beta.1
+  serverpod_database: ^4.1.0-beta.1
+  serverpod_offline_sync_client:
+    path: ../../packages/serverpod_offline_sync_client
+
+dev_dependencies:
+  async: ^2.11.0
+  lints: ^5.0.0
+  path: ^1.9.1
+  test: ^1.25.5

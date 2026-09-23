@@ -1,7 +1,8 @@
 # co-serverpod
 
 [Serverpod](https://serverpod.dev) 인증 확장과 offline-first 동기화 패키지 모노레포입니다.
-Kakao/Naver/Apple Identity Provider, 순수 Dart 동기화 코어, Flutter 클라이언트 어댑터를 제공합니다.
+Kakao/Naver/Apple Identity Provider, 순수 Dart 동기화 코어, Flutter 클라이언트 어댑터,
+Serverpod 4.1용 `serverpod_offline_sync` 포크를 제공합니다.
 
 공식 `serverpod_auth_idp`는 Google·Apple·Email·Microsoft·GitHub·Facebook·Firebase·Passkey만 네이티브로 지원하고 **Kakao/Naver는 미지원**입니다. 본 모노레포는 공개 API(`IdentityProviderBuilder`, `OAuth2PkceUtil`, `AuthServices`)만으로 Kakao/Naver 두 provider를 custom 구현합니다 — Serverpod 코어 fork 불필요.
 Apple 은 공식 provider 를 포팅하되, 공식이 검증하지 않는 `id_token` 의 `nonce` claim 을 검증(**nonce 리플레이 방지**)하도록 확장했습니다.
@@ -12,6 +13,9 @@ Apple 은 공식 provider 를 포팅하되, 공식이 검증하지 않는 `id_to
 |--------|------|
 | [`co_offline_sync`](packages/co_offline_sync/README.md) | 순수 Dart 동기화 코어 — HLC·필드별 LWW·스키마 호환 창·서버/클라이언트 계약 |
 | [`co_sync`](packages/co_sync/README.md) | Flutter + Drift 클라이언트 — 영속 저장·반응형 조회·생명주기 동기화·replica |
+| [`serverpod_offline_sync`](packages/serverpod_offline_sync/README.md) | [serverpod_offline_sync](https://github.com/marcelomendoncasoares/serverpod_offline_sync) 포크 — Serverpod 4.1 + CRDT 가시성을 반영하는 `Model.db.watch` |
+| [`serverpod_offline_sync_client`](packages/serverpod_offline_sync_client/README.md) | 위 포크의 클라이언트 전송 (`createSyncSession`, `offlineSync`) |
+| [`serverpod_offline_sync_server`](packages/serverpod_offline_sync_server/README.md) | 위 포크의 Serverpod 서버 모듈 |
 | [`serverpod_auth_idp_kakao_server`](packages/serverpod_auth_idp_kakao_server) | Kakao 로그인 서버 provider (OAuth2 authorization code + userinfo) |
 | [`serverpod_auth_idp_kakao_flutter`](packages/serverpod_auth_idp_kakao_flutter) | Kakao 로그인 Flutter 클라이언트 컨트롤러/위젯 |
 | [`serverpod_auth_idp_naver_server`](packages/serverpod_auth_idp_naver_server) | Naver 로그인 서버 provider (OAuth2 authorization code + userinfo) |
@@ -24,6 +28,11 @@ Apple 은 공식 provider 를 포팅하되, 공식이 검증하지 않는 `id_to
 Flutter 앱은 [클라이언트 사용법](packages/co_sync/README.md)을,
 서버 연결과 커스텀 저장소는 [코어 사용법](packages/co_offline_sync/README.md)을 참고하세요.
 두 문서에 설치, 동기화 예제, 스키마 버전 관리, 계정 정리와 저장소 계약을 설명합니다.
+
+Serverpod ORM 모델(`database: sync`)을 그대로 오프라인 동기화하려면
+[`serverpod_offline_sync` 포크](packages/serverpod_offline_sync/README.md)를 사용합니다. 생성된
+`Model.db.watch(session, ...)`가 로컬 쓰기·삭제·동기화 병합을 화면에 자동 반영합니다.
+Serverpod **4.1.0-beta.1**이 필요하며, 인증 패키지는 기존 Serverpod 4.0 범위를 유지합니다.
 
 ## 인증 방식
 
@@ -132,6 +141,17 @@ flutter test test example
 
 각 패키지의 pub get 후에는 루트에서 `melos run offline-sync:analyze`와
 `melos run offline-sync:test`를 실행할 수도 있습니다.
+
+`serverpod_offline_sync` 포크 3개와 watch fixture(`test/offline_sync_watch_test_*`)도 각각 독립적으로
+resolve합니다(Serverpod 4.1.0-beta.1). 각 패키지에서 `dart pub get` 후 루트에서
+`melos run serverpod-offline-sync:analyze`와 `melos run serverpod-offline-sync:test`를 실행합니다.
+생성 코드는 `melos run serverpod-offline-sync:generate`로 다시 만듭니다.
+
+> 포크를 루트 `workspace:`에 넣지 않은 이유: pub workspace는 모든 멤버를 한 번에 해석합니다.
+> - 포크를 넣으면 인증 패키지까지 Serverpod 4.1.0-beta.1로 올라갑니다.
+> - co_sync와 함께 넣으면 `drift_dev`와 `serverpod_cli` 4.1의 analyzer/sqlparser 요구가 부딪혀 melos의
+>   `cli_util` 제약에서 해석이 실패합니다.
+> - `melos run generate`(`*_server`, 전역 CLI)가 포크 모듈을 다른 CLI 버전으로 재생성하는 것도 막습니다.
 
 ## 라이선스
 

@@ -1,0 +1,5 @@
+class: LocalDraft
+table: local_draft
+database: client
+fields:
+  body: String

@@ -1,0 +1,19 @@
+name: offline_sync_watch_test_server
+description: >-
+  Generator input for the serverpod_offline_sync watch test fixture. It only
+  holds model definitions and is never started.
+publish_to: none
+
+environment:
+  sdk: '^3.12.2'
+
+dependencies:
+  serverpod: ^4.1.0-beta.1
+  serverpod_offline_sync:
+    path: ../../packages/serverpod_offline_sync
+  serverpod_offline_sync_server:
+    path: ../../packages/serverpod_offline_sync_server
+
+dev_dependencies:
+  lints: ^5.0.0
+  serverpod_cli: ^4.1.0-beta.1

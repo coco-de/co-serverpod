@@ -1,0 +1,9 @@
+type: server
+
+client_package_path: ../offline_sync_watch_test_client
+
+experimental_features:
+  databaseSync: true
+
+modules:
+  serverpod_offline_sync:
