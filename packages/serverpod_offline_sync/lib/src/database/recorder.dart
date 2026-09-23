@@ -446,6 +446,38 @@ class CrdtMutationRecorder {
     });
   }
 
+  /// Sets the checkpoint recorded for [nodeId] in [userId]'s space to [hlc],
+  /// even when that moves it back or clears it (null).
+  ///
+  /// Unlike [recordSyncCheckpoint], this does not keep the greater value. It
+  /// records a peer's own report of how far it has [nodeId]'s changes, which
+  /// goes back when the peer lost data. Writes nothing when the value is
+  /// already [hlc].
+  @internal
+  Future<void> replaceSyncCheckpoint(
+    UuidValue userId,
+    UuidValue nodeId,
+    Hlc? hlc,
+  ) async {
+    final space = await _context.spaceManager.getOrCreate(userId);
+    await _db.transaction((transaction) async {
+      final node = await _context.findOrCreateNode(nodeId, transaction);
+      final spaceNode = await _context.findOrCreateSpaceNode(
+        space.id!,
+        node.id!,
+        transaction,
+      );
+      if (spaceNode.lastReceivedHlc == hlc) return;
+
+      await OfflineSyncSpaceNode.db.updateRow(
+        _session,
+        spaceNode.copyWith(lastReceivedHlc: hlc),
+        columns: (t) => [t.lastReceivedHlc],
+        transaction: transaction,
+      );
+    });
+  }
+
   /// Recomputes FK/unique projection for currently stored rows.
   ///
   /// Used before upsert so hidden unique claims are released before the

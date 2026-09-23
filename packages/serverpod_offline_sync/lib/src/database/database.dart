@@ -4,6 +4,7 @@
 
 import 'dart:async';
 
+import 'package:meta/meta.dart' show internal;
 import 'package:serverpod_database/serverpod_database.dart';
 import 'package:serverpod_serialization/serverpod_serialization.dart'
     show SerializationManager;
@@ -158,6 +159,98 @@ class OfflineSyncDatabase implements Database {
       otherNodeId,
       syncedHlc,
     );
+  }
+
+  /// Sets the checkpoint recorded for [nodeId] to [hlc], even when that moves
+  /// it back or clears it, see [CrdtMutationRecorder.replaceSyncCheckpoint].
+  @internal
+  Future<void> replaceSyncCheckpoint(
+    UuidValue nodeId,
+    Hlc? hlc, {
+    UuidValue? userId,
+  }) async {
+    await _ensureInitialized();
+    final effectiveUserId = await _requireUserId(userId);
+    await _recorder.replaceSyncCheckpoint(effectiveUserId, nodeId, hlc);
+  }
+
+  /// The tables whose commits can change [unsentRowCount].
+  static final Set<String> _unsentRowCountTables = {
+    CrdtDataRow.t.tableName,
+    CrdtDataField.t.tableName,
+    CrdtDataDeleted.t.tableName,
+    OfflineSyncSpaceNode.t.tableName,
+  };
+
+  /// Counts the rows of the synchronized tables that hold a change this node
+  /// wrote and the server has not confirmed yet.
+  ///
+  /// Meant for a device (a follower with a persistent user), for example to
+  /// warn before signing out. A row counts once however many of its changes
+  /// are pending: an insert, updated fields, and a synced delete. A row
+  /// inserted and deleted before any sync still counts, since both are sent.
+  /// Changes this node received from other nodes never count.
+  ///
+  /// "Confirmed" is what the device recorded from the server, not what it
+  /// sent (the protocol has no acknowledgement):
+  ///
+  /// * the checkpoint the server reports for this node when a sync session
+  ///   starts (its persisted `lastReceivedHlc`), replacing the recorded one,
+  /// * the changes sent in a `once` session that the server closed
+  ///   symmetrically, since the server closes only after merging them,
+  /// * this node's changes the server sent back.
+  ///
+  /// So the count never undercounts what the engine will send next, and it can
+  /// overcount until the next successful session: after a failed round the
+  /// server merged anyway, and during a continuous session, whose rounds have
+  /// no end the server confirms. Rows this node wrote in a space the server no
+  /// longer syncs with this user keep counting, since nothing will send them.
+  ///
+  /// The checkpoints are read before the rows, so a sync that commits while the
+  /// count runs can make it high, never low.
+  Future<int> unsentRowCount() async {
+    await _ensureInitialized();
+    return _sync.countUnsentRows(
+      _delegate.session,
+      localNodeId: await currentNodeId(),
+    );
+  }
+
+  /// Emits once on listen and again after commits that can change
+  /// [unsentRowCount], at most once per [throttle].
+  ///
+  /// A commit to a synchronized table always triggers an event, whether or not
+  /// the count changed. Use it to recount yourself; [watchUnsentRowCount]
+  /// does the counting.
+  ///
+  /// Only supported on SQLite. The delegate throws [UnsupportedError]
+  /// otherwise.
+  Stream<void> watchUnsentRowCountTriggers({
+    Duration? throttle = const Duration(milliseconds: 250),
+  }) {
+    return _delegate
+        .unsafeWatch(
+          'SELECT 1',
+          triggerOnTables: _unsentRowCountTables,
+          throttle: throttle,
+        )
+        .map((_) {});
+  }
+
+  /// Emits [unsentRowCount] on listen and again whenever it changes, including
+  /// after local writes made while offline.
+  ///
+  /// Counts run one at a time, each after the commit that triggered it. A
+  /// failed count is emitted as an error and the stream goes on.
+  ///
+  /// Only supported on SQLite. The delegate throws [UnsupportedError]
+  /// otherwise.
+  Stream<int> watchUnsentRowCount({
+    Duration? throttle = const Duration(milliseconds: 250),
+  }) {
+    return watchUnsentRowCountTriggers(
+      throttle: throttle,
+    ).asyncMap((_) => unsentRowCount()).distinct();
   }
 
   /// Merges remote CRDT changes into the local database for the given space.

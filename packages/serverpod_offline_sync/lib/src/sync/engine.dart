@@ -356,6 +356,7 @@ class OfflineSyncEngine {
           batch,
           outboundSpaces,
           onMergeSuccess,
+          localNodeId: localNodeId,
         );
 
         if (once) {
@@ -379,6 +380,9 @@ class OfflineSyncEngine {
           // our own outbound stream closes, which happens after this generator
           // returns.
           unawaited(_drainUntilDone(inboundIterator));
+          if (!spaces.isAuthoritative) {
+            await _recordConfirmedLocalCheckpoints(session, spaces, localNodeId);
+          }
           return;
         }
 
@@ -415,14 +419,27 @@ class OfflineSyncEngine {
     OfflineSyncSpaceState spaces,
     OfflineSyncCycleBatch batch,
     Set<UuidValue> outboundSpaces,
-    OfflineSyncOnMergeSuccess? onMergeSuccess,
-  ) async {
+    OfflineSyncOnMergeSuccess? onMergeSuccess, {
+    required UuidValue localNodeId,
+  }) async {
     if (batch.spaceSet != null) {
       await spaces.adoptPeerGrants(batch.spaceSet!.spaces);
     }
     for (final entry in batch.sinceHlcs.entries) {
       if (spaces.accepts(entry.key)) {
         spaces.recordPeerHandshake(entry.key, entry.value);
+        if (!spaces.isAuthoritative) {
+          // Fork (unibook#14183): the server's handshake says how far it has
+          // this device's changes. Keep that as the confirmed checkpoint the
+          // unsent row count starts from, replacing the recorded one even when
+          // it is lower (the server lost data), since this is the checkpoint
+          // this session sends from.
+          await _openOfflineSyncDatabase(session).replaceSyncCheckpoint(
+            localNodeId,
+            spaces.checkpointOf(entry.key, localNodeId),
+            userId: entry.key,
+          );
+        }
       }
     }
 
@@ -502,6 +519,101 @@ class OfflineSyncEngine {
       CrdtMergeDelete() => OfflineSyncViolationOperation.mergeDelete,
     };
   }
+
+  /// Records, per handshaken space, this node's checkpoint as confirmed by the
+  /// peer: everything this node sent in the session.
+  ///
+  /// Fork (unibook#14183): only valid once the peer's [OfflineSyncClose] has
+  /// arrived. The peer merges each batch before it moves on and closes only
+  /// after merging the last one, so by then it holds every change sent. A
+  /// failed session never gets here, so its changes stay unsent.
+  Future<void> _recordConfirmedLocalCheckpoints(
+    DatabaseSession session,
+    OfflineSyncSpaceState spaces,
+    UuidValue localNodeId,
+  ) async {
+    final offlineSyncDb = _openOfflineSyncDatabase(session);
+    for (final spaceId in spaces.handshakenSpaceIds.toList()) {
+      final confirmed = spaces.checkpointOf(spaceId, localNodeId);
+      if (confirmed == null) continue;
+      await offlineSyncDb.recordSyncCheckpoint(
+        localNodeId,
+        confirmed,
+        userId: spaceId,
+      );
+    }
+  }
+
+  /// Counts the rows of the synchronized tables holding a change authored by
+  /// [localNodeId] after the checkpoint recorded for it in the row's space, see
+  /// [OfflineSyncDatabase.unsentRowCount].
+  ///
+  /// Uses the same per-space checkpoint filters as the pending-change
+  /// collection, restricted to [localNodeId], so it counts the rows whose
+  /// changes a sync from the recorded checkpoints would send. A space without a
+  /// recorded checkpoint counts all of the node's rows in it.
+  Future<int> countUnsentRows(
+    DatabaseSession session, {
+    required UuidValue localNodeId,
+  }) async {
+    final tableNames = _syncTablesByName.keys.toSet();
+    if (tableNames.isEmpty) return 0;
+
+    // Read the checkpoints first: a checkpoint that advances after this read
+    // leaves the count high, never low.
+    final ownSpaceNodes = await OfflineSyncSpaceNode.db.find(
+      session,
+      where: (t) => t.node.uuidNodeId.equals(localNodeId),
+    );
+    final confirmedBySpaceId = {
+      for (final spaceNode in ownSpaceNodes)
+        spaceNode.spaceId: ?spaceNode.lastReceivedHlc,
+    };
+    final spaces = await OfflineSyncSpace.db.find(session);
+    final checkpointsBySpaceId = {
+      for (final space in spaces)
+        space.id!: [
+          if (confirmedBySpaceId[space.id!] case final confirmed?)
+            Hlc(confirmed.datetime, confirmed.counter, localNodeId),
+        ],
+    };
+    if (checkpointsBySpaceId.isEmpty) return 0;
+
+    final rows = await CrdtDataRow.db.find(
+      session,
+      where: (t) =>
+          _rowHlcAfterFilter(t, checkpointsBySpaceId) &
+          t.node.uuidNodeId.equals(localNodeId) &
+          t.tbl.name.inSet(tableNames),
+    );
+    final fields = await CrdtDataField.db.find(
+      session,
+      where: (t) =>
+          _fieldHlcAfterFilter(t, checkpointsBySpaceId) &
+          t.node.uuidNodeId.equals(localNodeId) &
+          t.row.tbl.name.inSet(tableNames),
+    );
+    final tombstones = await CrdtDataDeleted.db.find(
+      session,
+      where: (t) =>
+          _tombstoneHlcAfterFilter(t, checkpointsBySpaceId) &
+          t.node.uuidNodeId.equals(localNodeId) &
+          t.row.tbl.name.inSet(tableNames) &
+          t.reason.inSet(_syncedDeletedReasons),
+    );
+
+    return {
+      for (final row in rows) row.id!,
+      for (final field in fields) field.rowId,
+      for (final tombstone in tombstones) tombstone.rowId,
+    }.length;
+  }
+
+  /// The tombstone reasons the pending-change collection sends.
+  static final Set<CrdtDataDeletedReason> _syncedDeletedReasons = {
+    for (final reason in CrdtDataDeletedReason.values)
+      if (reason.isSynced) reason,
+  };
 
   /// Reports a successful merge for [spaceId] to [onMergeSuccess], combining the
   /// space's checkpoint high-water mark with the [receivedHlc] just merged.

@@ -233,6 +233,18 @@ class OfflineSyncSpaceState {
         spaceId.uuid,
       );
 
+  /// The spaces whose peer handshake completed, in the order they completed.
+  ///
+  /// A space the peer's grants drop leaves this set with its checkpoints.
+  Iterable<UuidValue> get handshakenSpaceIds => _checkpointsBySpace.keys;
+
+  /// The checkpoint tracked for [nodeId] in [spaceId]: what the peer reported
+  /// for that node in its handshake, advanced past every change of that node
+  /// sent since. Null when the space's handshake has not completed or the peer
+  /// reported nothing for the node.
+  Hlc? checkpointOf(UuidValue spaceId, UuidValue nodeId) =>
+      _checkpointsBySpace[spaceId]?[nodeId];
+
   /// The greatest checkpoint HLC tracked for [spaceId], or null if none.
   Hlc? checkpointMaxOf(UuidValue spaceId) {
     final checkpoints = _checkpointsBySpace[spaceId];
