@@ -37,6 +37,26 @@ void main() {
     occurrences: 1,
   );
 
+  // Another user's personal space: its uuid is that user's id.
+  final otherUserSpace = UuidValue.withValidation(
+    '0190f0a0-0000-7000-8000-00000000beef',
+  );
+  const persistedViolationId = 4242;
+  final ownershipCollision = OfflineSyncIntegrityViolationException(
+    OfflineSyncIntegrityViolation(
+      id: persistedViolationId,
+      type: OfflineSyncViolationType.ownershipCollision,
+      domainTableName: 'note',
+      uuidRowId: hlcNodeId,
+      ownerSpaceUuid: otherUserSpace,
+      incomingSpaceUuid: hlcSecondNodeId,
+      operation: OfflineSyncViolationOperation.mergeInsert,
+      firstSeenAt: hlcTime,
+      lastSeenAt: hlcTime,
+      occurrences: 1,
+    ),
+  );
+
   final mapped = <String, (Object, OfflineSyncFailureCode)>{
     'a device timestamp ahead of the server clock': (
       clockDrift(ClockDriftKind.remoteAhead),
@@ -58,6 +78,10 @@ void main() {
       OfflineSyncIntegrityViolationException(violation),
       OfflineSyncFailureCode.integrityViolation,
     ),
+    'an ownership collision': (
+      ownershipCollision,
+      OfflineSyncFailureCode.integrityViolation,
+    ),
   };
 
   group('Given a sync failure the wire would drop,', () {
@@ -71,13 +95,66 @@ void main() {
           expect(wire, isA<SerializableException>());
           expect(
             wire,
-            isA<OfflineSyncRemoteException>()
-                .having((e) => e.code, 'code', code)
-                .having((e) => e.message, 'message', error.toString()),
+            isA<OfflineSyncRemoteException>().having((e) => e.code, 'code', code),
           );
         },
       );
     }
+
+    for (final MapEntry(key: name, value: (error, code)) in mapped.entries) {
+      if (code == OfflineSyncFailureCode.integrityViolation) continue;
+      test('when mapping $name, then the message is the server message.', () {
+        expect(
+          (toOfflineSyncWireError(error) as OfflineSyncRemoteException).message,
+          error.toString(),
+        );
+      });
+    }
+
+    test(
+      'when mapping an ownership collision, then the message carries neither '
+      "the owner's space, the row, nor the persisted violation id.",
+      () {
+        // Control: the server message carries all of them, so the checks
+        // below would fail if the device got it.
+        final serverMessage = ownershipCollision.toString();
+        expect(serverMessage, contains(otherUserSpace.uuid));
+        expect(serverMessage, contains('$persistedViolationId'));
+
+        final message =
+            (toOfflineSyncWireError(ownershipCollision) as OfflineSyncRemoteException)
+                .message;
+
+        for (final identifier in [
+          otherUserSpace.uuid,
+          hlcSecondNodeId.uuid,
+          hlcNodeId.uuid,
+          '$persistedViolationId',
+        ]) {
+          expect(message, isNot(contains(identifier)));
+        }
+      },
+    );
+
+    test(
+      'when mapping integrity violations of any type, then the device reads '
+      'the same fixed message.',
+      () {
+        final messages = {
+          for (final type in OfflineSyncViolationType.values)
+            (toOfflineSyncWireError(
+                      OfflineSyncIntegrityViolationException(
+                        violation.copyWith(type: type, ownerSpaceUuid: otherUserSpace),
+                      ),
+                    )
+                    as OfflineSyncRemoteException)
+                .message,
+        };
+
+        expect(messages, hasLength(1));
+        expect(messages.single, contains('integrity violation'));
+      },
+    );
 
     test(
       'when mapping a clock drift, then the drift and limit travel in milliseconds.',
@@ -250,6 +327,51 @@ void main() {
           ),
         );
         expect(collectedStackTrace, same(stackTrace));
+      },
+    );
+
+    test(
+      'when an error is replaced, then onMapped receives the original error '
+      'and stack trace after the replacement is emitted.',
+      () async {
+        final stackTrace = StackTrace.current;
+        final order = <String>[];
+        final originals = <(Object, StackTrace)>[];
+
+        await Stream<OfflineSyncStreamEvent>.error(ownershipCollision, stackTrace)
+            .transform(
+              offlineSyncWireErrors(
+                onMapped: (error, trace) {
+                  order.add('onMapped');
+                  originals.add((error, trace));
+                },
+              ),
+            )
+            .handleError((Object error) => order.add('emitted'))
+            .drain<void>();
+
+        expect(order, ['emitted', 'onMapped']);
+        expect(originals, hasLength(1));
+        expect(originals.single.$1, same(ownershipCollision));
+        expect(originals.single.$2, same(stackTrace));
+      },
+    );
+
+    test(
+      'when an error passes through unchanged, then onMapped is not called.',
+      () async {
+        final originals = <Object>[];
+
+        await Stream<OfflineSyncStreamEvent>.error(StateError('unrelated'))
+            .transform(
+              offlineSyncWireErrors(
+                onMapped: (error, _) => originals.add(error),
+              ),
+            )
+            .handleError((Object _) {})
+            .drain<void>();
+
+        expect(originals, isEmpty);
       },
     );
   });

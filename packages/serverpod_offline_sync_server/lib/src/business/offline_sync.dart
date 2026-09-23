@@ -91,8 +91,11 @@ class OfflineSyncSession {
   /// Sync failures whose type Serverpod would drop on the wire (clock drift,
   /// counter overflow, duplicate node, integrity violation) are replaced with an
   /// [OfflineSyncRemoteException] through [offlineSyncWireErrors], so the device
-  /// can tell them from a network failure. An app endpoint should call this
-  /// method rather than the engine directly to keep that mapping.
+  /// can tell them from a network failure. The original failure is logged to
+  /// this session at [LogLevel.error], because the device, and the error
+  /// Serverpod logs when the stream ends, get only the replacement. An app
+  /// endpoint should call this method rather than the engine directly to keep
+  /// that mapping.
   Stream<OfflineSyncStreamEvent> sync({
     required UuidValue userId,
     required Stream<OfflineSyncStreamEvent> inbound,
@@ -109,7 +112,16 @@ class OfflineSyncSession {
           mode: mode,
           onMergeSuccess: onMergeSuccess,
         )
-        .transform(offlineSyncWireErrors());
+        .transform(offlineSyncWireErrors(onMapped: _logMappedFailure));
+  }
+
+  void _logMappedFailure(Object error, StackTrace stackTrace) {
+    _session.log(
+      'Offline sync failed; the device receives an OfflineSyncRemoteException.',
+      level: LogLevel.error,
+      exception: error,
+      stackTrace: stackTrace,
+    );
   }
 }
 

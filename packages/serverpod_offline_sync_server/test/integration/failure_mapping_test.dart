@@ -95,6 +95,50 @@ void main() {
           expect(await firstErrorOf(failure), same(failure));
         },
       );
+
+      // Serverpod logs only the error the stream ends with, which is now the
+      // replacement. The facade must log the original, or an integrity
+      // violation's details leave the server log along with the device's.
+      test(
+        'when a failure is replaced, then the original is logged to the session '
+        'as an error.',
+        () async {
+          final recording = _RecordingSession();
+          final failure = _drift(ClockDriftKind.remoteAhead);
+
+          await OfflineSyncSession(recording, _FailingEngine(failure))
+              .sync(
+                userId: const Uuid().v7obj(),
+                inbound: const Stream.empty(),
+                mode: OfflineSyncPeerMode.authoritative,
+              )
+              .handleError((Object _) {})
+              .drain<void>();
+
+          expect(recording.entries, hasLength(1));
+          expect(recording.entries.single.level, LogLevel.error);
+          expect(recording.entries.single.exception, same(failure));
+          expect(recording.entries.single.stackTrace, isNotNull);
+        },
+      );
+
+      test(
+        'when the failure passes unchanged, then the facade does not log it.',
+        () async {
+          final recording = _RecordingSession();
+
+          await OfflineSyncSession(recording, _FailingEngine(StateError('x')))
+              .sync(
+                userId: const Uuid().v7obj(),
+                inbound: const Stream.empty(),
+                mode: OfflineSyncPeerMode.authoritative,
+              )
+              .handleError((Object _) {})
+              .drain<void>();
+
+          expect(recording.entries, isEmpty);
+        },
+      );
     });
 
     group('Given a user who may only read a shared space,', () {
@@ -160,11 +204,17 @@ void main() {
 
           expect(
             failure,
-            isA<OfflineSyncRemoteException>().having(
-              (e) => e.code,
-              'code',
-              OfflineSyncFailureCode.integrityViolation,
-            ),
+            isA<OfflineSyncRemoteException>()
+                .having(
+                  (e) => e.code,
+                  'code',
+                  OfflineSyncFailureCode.integrityViolation,
+                )
+                .having(
+                  (e) => e.message,
+                  'message',
+                  isNot(contains(readOnlySpace.uuid)),
+                ),
           );
         },
       );
@@ -180,6 +230,39 @@ ClockDriftException _drift(ClockDriftKind kind) {
     Hlc.defaultMaxDrift,
     kind: kind,
   );
+}
+
+/// One [Session.log] call.
+typedef _LogEntry = ({
+  String message,
+  LogLevel? level,
+  Object? exception,
+  StackTrace? stackTrace,
+});
+
+/// A session that records [log] calls. The facade passes it to the engine
+/// only, and [_FailingEngine] ignores it.
+class _RecordingSession implements Session {
+  final entries = <_LogEntry>[];
+
+  @override
+  void log(
+    String message, {
+    LogLevel? level,
+    dynamic exception,
+    StackTrace? stackTrace,
+    Map<String, Object?>? metadata,
+  }) {
+    entries.add((
+      message: message,
+      level: level,
+      exception: exception as Object?,
+      stackTrace: stackTrace,
+    ));
+  }
+
+  @override
+  Object? noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// An engine whose sync stream sends one event and then fails with [_error].

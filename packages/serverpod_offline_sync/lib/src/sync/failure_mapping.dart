@@ -28,6 +28,12 @@ import 'exceptions.dart';
 ///
 /// [OfflineSyncTablesHashMismatchException] is passed through: each peer
 /// verifies the other's schema hash itself and gets a typed exception anyway.
+///
+/// The message is the server exception's own, except for an integrity
+/// violation. That message names the space that owns the row, which for a
+/// personal space is another user's id, and the server's row id of the
+/// persisted violation. The device gets a fixed text instead; the server keeps
+/// the original in its log through [offlineSyncWireErrors].
 Object toOfflineSyncWireError(Object error) {
   return switch (error) {
     ClockDriftException() => OfflineSyncRemoteException(
@@ -49,11 +55,18 @@ Object toOfflineSyncWireError(Object error) {
     ),
     OfflineSyncIntegrityViolationException() => OfflineSyncRemoteException(
       code: OfflineSyncFailureCode.integrityViolation,
-      message: error.toString(),
+      message: _integrityViolationWireMessage,
     ),
     _ => error,
   };
 }
+
+/// What the device reads for [OfflineSyncFailureCode.integrityViolation].
+///
+/// Carries no identifier: see [toOfflineSyncWireError].
+const _integrityViolationWireMessage =
+    'OfflineSyncIntegrityViolationException: sync stopped on a CRDT integrity '
+    'violation. The server log has the details.';
 
 /// [duration] in whole milliseconds, rounded up.
 ///
@@ -73,11 +86,23 @@ int _millisecondsRoundedUp(Duration duration) {
 /// A stream transformer that replaces each error with
 /// [toOfflineSyncWireError] and keeps its stack trace.
 ///
-/// The server module applies it in `OfflineSyncSession.sync`. An app endpoint
-/// that calls the engine directly (`session.db.offlineSyncDb.sync`) must apply
-/// it too, or the device loses the failure type again.
+/// When an error is replaced, [onMapped] receives the original error and its
+/// stack trace. It runs after the replacement is emitted, so a callback that
+/// throws cannot take the replacement's place. Serverpod logs only the error
+/// the stream ends with, so without [onMapped] the server log keeps the
+/// replacement alone, and for an integrity violation that drops the details.
+///
+/// The server module applies it in `OfflineSyncSession.sync` and logs the
+/// original to the session. An app endpoint that calls the engine directly
+/// (`session.offlineSyncDb.sync`) must apply it too, or the device loses the
+/// failure type again.
 StreamTransformer<OfflineSyncStreamEvent, OfflineSyncStreamEvent>
-offlineSyncWireErrors() => StreamTransformer.fromHandlers(
-  handleError: (error, stackTrace, sink) =>
-      sink.addError(toOfflineSyncWireError(error), stackTrace),
+offlineSyncWireErrors({
+  void Function(Object error, StackTrace stackTrace)? onMapped,
+}) => StreamTransformer.fromHandlers(
+  handleError: (error, stackTrace, sink) {
+    final wireError = toOfflineSyncWireError(error);
+    sink.addError(wireError, stackTrace);
+    if (!identical(wireError, error)) onMapped?.call(error, stackTrace);
+  },
 );

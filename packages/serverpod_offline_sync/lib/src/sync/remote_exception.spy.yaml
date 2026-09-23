@@ -11,7 +11,10 @@ fields:
   ### Why the round failed.
   code: OfflineSyncFailureCode
 
-  ### The server-side exception message, for logs and diagnostics.
+  ### The server-side exception message, for logs and diagnostics. For
+  ### `integrityViolation` it is a fixed text without identifiers: the original
+  ### names the space that owns the row, which can be another user's. The server
+  ### log keeps the original.
   message: String
 
   ### How far the rejected clock was ahead of the server wall clock, in

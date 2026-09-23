@@ -57,7 +57,10 @@ abstract class OfflineSyncRemoteException
   /// Why the round failed.
   _icw2tu00.OfflineSyncFailureCode code;
 
-  /// The server-side exception message, for logs and diagnostics.
+  /// The server-side exception message, for logs and diagnostics. For
+  /// `integrityViolation` it is a fixed text without identifiers: the original
+  /// names the space that owns the row, which can be another user's. The server
+  /// log keeps the original.
   String message;
 
   /// How far the rejected clock was ahead of the server wall clock, in
