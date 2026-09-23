@@ -1,5 +1,17 @@
 ## Unreleased (co-serverpod fork)
 
+- feat: `OfflineSyncStatusTracker` and `OfflineSyncStatus` (unibook#14183),
+  the fork's `CoSyncStatus`: `phase` (`syncOnce` running), `unsentRowCount`
+  (null is unknown, not zero), `lastSuccessAt`, `lastFailure` classified by
+  `OfflineSyncFailure.from` and `lastFailureAt`, with `isIdle` and
+  `needsAttention`. `syncOnce` joins a running round and publishes its outcome
+  with the count read after it in one event, then rethrows a failure.
+  `syncContinuously` records a failure without touching the phase or the last
+  success. Counts run one at a time, each started after its trigger; on SQLite
+  a commit watch picks up offline writes. `countUnsentRows()` reads the count
+  fresh for a sign-out warning.
+- chore: Depend on `clock`.
+
 - feat: `OfflineSyncFailure.from(error)` classifies a sync error into an
   `OfflineSyncFailureReason` with `isPermanent` and `isClockDrift`
   (unibook#14182). Server codes come from `OfflineSyncRemoteException`; a local

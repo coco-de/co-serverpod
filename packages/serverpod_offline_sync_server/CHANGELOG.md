@@ -1,5 +1,12 @@
 ## Unreleased (co-serverpod fork)
 
+- test: `initializeOfflineSync(continuousSyncInterval:)` reaches the wait
+  between continuous rounds, and the default stays 200 ms as upstream
+  (unibook#14183). No code change.
+- docs: `initializeOfflineSync` warns that the generated `Serverpod`
+  constructor already calls it with defaults and that each call replaces the
+  engine, so a later call must pass every setting at once.
+
 - feat: `initializeOfflineSync(maxClockDrift:)` sets the server's clock drift
   allowance (default one hour) and `OfflineSyncSession.maxClockDrift` reads it
   (unibook#14182).

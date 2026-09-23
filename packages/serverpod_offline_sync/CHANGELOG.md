@@ -1,5 +1,26 @@
 ## Unreleased (co-serverpod fork)
 
+- feat: Unsent row count for a device (unibook#14183). The protocol has no
+  acknowledgement, so a device (follower) now keeps what the server confirmed
+  in its own node's `offline_sync_space_nodes.lastReceivedHlc` per space. No
+  schema, migration or wire change: handshakes never send that row.
+  - The server's handshake checkpoint for this device replaces the recorded one
+    each session, even when lower (a server that lost data).
+  - A `once` session records the highest change it sent only after the
+    server's `OfflineSyncClose` arrives; the server closes only after merging
+    the last batch, so a failed round records nothing.
+  - `OfflineSyncDatabase.unsentRowCount()` counts rows (not changes) of the
+    synced tables with a change this node wrote after that checkpoint, with
+    the collection filters narrowed to this node (three queries, row ids
+    united). It reads the checkpoints before the rows, so a concurrent sync
+    can make it high, never low. `watchUnsentRowCount()` and
+    `watchUnsentRowCountTriggers()` (SQLite only) re-count on commits.
+  - `OfflineSyncEngine.countUnsentRows`, `@internal replaceSyncCheckpoint` on
+    the database and the recorder.
+  - The count can stay high until the next successful `once` session: after a
+    round the server merged but the device failed, during continuous sync, and
+    for a space the server no longer syncs with the user.
+
 - feat: Configurable clock drift allowance (unibook#14182). Upstream hard-coded
   one minute; the fork defaults to one hour (`Hlc.defaultMaxDrift`).
   - `Hlc.increment` and `Hlc.merge` take `maxDrift`. The one-minute literal in

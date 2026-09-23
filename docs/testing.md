@@ -41,6 +41,17 @@ cd test/offline_sync_watch_test_client && dart pub get && dart test
 | 서버 모듈 `failure_mapping_test.dart` | `initializeOfflineSync(maxClockDrift:)` 배선, 파사드 매핑과 원본의 세션 로그 기록(통과시킨 실패는 기록 안 함), 생성 endpoint 경유 `integrityViolation`(메시지에 space id 없음) |
 | watch `clock_drift_test.dart` | 고정 시계(`withClock`)로 K1(기기 뒤처짐)·K2(기기 앞섬, 타입 있는 예외, 서버 노드 id 위조)·K3(로컬 역행)·허용치 차이(C < S 면 시계가 정확한 기기도 K1)·실패 회차 재전송(서버가 놓친 경우·병합한 경우 각각)·같은 한도 재래핑·감싸지 않은 DB 에 context 와 다른 한도를 넘기면 생성자 3종 모두 `ArgumentError` |
 
+미전송 건수·동기화 상태와 연속 동기화 간격(unibook#14183)은 세 곳에서 검증합니다.
+
+| 위치 | 검증 |
+|---|---|
+| 클라이언트 `test/sync_status_test.dart` | `OfflineSyncStatus` 의 `isIdle`(건수 `null` 이면 거짓)·`needsAttention`(일시 실패 거짓·열기 거부 참)·`copyWith(clearLastFailure·clearUnsentRowCount)`·값 동등성 |
+| 서버 모듈 `continuous_sync_interval_test.dart` | `initializeOfflineSync(continuousSyncInterval:)` 가 회차 사이 대기로 쓰이고(기본값 아님), 생략하면 200ms — zone `createTimer` 기록 |
+| watch `sync_status_test.dart` | 오프라인 쓰기 행 단위 계수(동기화 전 삭제 포함)·동기화된 행의 오프라인 삭제·성공과 0건을 한 이벤트로·서버 작성 행 제외·재시작 복원(대조군)·K2 거부 시 유지·서버 병합 후 기기 실패 시 유지하고 재전송 없이 0·데이터를 잃은 서버 핸드셰이크로 전량 복귀·발행 순서와 합류 호출 1회 전송·실패 발행·연속 동기화 실패 기록·`dispose` |
+| watch `continuous_sync_interval_test.dart` | `OfflineSyncDatabaseSession.wraps(continuousSyncInterval:)` 가 그 복제본의 대기로 쓰임 |
+
+공용 하네스(`peerOf`·`errorOf`·`eventually`)는 `test/offline_sync_watch_test_client/test/support/sync_harness.dart` 에 있습니다.
+
 > **하네스 한계**: `serverpod_test` 는 스트리밍 endpoint 의 오류를 원본 그대로 넘기므로, 실제 소켓에서
 > `SerializableException` 이 아닌 예외가 사라지는 것을 재현하지 못합니다 — 그래서 매퍼가 메서드 스트림
 > 메시지 왕복을 따로 단언합니다. watch 하네스는 두 복제본을 한 프로세스에서 직접 잇기 때문에, 기기
