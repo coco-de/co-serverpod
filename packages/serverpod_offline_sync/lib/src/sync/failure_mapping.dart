@@ -36,7 +36,7 @@ Object toOfflineSyncWireError(Object error) {
         ClockDriftKind.localAhead => OfflineSyncFailureCode.serverClockDrift,
       },
       message: error.toString(),
-      driftMs: error.drift.inMilliseconds,
+      driftMs: _millisecondsRoundedUp(error.drift),
       maxDriftMs: error.maxDrift.inMilliseconds,
     ),
     OverflowException() => OfflineSyncRemoteException(
@@ -53,6 +53,21 @@ Object toOfflineSyncWireError(Object error) {
     ),
     _ => error,
   };
+}
+
+/// [duration] in whole milliseconds, rounded up.
+///
+/// `Hlc.merge` compares against a wall clock with microsecond precision, so a
+/// timestamp less than a millisecond over the limit is rejected with a drift
+/// that [Duration.inMilliseconds] would truncate to the limit itself. Rounding
+/// the drift up while the limit is truncated keeps `driftMs > maxDriftMs` for
+/// every rejected timestamp.
+int _millisecondsRoundedUp(Duration duration) {
+  final microseconds = duration.inMicroseconds;
+  final milliseconds = microseconds ~/ Duration.microsecondsPerMillisecond;
+  return microseconds > milliseconds * Duration.microsecondsPerMillisecond
+      ? milliseconds + 1
+      : milliseconds;
 }
 
 /// A stream transformer that replaces each error with

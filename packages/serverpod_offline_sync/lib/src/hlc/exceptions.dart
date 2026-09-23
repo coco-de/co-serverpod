@@ -44,8 +44,22 @@ class ClockDriftException implements Exception {
   String toString() {
     final node = remoteNodeId == null ? '' : ' from node $remoteNodeId';
     return 'ClockDriftException(${kind.name}): clock drift of '
-        '${drift.inMilliseconds} ms$node exceeds the maximum of '
-        '${maxDrift.inMilliseconds} ms';
+        '${_milliseconds(drift)}$node exceeds the maximum of '
+        '${_milliseconds(maxDrift)}';
+  }
+
+  /// Formats [duration] in milliseconds, keeping a sub-millisecond part.
+  ///
+  /// `Hlc.merge` compares at microsecond precision, so a drift can exceed the
+  /// limit by less than a millisecond; truncating it would print a drift equal
+  /// to the limit.
+  static String _milliseconds(Duration duration) {
+    final microseconds = duration.inMicroseconds;
+    if (microseconds % Duration.microsecondsPerMillisecond == 0) {
+      return '${microseconds ~/ Duration.microsecondsPerMillisecond} ms';
+    }
+    final milliseconds = microseconds / Duration.microsecondsPerMillisecond;
+    return '${milliseconds.toStringAsFixed(3)} ms';
   }
 }
 

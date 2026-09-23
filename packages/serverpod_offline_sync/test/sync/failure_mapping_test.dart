@@ -91,6 +91,37 @@ void main() {
       },
     );
 
+    // `Hlc.merge` compares at microsecond precision. A remote stamp 1 ms over
+    // the limit against a wall clock 400 µs past a millisecond is rejected with
+    // a drift of 1 h + 600 µs, which truncates to exactly the limit.
+    test(
+      'when a merge rejects a drift under a millisecond over the limit, '
+      'then driftMs still exceeds maxDriftMs.',
+      () {
+        final local = Hlc(hlcTime, 0, hlcNodeId);
+        final remote = Hlc(hlcTime.add(drift), 0, hlcSecondNodeId);
+        final wallTime = hlcTime.add(const Duration(microseconds: 400));
+
+        final error = atWallTime(wallTime, () {
+          try {
+            local.merge(remote);
+          } on ClockDriftException catch (error) {
+            return error;
+          }
+          fail('merge accepted a stamp over the limit.');
+        });
+        final wire = toOfflineSyncWireError(error) as OfflineSyncRemoteException;
+
+        expect(
+          error.drift,
+          Hlc.defaultMaxDrift + const Duration(microseconds: 600),
+        );
+        expect(error.toString(), contains('clock drift of 3600000.600 ms'));
+        expect(wire.driftMs, 3600001);
+        expect(wire.maxDriftMs, 3600000);
+      },
+    );
+
     test('when mapping a non-drift failure, then no drift is attached.', () {
       final wire =
           toOfflineSyncWireError(OverflowException(0x10000))
