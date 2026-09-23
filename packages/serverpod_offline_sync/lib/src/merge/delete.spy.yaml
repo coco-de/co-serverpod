@@ -1,0 +1,9 @@
+### A remote visibility CLFlag update to merge.
+class: CrdtMergeDelete
+extends: CrdtMergeChange
+fields:
+  ### Monotone causal-length flag. Odd values are visible and even values are deleted.
+  clFlag: int
+
+  ### Why the row entered its current visibility generation.
+  reason: CrdtDataDeletedReason

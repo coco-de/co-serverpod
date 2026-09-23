@@ -1,0 +1,57 @@
+/* AUTOMATICALLY GENERATED CODE DO NOT MODIFY */
+/*   To generate run: "serverpod generate"    */
+
+// ignore_for_file: implementation_imports
+// ignore_for_file: library_private_types_in_public_api
+// ignore_for_file: non_constant_identifier_names
+// ignore_for_file: public_member_api_docs
+// ignore_for_file: type_literal_in_constant_pattern
+// ignore_for_file: use_super_parameters
+// ignore_for_file: invalid_use_of_internal_member
+
+// ignore_for_file: no_leading_underscores_for_library_prefixes
+import 'package:serverpod_offline_sync/serverpod_offline_sync.dart'
+    as _icw2tu00;
+import 'package:serverpod_serialization/serverpod_serialization.dart' as _iss;
+part 'delete.dart';
+part 'insert.dart';
+part 'update.dart';
+
+/// A remote CRDT change to merge.
+sealed class CrdtMergeChange extends _icw2tu00.BaseHlc
+    implements _iss.SerializableModel, _iss.ProtocolSerialization {
+  CrdtMergeChange({
+    required super.hlcDatetime,
+    required super.hlcCounter,
+    required this.uuidSpaceId,
+    required this.tableName,
+    required this.uuidRowId,
+    required this.uuidNodeId,
+  });
+
+  /// The space this change belongs to.
+  _iss.UuidValue uuidSpaceId;
+
+  /// The table receiving the change.
+  String tableName;
+
+  /// The domain row identifier receiving the change.
+  _iss.UuidValue uuidRowId;
+
+  /// The remote node that produced the change.
+  _iss.UuidValue uuidNodeId;
+
+  /// Returns a shallow copy of this [CrdtMergeChange]
+  /// with some or all fields replaced by the given arguments.
+  @_iss.useResult
+  CrdtMergeChange copyWith({
+    DateTime? hlcDatetime,
+    int? hlcCounter,
+    _iss.UuidValue? uuidSpaceId,
+    String? tableName,
+    _iss.UuidValue? uuidRowId,
+    _iss.UuidValue? uuidNodeId,
+  });
+}
+
+class _Undefined {}

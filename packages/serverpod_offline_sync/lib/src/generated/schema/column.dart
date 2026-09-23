@@ -1,0 +1,787 @@
+/* AUTOMATICALLY GENERATED CODE DO NOT MODIFY */
+/*   To generate run: "serverpod generate"    */
+
+// ignore_for_file: implementation_imports
+// ignore_for_file: library_private_types_in_public_api
+// ignore_for_file: non_constant_identifier_names
+// ignore_for_file: public_member_api_docs
+// ignore_for_file: type_literal_in_constant_pattern
+// ignore_for_file: use_super_parameters
+// ignore_for_file: invalid_use_of_internal_member
+// ignore_for_file: dead_code, unnecessary_null_comparison
+
+// ignore_for_file: no_leading_underscores_for_library_prefixes
+import 'package:serverpod_database/serverpod_database.dart' as _isd;
+import 'package:serverpod_offline_sync/serverpod_offline_sync.dart'
+    as _icw2tu00;
+import 'package:serverpod_serialization/serverpod_serialization.dart' as _iss;
+
+/// CRDT schema columns table.
+abstract class CrdtSchemaColumn
+    implements _isd.TableRow<int?>, _iss.ProtocolSerialization {
+  CrdtSchemaColumn._({
+    this.id,
+    required this.tblId,
+    this.tbl,
+    required this.name,
+    required this.columnType,
+    required this.dartType,
+    required this.isNullable,
+  });
+
+  factory CrdtSchemaColumn({
+    int? id,
+    required int tblId,
+    _icw2tu00.CrdtSchemaTable? tbl,
+    required String name,
+    required String columnType,
+    required String dartType,
+    required bool isNullable,
+  }) = _CrdtSchemaColumnImpl;
+
+  factory CrdtSchemaColumn.fromJson(Map<String, dynamic> jsonSerialization) {
+    return CrdtSchemaColumn(
+      id: jsonSerialization['id'] as int?,
+      tblId: jsonSerialization['tblId'] as int,
+      tbl: jsonSerialization['tbl'] == null
+          ? null
+          : _icw2tu00.Protocol().deserialize<_icw2tu00.CrdtSchemaTable>(
+              jsonSerialization['tbl'],
+            ),
+      name: jsonSerialization['name'] as String,
+      columnType: jsonSerialization['columnType'] as String,
+      dartType: jsonSerialization['dartType'] as String,
+      isNullable: _iss.BoolJsonExtension.fromJson(
+        jsonSerialization['isNullable'],
+      ),
+    );
+  }
+
+  static final t = CrdtSchemaColumnTable();
+
+  static const db = CrdtSchemaColumnRepository._();
+
+  @override
+  int? id;
+
+  int tblId;
+
+  /// Reference to the table this column belongs to.
+  _icw2tu00.CrdtSchemaTable? tbl;
+
+  /// Name of the column.
+  String name;
+
+  /// Database storage type of the column, as Serverpod's stable ColumnType
+  /// enum name.
+  ///
+  /// Persisted so schema reconciliation can detect storage-type changes
+  /// before trusting or rebuilding projection state.
+  String columnType;
+
+  /// Canonical Dart type of the column, including nullability (e.g. `int?`).
+  ///
+  /// Records the dynamic value semantics of the column: one database type can
+  /// back several Dart types, and one Dart type can use different storage.
+  String dartType;
+
+  /// Whether the column is nullable.
+  bool isNullable;
+
+  @override
+  _isd.Table<int?> get table => t;
+
+  /// Returns a shallow copy of this [CrdtSchemaColumn]
+  /// with some or all fields replaced by the given arguments.
+  @_iss.useResult
+  CrdtSchemaColumn copyWith({
+    int? id,
+    int? tblId,
+    _icw2tu00.CrdtSchemaTable? tbl,
+    String? name,
+    String? columnType,
+    String? dartType,
+    bool? isNullable,
+  });
+  @override
+  Map<String, dynamic> toJson() {
+    return {
+      '__className__': 'serverpod_offline_sync.CrdtSchemaColumn',
+      if (id != null) 'id': id,
+      'tblId': tblId,
+      if (tbl != null) 'tbl': tbl?.toJson(),
+      'name': name,
+      'columnType': columnType,
+      'dartType': dartType,
+      'isNullable': isNullable,
+    };
+  }
+
+  @override
+  Map<String, dynamic> toJsonForProtocol() {
+    return {
+      '__className__': 'serverpod_offline_sync.CrdtSchemaColumn',
+      if (id != null) 'id': id,
+      'tblId': tblId,
+      if (tbl != null) 'tbl': tbl?.toJsonForProtocol(),
+      'name': name,
+      'columnType': columnType,
+      'dartType': dartType,
+      'isNullable': isNullable,
+    };
+  }
+
+  static CrdtSchemaColumnInclude include({
+    _icw2tu00.CrdtSchemaTableInclude? tbl,
+  }) {
+    return CrdtSchemaColumnInclude._(tbl: tbl);
+  }
+
+  static CrdtSchemaColumnIncludeList includeList({
+    _isd.WhereExpressionBuilder<CrdtSchemaColumnTable>? where,
+    int? limit,
+    int? offset,
+    _isd.OrderByBuilder<CrdtSchemaColumnTable>? orderBy,
+    _isd.OrderByListBuilder<CrdtSchemaColumnTable>? orderByList,
+    CrdtSchemaColumnInclude? include,
+  }) {
+    return CrdtSchemaColumnIncludeList._(
+      where: where,
+      limit: limit,
+      offset: offset,
+      orderBy: orderBy?.call(CrdtSchemaColumn.t),
+      orderByList: orderByList?.call(CrdtSchemaColumn.t),
+      include: include,
+    );
+  }
+
+  @override
+  String toString() {
+    return _iss.SerializationManager.encode(this);
+  }
+}
+
+class _Undefined {}
+
+class _CrdtSchemaColumnImpl extends CrdtSchemaColumn {
+  _CrdtSchemaColumnImpl({
+    int? id,
+    required int tblId,
+    _icw2tu00.CrdtSchemaTable? tbl,
+    required String name,
+    required String columnType,
+    required String dartType,
+    required bool isNullable,
+  }) : super._(
+         id: id,
+         tblId: tblId,
+         tbl: tbl,
+         name: name,
+         columnType: columnType,
+         dartType: dartType,
+         isNullable: isNullable,
+       );
+
+  /// Returns a shallow copy of this [CrdtSchemaColumn]
+  /// with some or all fields replaced by the given arguments.
+  @_iss.useResult
+  @override
+  CrdtSchemaColumn copyWith({
+    Object? id = _Undefined,
+    int? tblId,
+    Object? tbl = _Undefined,
+    String? name,
+    String? columnType,
+    String? dartType,
+    bool? isNullable,
+  }) {
+    return CrdtSchemaColumn(
+      id: id is int? ? id : this.id,
+      tblId: tblId ?? this.tblId,
+      tbl: tbl is _icw2tu00.CrdtSchemaTable? ? tbl : this.tbl?.copyWith(),
+      name: name ?? this.name,
+      columnType: columnType ?? this.columnType,
+      dartType: dartType ?? this.dartType,
+      isNullable: isNullable ?? this.isNullable,
+    );
+  }
+}
+
+class CrdtSchemaColumnUpdateTable
+    extends _isd.UpdateTable<CrdtSchemaColumnTable> {
+  CrdtSchemaColumnUpdateTable(super.table);
+
+  _isd.ColumnValue<int, int> tblId(int value) => _isd.ColumnValue(
+    table.tblId,
+    value,
+  );
+
+  _isd.ColumnValue<String, String> name(String value) => _isd.ColumnValue(
+    table.name,
+    value,
+  );
+
+  _isd.ColumnValue<String, String> columnType(String value) => _isd.ColumnValue(
+    table.columnType,
+    value,
+  );
+
+  _isd.ColumnValue<String, String> dartType(String value) => _isd.ColumnValue(
+    table.dartType,
+    value,
+  );
+
+  _isd.ColumnValue<bool, bool> isNullable(bool value) => _isd.ColumnValue(
+    table.isNullable,
+    value,
+  );
+}
+
+class CrdtSchemaColumnTable extends _isd.Table<int?> {
+  CrdtSchemaColumnTable({super.tableRelation})
+    : super(tableName: 'crdt_schema_columns') {
+    updateTable = CrdtSchemaColumnUpdateTable(this);
+    tblId = _isd.ColumnInt(
+      'tblId',
+      this,
+    );
+    name = _isd.ColumnString(
+      'name',
+      this,
+    );
+    columnType = _isd.ColumnString(
+      'columnType',
+      this,
+    );
+    dartType = _isd.ColumnString(
+      'dartType',
+      this,
+    );
+    isNullable = _isd.ColumnBool(
+      'isNullable',
+      this,
+    );
+  }
+
+  late final CrdtSchemaColumnUpdateTable updateTable;
+
+  late final _isd.ColumnInt tblId;
+
+  /// Reference to the table this column belongs to.
+  _icw2tu00.CrdtSchemaTableTable? _tbl;
+
+  /// Name of the column.
+  late final _isd.ColumnString name;
+
+  /// Database storage type of the column, as Serverpod's stable ColumnType
+  /// enum name.
+  ///
+  /// Persisted so schema reconciliation can detect storage-type changes
+  /// before trusting or rebuilding projection state.
+  late final _isd.ColumnString columnType;
+
+  /// Canonical Dart type of the column, including nullability (e.g. `int?`).
+  ///
+  /// Records the dynamic value semantics of the column: one database type can
+  /// back several Dart types, and one Dart type can use different storage.
+  late final _isd.ColumnString dartType;
+
+  /// Whether the column is nullable.
+  late final _isd.ColumnBool isNullable;
+
+  _icw2tu00.CrdtSchemaTableTable get tbl {
+    if (_tbl != null) return _tbl!;
+    _tbl = _isd.createRelationTable(
+      relationFieldName: 'tbl',
+      field: CrdtSchemaColumn.t.tblId,
+      foreignField: _icw2tu00.CrdtSchemaTable.t.id,
+      tableRelation: tableRelation,
+      createTable: (foreignTableRelation) =>
+          _icw2tu00.CrdtSchemaTableTable(tableRelation: foreignTableRelation),
+    );
+    return _tbl!;
+  }
+
+  @override
+  List<_isd.Column> get columns => [
+    id,
+    tblId,
+    name,
+    columnType,
+    dartType,
+    isNullable,
+  ];
+
+  @override
+  _isd.Table? getRelationTable(String relationField) {
+    if (relationField == 'tbl') {
+      return tbl;
+    }
+    return null;
+  }
+}
+
+class CrdtSchemaColumnInclude extends _isd.IncludeObject {
+  CrdtSchemaColumnInclude._({_icw2tu00.CrdtSchemaTableInclude? tbl}) {
+    _tbl = tbl;
+  }
+
+  _icw2tu00.CrdtSchemaTableInclude? _tbl;
+
+  @override
+  Map<String, _isd.Include?> get includes => {'tbl': _tbl};
+
+  @override
+  _isd.Table<int?> get table => CrdtSchemaColumn.t;
+}
+
+class CrdtSchemaColumnIncludeList extends _isd.IncludeList {
+  CrdtSchemaColumnIncludeList._({
+    _isd.WhereExpressionBuilder<CrdtSchemaColumnTable>? where,
+    super.limit,
+    super.offset,
+    super.orderBy,
+    super.orderByList,
+    super.include,
+  }) {
+    super.where = where?.call(CrdtSchemaColumn.t);
+  }
+
+  @override
+  Map<String, _isd.Include?> get includes => include?.includes ?? {};
+
+  @override
+  _isd.Table<int?> get table => CrdtSchemaColumn.t;
+}
+
+class CrdtSchemaColumnRepository {
+  const CrdtSchemaColumnRepository._();
+
+  final attachRow = const CrdtSchemaColumnAttachRowRepository._();
+
+  /// Returns a list of [CrdtSchemaColumn]s matching the given query parameters.
+  ///
+  /// Use [where] to specify which items to include in the return value.
+  /// If none is specified, all items will be returned.
+  ///
+  /// To specify the order of the items use [orderBy] or [orderByList]
+  /// when sorting by multiple columns.
+  ///
+  /// The maximum number of items can be set by [limit]. If no limit is set,
+  /// all items matching the query will be returned.
+  ///
+  /// [offset] defines how many items to skip, after which [limit] (or all)
+  /// items are read from the database.
+  ///
+  /// ```dart
+  /// var persons = await Persons.db.find(
+  ///   session,
+  ///   where: (t) => t.lastName.equals('Jones'),
+  ///   orderBy: (t) => t.firstName,
+  ///   limit: 100,
+  /// );
+  /// ```
+  Future<List<CrdtSchemaColumn>> find(
+    _isd.DatabaseSession session, {
+    _isd.WhereExpressionBuilder<CrdtSchemaColumnTable>? where,
+    int? limit,
+    int? offset,
+    _isd.OrderByBuilder<CrdtSchemaColumnTable>? orderBy,
+    _isd.OrderByListBuilder<CrdtSchemaColumnTable>? orderByList,
+    _isd.Transaction? transaction,
+    CrdtSchemaColumnInclude? include,
+    _isd.LockMode? lockMode,
+    _isd.LockBehavior? lockBehavior,
+  }) async {
+    return session.db.find<CrdtSchemaColumn>(
+      where: where?.call(CrdtSchemaColumn.t),
+      orderBy: orderBy?.call(CrdtSchemaColumn.t),
+      orderByList: orderByList?.call(CrdtSchemaColumn.t),
+      limit: limit,
+      offset: offset,
+      transaction: transaction,
+      include: include,
+      lockMode: lockMode,
+      lockBehavior: lockBehavior,
+    );
+  }
+
+  /// Returns the first matching [CrdtSchemaColumn] matching the given query parameters.
+  ///
+  /// Use [where] to specify which items to include in the return value.
+  /// If none is specified, all items will be returned.
+  ///
+  /// To specify the order use [orderBy] or [orderByList]
+  /// when sorting by multiple columns.
+  ///
+  /// [offset] defines how many items to skip, after which the next one will be picked.
+  ///
+  /// ```dart
+  /// var youngestPerson = await Persons.db.findFirstRow(
+  ///   session,
+  ///   where: (t) => t.lastName.equals('Jones'),
+  ///   orderBy: (t) => t.age,
+  /// );
+  /// ```
+  Future<CrdtSchemaColumn?> findFirstRow(
+    _isd.DatabaseSession session, {
+    _isd.WhereExpressionBuilder<CrdtSchemaColumnTable>? where,
+    int? offset,
+    _isd.OrderByBuilder<CrdtSchemaColumnTable>? orderBy,
+    _isd.OrderByListBuilder<CrdtSchemaColumnTable>? orderByList,
+    _isd.Transaction? transaction,
+    CrdtSchemaColumnInclude? include,
+    _isd.LockMode? lockMode,
+    _isd.LockBehavior? lockBehavior,
+  }) async {
+    return session.db.findFirstRow<CrdtSchemaColumn>(
+      where: where?.call(CrdtSchemaColumn.t),
+      orderBy: orderBy?.call(CrdtSchemaColumn.t),
+      orderByList: orderByList?.call(CrdtSchemaColumn.t),
+      offset: offset,
+      transaction: transaction,
+      include: include,
+      lockMode: lockMode,
+      lockBehavior: lockBehavior,
+    );
+  }
+
+  /// Finds a single [CrdtSchemaColumn] by its [id] or null if no such row exists.
+  Future<CrdtSchemaColumn?> findById(
+    _isd.DatabaseSession session,
+    int id, {
+    _isd.Transaction? transaction,
+    CrdtSchemaColumnInclude? include,
+    _isd.LockMode? lockMode,
+    _isd.LockBehavior? lockBehavior,
+  }) async {
+    return session.db.findById<CrdtSchemaColumn>(
+      id,
+      transaction: transaction,
+      include: include,
+      lockMode: lockMode,
+      lockBehavior: lockBehavior,
+    );
+  }
+
+  /// Inserts all [CrdtSchemaColumn]s in the list and returns the inserted rows.
+  ///
+  /// The returned [CrdtSchemaColumn]s will have their `id` fields set.
+  ///
+  /// This is an atomic operation, meaning that if one of the rows fails to
+  /// insert, none of the rows will be inserted.
+  ///
+  /// If [ignoreConflicts] is set to `true`, rows that conflict with existing
+  /// rows are silently skipped, and only the successfully inserted rows are
+  /// returned.
+  ///
+  /// If [noReturn] is set to `true`, the inserted rows are not read back from
+  /// the database and an empty list is returned. This avoids the overhead of
+  /// transferring and deserializing the rows when the result is not needed.
+  Future<List<CrdtSchemaColumn>> insert(
+    _isd.DatabaseSession session,
+    List<CrdtSchemaColumn> rows, {
+    _isd.Transaction? transaction,
+    bool ignoreConflicts = false,
+    bool noReturn = false,
+  }) async {
+    return session.db.insert<CrdtSchemaColumn>(
+      rows,
+      transaction: transaction,
+      ignoreConflicts: ignoreConflicts,
+      noReturn: noReturn,
+    );
+  }
+
+  /// Inserts a single [CrdtSchemaColumn] and returns the inserted row.
+  ///
+  /// The returned [CrdtSchemaColumn] will have its `id` field set.
+  Future<CrdtSchemaColumn> insertRow(
+    _isd.DatabaseSession session,
+    CrdtSchemaColumn row, {
+    _isd.Transaction? transaction,
+  }) async {
+    return session.db.insertRow<CrdtSchemaColumn>(
+      row,
+      transaction: transaction,
+    );
+  }
+
+  /// Upserts all [CrdtSchemaColumn]s in the list and returns the resulting rows.
+  ///
+  /// If a row conflicts on the given [conflictColumns], the existing row is
+  /// updated with the new values. Otherwise, a new row is inserted.
+  ///
+  /// If [updateColumns] is provided, only those columns will be updated on
+  /// conflict. If null, all non-conflict, non-id columns are updated.
+  ///
+  /// If [updateWhere] is provided, the update only applies to rows matching the
+  /// given expression. Conflicting rows that don't match are skipped and not
+  /// returned, so the resulting list may be shorter than [rows].
+  ///
+  /// The returned [CrdtSchemaColumn]s will have their `id` fields set.
+  ///
+  /// This is an atomic operation, meaning that if one of the rows fails,
+  /// none of the rows will be affected.
+  ///
+  /// If [noReturn] is set to `true`, the resulting rows are not read back from
+  /// the database and an empty list is returned. This avoids the overhead of
+  /// transferring and deserializing the rows when the result is not needed.
+  Future<List<CrdtSchemaColumn>> upsert(
+    _isd.DatabaseSession session,
+    List<CrdtSchemaColumn> rows, {
+    required _isd.ColumnSelections<CrdtSchemaColumnTable> conflictColumns,
+    _isd.ColumnSelections<CrdtSchemaColumnTable>? updateColumns,
+    _isd.WhereExpressionBuilder<CrdtSchemaColumnTable>? updateWhere,
+    _isd.Transaction? transaction,
+    bool noReturn = false,
+  }) async {
+    return session.db.upsert<CrdtSchemaColumn>(
+      rows,
+      conflictColumns: conflictColumns(CrdtSchemaColumn.t),
+      updateColumns: updateColumns?.call(CrdtSchemaColumn.t),
+      updateWhere: updateWhere?.call(CrdtSchemaColumn.t),
+      transaction: transaction,
+      noReturn: noReturn,
+    );
+  }
+
+  /// Upserts a single [CrdtSchemaColumn] and returns the resulting row.
+  ///
+  /// If the row conflicts on the given [conflictColumns], the existing row is
+  /// updated. Otherwise, a new row is inserted.
+  ///
+  /// If [updateColumns] is provided, only those columns will be updated on
+  /// conflict. If null, all non-conflict, non-id columns are updated.
+  ///
+  /// If [updateWhere] is provided, the update only applies when the existing
+  /// row matches the expression. Returns `null` if no row was affected — for
+  /// example when [updateWhere] does not match the conflicting row.
+  ///
+  /// The returned [CrdtSchemaColumn] will have its `id` field set.
+  Future<CrdtSchemaColumn?> upsertRow(
+    _isd.DatabaseSession session,
+    CrdtSchemaColumn row, {
+    required _isd.ColumnSelections<CrdtSchemaColumnTable> conflictColumns,
+    _isd.ColumnSelections<CrdtSchemaColumnTable>? updateColumns,
+    _isd.WhereExpressionBuilder<CrdtSchemaColumnTable>? updateWhere,
+    _isd.Transaction? transaction,
+  }) async {
+    return session.db.upsertRow<CrdtSchemaColumn>(
+      row,
+      conflictColumns: conflictColumns(CrdtSchemaColumn.t),
+      updateColumns: updateColumns?.call(CrdtSchemaColumn.t),
+      updateWhere: updateWhere?.call(CrdtSchemaColumn.t),
+      transaction: transaction,
+    );
+  }
+
+  /// Updates all [CrdtSchemaColumn]s in the list and returns the updated rows. If
+  /// [columns] is provided, only those columns will be updated. Defaults to
+  /// all columns.
+  /// This is an atomic operation, meaning that if one of the rows fails to
+  /// update, none of the rows will be updated.
+  ///
+  /// If [noReturn] is set to `true`, the updated rows are not read back from
+  /// the database and an empty list is returned. This avoids the overhead of
+  /// transferring and deserializing the rows when the result is not needed.
+  Future<List<CrdtSchemaColumn>> update(
+    _isd.DatabaseSession session,
+    List<CrdtSchemaColumn> rows, {
+    _isd.ColumnSelections<CrdtSchemaColumnTable>? columns,
+    _isd.Transaction? transaction,
+    bool noReturn = false,
+  }) async {
+    return session.db.update<CrdtSchemaColumn>(
+      rows,
+      columns: columns?.call(CrdtSchemaColumn.t),
+      transaction: transaction,
+      noReturn: noReturn,
+    );
+  }
+
+  /// Updates a single [CrdtSchemaColumn]. The row needs to have its id set.
+  /// Optionally, a list of [columns] can be provided to only update those
+  /// columns. Defaults to all columns.
+  Future<CrdtSchemaColumn> updateRow(
+    _isd.DatabaseSession session,
+    CrdtSchemaColumn row, {
+    _isd.ColumnSelections<CrdtSchemaColumnTable>? columns,
+    _isd.Transaction? transaction,
+  }) async {
+    return session.db.updateRow<CrdtSchemaColumn>(
+      row,
+      columns: columns?.call(CrdtSchemaColumn.t),
+      transaction: transaction,
+    );
+  }
+
+  /// Updates a single [CrdtSchemaColumn] by its [id] with the specified [columnValues].
+  /// Returns the updated row or null if no row with the given id exists.
+  Future<CrdtSchemaColumn?> updateById(
+    _isd.DatabaseSession session,
+    int id, {
+    required _isd.ColumnValueListBuilder<CrdtSchemaColumnUpdateTable>
+    columnValues,
+    _isd.Transaction? transaction,
+  }) async {
+    return session.db.updateById<CrdtSchemaColumn>(
+      id,
+      columnValues: columnValues(CrdtSchemaColumn.t.updateTable),
+      transaction: transaction,
+    );
+  }
+
+  /// Updates all [CrdtSchemaColumn]s matching the [where] expression with the specified [columnValues].
+  /// Returns the list of updated rows.
+  ///
+  /// If [noReturn] is set to `true`, the updated rows are not read back from
+  /// the database and an empty list is returned. This avoids the overhead of
+  /// transferring and deserializing the rows when the result is not needed.
+  Future<List<CrdtSchemaColumn>> updateWhere(
+    _isd.DatabaseSession session, {
+    required _isd.ColumnValueListBuilder<CrdtSchemaColumnUpdateTable>
+    columnValues,
+    required _isd.WhereExpressionBuilder<CrdtSchemaColumnTable> where,
+    int? limit,
+    int? offset,
+    _isd.OrderByBuilder<CrdtSchemaColumnTable>? orderBy,
+    _isd.OrderByListBuilder<CrdtSchemaColumnTable>? orderByList,
+    _isd.Transaction? transaction,
+    bool noReturn = false,
+  }) async {
+    return session.db.updateWhere<CrdtSchemaColumn>(
+      columnValues: columnValues(CrdtSchemaColumn.t.updateTable),
+      where: where(CrdtSchemaColumn.t),
+      limit: limit,
+      offset: offset,
+      orderBy: orderBy?.call(CrdtSchemaColumn.t),
+      orderByList: orderByList?.call(CrdtSchemaColumn.t),
+      transaction: transaction,
+      noReturn: noReturn,
+    );
+  }
+
+  /// Deletes all [CrdtSchemaColumn]s in the list and returns the deleted rows.
+  ///
+  /// To specify the order of the returned rows use [orderBy] or [orderByList]
+  /// when sorting by multiple columns.
+  ///
+  /// This is an atomic operation, meaning that if one of the rows fail to
+  /// be deleted, none of the rows will be deleted.
+  ///
+  /// If [noReturn] is set to `true`, the deleted rows are not read back from
+  /// the database and an empty list is returned. This avoids the overhead of
+  /// transferring and deserializing the rows when the result is not needed.
+  Future<List<CrdtSchemaColumn>> delete(
+    _isd.DatabaseSession session,
+    List<CrdtSchemaColumn> rows, {
+    _isd.OrderByBuilder<CrdtSchemaColumnTable>? orderBy,
+    _isd.OrderByListBuilder<CrdtSchemaColumnTable>? orderByList,
+    _isd.Transaction? transaction,
+    bool noReturn = false,
+  }) async {
+    return session.db.delete<CrdtSchemaColumn>(
+      rows,
+      orderBy: orderBy?.call(CrdtSchemaColumn.t),
+      orderByList: orderByList?.call(CrdtSchemaColumn.t),
+      transaction: transaction,
+      noReturn: noReturn,
+    );
+  }
+
+  /// Deletes a single [CrdtSchemaColumn].
+  Future<CrdtSchemaColumn> deleteRow(
+    _isd.DatabaseSession session,
+    CrdtSchemaColumn row, {
+    _isd.Transaction? transaction,
+  }) async {
+    return session.db.deleteRow<CrdtSchemaColumn>(
+      row,
+      transaction: transaction,
+    );
+  }
+
+  /// Deletes all rows matching the [where] expression.
+  ///
+  /// To specify the order of the returned rows use [orderBy] or [orderByList]
+  /// when sorting by multiple columns.
+  ///
+  /// If [noReturn] is set to `true`, the deleted rows are not read back from
+  /// the database and an empty list is returned. This avoids the overhead of
+  /// transferring and deserializing the rows when the result is not needed.
+  Future<List<CrdtSchemaColumn>> deleteWhere(
+    _isd.DatabaseSession session, {
+    required _isd.WhereExpressionBuilder<CrdtSchemaColumnTable> where,
+    _isd.OrderByBuilder<CrdtSchemaColumnTable>? orderBy,
+    _isd.OrderByListBuilder<CrdtSchemaColumnTable>? orderByList,
+    _isd.Transaction? transaction,
+    bool noReturn = false,
+  }) async {
+    return session.db.deleteWhere<CrdtSchemaColumn>(
+      where: where(CrdtSchemaColumn.t),
+      orderBy: orderBy?.call(CrdtSchemaColumn.t),
+      orderByList: orderByList?.call(CrdtSchemaColumn.t),
+      transaction: transaction,
+      noReturn: noReturn,
+    );
+  }
+
+  /// Counts the number of rows matching the [where] expression. If omitted,
+  /// will return the count of all rows in the table.
+  Future<int> count(
+    _isd.DatabaseSession session, {
+    _isd.WhereExpressionBuilder<CrdtSchemaColumnTable>? where,
+    int? limit,
+    _isd.Transaction? transaction,
+  }) async {
+    return session.db.count<CrdtSchemaColumn>(
+      where: where?.call(CrdtSchemaColumn.t),
+      limit: limit,
+      transaction: transaction,
+    );
+  }
+
+  /// Acquires row-level locks on [CrdtSchemaColumn] rows matching the [where] expression.
+  Future<void> lockRows(
+    _isd.DatabaseSession session, {
+    required _isd.WhereExpressionBuilder<CrdtSchemaColumnTable> where,
+    required _isd.LockMode lockMode,
+    required _isd.Transaction transaction,
+    _isd.LockBehavior lockBehavior = _isd.LockBehavior.wait,
+  }) async {
+    return session.db.lockRows<CrdtSchemaColumn>(
+      where: where(CrdtSchemaColumn.t),
+      lockMode: lockMode,
+      lockBehavior: lockBehavior,
+      transaction: transaction,
+    );
+  }
+}
+
+class CrdtSchemaColumnAttachRowRepository {
+  const CrdtSchemaColumnAttachRowRepository._();
+
+  /// Creates a relation between the given [CrdtSchemaColumn] and [CrdtSchemaTable]
+  /// by setting the [CrdtSchemaColumn]'s foreign key `tblId` to refer to the [CrdtSchemaTable].
+  Future<void> tbl(
+    _isd.DatabaseSession session,
+    CrdtSchemaColumn crdtSchemaColumn,
+    _icw2tu00.CrdtSchemaTable tbl, {
+    _isd.Transaction? transaction,
+  }) async {
+    if (crdtSchemaColumn.id == null) {
+      throw ArgumentError.notNull('crdtSchemaColumn.id');
+    }
+    if (tbl.id == null) {
+      throw ArgumentError.notNull('tbl.id');
+    }
+
+    var $crdtSchemaColumn = crdtSchemaColumn.copyWith(tblId: tbl.id);
+    await session.db.updateRow<CrdtSchemaColumn>(
+      $crdtSchemaColumn,
+      columns: [CrdtSchemaColumn.t.tblId],
+      transaction: transaction,
+    );
+  }
+}

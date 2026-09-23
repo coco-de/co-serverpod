@@ -1,0 +1,164 @@
+/* AUTOMATICALLY GENERATED CODE DO NOT MODIFY */
+/*   To generate run: "serverpod generate"    */
+
+// ignore_for_file: implementation_imports
+// ignore_for_file: library_private_types_in_public_api
+// ignore_for_file: non_constant_identifier_names
+// ignore_for_file: public_member_api_docs
+// ignore_for_file: type_literal_in_constant_pattern
+// ignore_for_file: use_super_parameters
+// ignore_for_file: invalid_use_of_internal_member
+
+part of 'change.dart';
+
+/// A remote visibility CLFlag update to merge.
+abstract class CrdtMergeDelete extends _icw2tu00.CrdtMergeChange
+    implements _iss.SerializableModel, _iss.ProtocolSerialization {
+  CrdtMergeDelete._({
+    required super.hlcDatetime,
+    required super.hlcCounter,
+    required super.uuidSpaceId,
+    required super.tableName,
+    required super.uuidRowId,
+    required super.uuidNodeId,
+    required this.clFlag,
+    required this.reason,
+  });
+
+  factory CrdtMergeDelete({
+    required DateTime hlcDatetime,
+    required int hlcCounter,
+    required _iss.UuidValue uuidSpaceId,
+    required String tableName,
+    required _iss.UuidValue uuidRowId,
+    required _iss.UuidValue uuidNodeId,
+    required int clFlag,
+    required _icw2tu00.CrdtDataDeletedReason reason,
+  }) = _CrdtMergeDeleteImpl;
+
+  factory CrdtMergeDelete.fromJson(Map<String, dynamic> jsonSerialization) {
+    return CrdtMergeDelete(
+      hlcDatetime: _iss.DateTimeJsonExtension.fromJson(
+        jsonSerialization['hlcDatetime'],
+      ),
+      hlcCounter: jsonSerialization['hlcCounter'] as int,
+      uuidSpaceId: _iss.UuidValueJsonExtension.fromJson(
+        jsonSerialization['uuidSpaceId'],
+      ),
+      tableName: jsonSerialization['tableName'] as String,
+      uuidRowId: _iss.UuidValueJsonExtension.fromJson(
+        jsonSerialization['uuidRowId'],
+      ),
+      uuidNodeId: _iss.UuidValueJsonExtension.fromJson(
+        jsonSerialization['uuidNodeId'],
+      ),
+      clFlag: jsonSerialization['clFlag'] as int,
+      reason: _icw2tu00.CrdtDataDeletedReason.fromJson(
+        (jsonSerialization['reason'] as int),
+      ),
+    );
+  }
+
+  /// Monotone causal-length flag. Odd values are visible and even values are deleted.
+  int clFlag;
+
+  /// Why the row entered its current visibility generation.
+  _icw2tu00.CrdtDataDeletedReason reason;
+
+  /// Returns a shallow copy of this [CrdtMergeDelete]
+  /// with some or all fields replaced by the given arguments.
+  @override
+  @_iss.useResult
+  CrdtMergeDelete copyWith({
+    DateTime? hlcDatetime,
+    int? hlcCounter,
+    _iss.UuidValue? uuidSpaceId,
+    String? tableName,
+    _iss.UuidValue? uuidRowId,
+    _iss.UuidValue? uuidNodeId,
+    int? clFlag,
+    _icw2tu00.CrdtDataDeletedReason? reason,
+  });
+  @override
+  Map<String, dynamic> toJson() {
+    return {
+      '__className__': 'serverpod_offline_sync.CrdtMergeDelete',
+      'hlcDatetime': hlcDatetime.toJson(),
+      'hlcCounter': hlcCounter,
+      'uuidSpaceId': uuidSpaceId.toJson(),
+      'tableName': tableName,
+      'uuidRowId': uuidRowId.toJson(),
+      'uuidNodeId': uuidNodeId.toJson(),
+      'clFlag': clFlag,
+      'reason': reason.toJson(),
+    };
+  }
+
+  @override
+  Map<String, dynamic> toJsonForProtocol() {
+    return {
+      '__className__': 'serverpod_offline_sync.CrdtMergeDelete',
+      'hlcDatetime': hlcDatetime.toJson(),
+      'hlcCounter': hlcCounter,
+      'uuidSpaceId': uuidSpaceId.toJson(),
+      'tableName': tableName,
+      'uuidRowId': uuidRowId.toJson(),
+      'uuidNodeId': uuidNodeId.toJson(),
+      'clFlag': clFlag,
+      'reason': reason.toJson(),
+    };
+  }
+
+  @override
+  String toString() {
+    return _iss.SerializationManager.encode(this);
+  }
+}
+
+class _CrdtMergeDeleteImpl extends CrdtMergeDelete {
+  _CrdtMergeDeleteImpl({
+    required DateTime hlcDatetime,
+    required int hlcCounter,
+    required _iss.UuidValue uuidSpaceId,
+    required String tableName,
+    required _iss.UuidValue uuidRowId,
+    required _iss.UuidValue uuidNodeId,
+    required int clFlag,
+    required _icw2tu00.CrdtDataDeletedReason reason,
+  }) : super._(
+         hlcDatetime: hlcDatetime,
+         hlcCounter: hlcCounter,
+         uuidSpaceId: uuidSpaceId,
+         tableName: tableName,
+         uuidRowId: uuidRowId,
+         uuidNodeId: uuidNodeId,
+         clFlag: clFlag,
+         reason: reason,
+       );
+
+  /// Returns a shallow copy of this [CrdtMergeDelete]
+  /// with some or all fields replaced by the given arguments.
+  @_iss.useResult
+  @override
+  CrdtMergeDelete copyWith({
+    DateTime? hlcDatetime,
+    int? hlcCounter,
+    _iss.UuidValue? uuidSpaceId,
+    String? tableName,
+    _iss.UuidValue? uuidRowId,
+    _iss.UuidValue? uuidNodeId,
+    int? clFlag,
+    _icw2tu00.CrdtDataDeletedReason? reason,
+  }) {
+    return CrdtMergeDelete(
+      hlcDatetime: hlcDatetime ?? this.hlcDatetime,
+      hlcCounter: hlcCounter ?? this.hlcCounter,
+      uuidSpaceId: uuidSpaceId ?? this.uuidSpaceId,
+      tableName: tableName ?? this.tableName,
+      uuidRowId: uuidRowId ?? this.uuidRowId,
+      uuidNodeId: uuidNodeId ?? this.uuidNodeId,
+      clFlag: clFlag ?? this.clFlag,
+      reason: reason ?? this.reason,
+    );
+  }
+}

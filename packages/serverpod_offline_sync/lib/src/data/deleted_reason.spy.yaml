@@ -1,0 +1,9 @@
+### Why a synced user tombstone changed row visibility.
+enum: CrdtDataDeletedReason
+serialized: byIndex
+values:
+  - userInsert
+  - userReinsert
+  - userDelete
+  - userCascadeDelete
+  - uniqueLoser

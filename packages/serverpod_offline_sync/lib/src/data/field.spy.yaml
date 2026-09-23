@@ -1,0 +1,26 @@
+### CRDT data table.
+###
+### This table stores only the HLC timestamp for a field. During merge, if the
+### other HLC is greater, the actual data must be fetched from the table itself.
+class: CrdtDataField
+extends: BaseHlc
+table: crdt_data_fields
+database: all
+fields:
+  ### Row that the field belongs to.
+  row: CrdtDataRow?, relation(name=row_fields, onDelete=Cascade)
+
+  ### Column that the field belongs to.
+  column: CrdtSchemaColumn?, relation(onDelete=Cascade)
+
+  ### The node that updated the field.
+  node: CrdtNode?, relation
+
+  ### Authored value retained while a projector materializes a different domain
+  ### value for this field.
+  attemptedValue: CrdtDataAttemptedValue?, relation(optional, name=field_attempted_value)
+
+indexes:
+  crdt_data_fields_row_column_idx:
+    fields: rowId, columnId
+    unique: true
