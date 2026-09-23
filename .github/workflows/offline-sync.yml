@@ -5,6 +5,11 @@ on:
     paths:
       - packages/co_offline_sync/**
       - packages/co_sync/**
+      - packages/serverpod_offline_sync/**
+      - packages/serverpod_offline_sync_client/**
+      - packages/serverpod_offline_sync_server/**
+      - test/offline_sync_watch_test_client/**
+      - test/offline_sync_watch_test_server/**
       - analysis_options.yaml
       - .github/workflows/offline-sync.yml
   push:
@@ -12,6 +17,11 @@ on:
     paths:
       - packages/co_offline_sync/**
       - packages/co_sync/**
+      - packages/serverpod_offline_sync/**
+      - packages/serverpod_offline_sync_client/**
+      - packages/serverpod_offline_sync_server/**
+      - test/offline_sync_watch_test_client/**
+      - test/offline_sync_watch_test_server/**
       - analysis_options.yaml
       - .github/workflows/offline-sync.yml
 
@@ -50,3 +60,47 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed lib test example
       - run: flutter analyze --fatal-infos
       - run: flutter test test example
+
+  serverpod-offline-sync:
+    name: serverpod_offline_sync fork
+    runs-on: ubuntu-latest
+    # 로컬 실측: pub get·분석·테스트 합계 약 2분(SQLite 네이티브 빌드 훅 포함).
+    # CI 표본이 쌓이면 실측 최대 × 2 로 재산정한다.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Engine
+        working-directory: packages/serverpod_offline_sync
+        run: |
+          dart pub get
+          dart format --output=none --set-exit-if-changed .
+          dart analyze --fatal-infos
+          dart test
+      - name: Client
+        working-directory: packages/serverpod_offline_sync_client
+        run: |
+          dart pub get
+          dart format --output=none --set-exit-if-changed .
+          dart analyze --fatal-infos
+      - name: Server module (SQLite integration tests)
+        working-directory: packages/serverpod_offline_sync_server
+        run: |
+          dart pub get
+          dart format --output=none --set-exit-if-changed .
+          dart analyze --fatal-infos
+          dart test --concurrency=1
+      - name: Watch fixture generator input
+        working-directory: test/offline_sync_watch_test_server
+        run: |
+          dart pub get
+          dart analyze --fatal-infos
+      - name: Model.db.watch tests
+        working-directory: test/offline_sync_watch_test_client
+        run: |
+          dart pub get
+          dart format --output=none --set-exit-if-changed lib/offline_sync_watch_test_client.dart test
+          dart analyze --fatal-infos
+          dart test

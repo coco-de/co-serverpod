@@ -1,0 +1,7 @@
+class: Note
+table: note
+database: sync
+fields:
+  title: String
+  archived: bool, default=false
+  folder: Folder?, relation(name=folder_notes, optional, onDelete=SetNull)

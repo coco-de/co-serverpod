@@ -1,0 +1,154 @@
+/* AUTOMATICALLY GENERATED CODE DO NOT MODIFY */
+/*   To generate run: "serverpod generate"    */
+
+// ignore_for_file: implementation_imports
+// ignore_for_file: library_private_types_in_public_api
+// ignore_for_file: non_constant_identifier_names
+// ignore_for_file: public_member_api_docs
+// ignore_for_file: type_literal_in_constant_pattern
+// ignore_for_file: use_super_parameters
+// ignore_for_file: invalid_use_of_internal_member
+
+part of 'change.dart';
+
+/// A remote row insertion to merge.
+abstract class CrdtMergeInsert extends _icw2tu00.CrdtMergeChange
+    implements _iss.SerializableModel, _iss.ProtocolSerialization {
+  CrdtMergeInsert._({
+    required super.hlcDatetime,
+    required super.hlcCounter,
+    required super.uuidSpaceId,
+    required super.tableName,
+    required super.uuidRowId,
+    required super.uuidNodeId,
+    required this.data,
+  });
+
+  factory CrdtMergeInsert({
+    required DateTime hlcDatetime,
+    required int hlcCounter,
+    required _iss.UuidValue uuidSpaceId,
+    required String tableName,
+    required _iss.UuidValue uuidRowId,
+    required _iss.UuidValue uuidNodeId,
+    required dynamic data,
+  }) = _CrdtMergeInsertImpl;
+
+  factory CrdtMergeInsert.fromJson(Map<String, dynamic> jsonSerialization) {
+    return CrdtMergeInsert(
+      hlcDatetime: _iss.DateTimeJsonExtension.fromJson(
+        jsonSerialization['hlcDatetime'],
+      ),
+      hlcCounter: jsonSerialization['hlcCounter'] as int,
+      uuidSpaceId: _iss.UuidValueJsonExtension.fromJson(
+        jsonSerialization['uuidSpaceId'],
+      ),
+      tableName: jsonSerialization['tableName'] as String,
+      uuidRowId: _iss.UuidValueJsonExtension.fromJson(
+        jsonSerialization['uuidRowId'],
+      ),
+      uuidNodeId: _iss.UuidValueJsonExtension.fromJson(
+        jsonSerialization['uuidNodeId'],
+      ),
+      data: _icw2tu00.Protocol().deserializeDynamicFieldValue(
+        jsonSerialization['data'],
+      ),
+    );
+  }
+
+  /// The serialized domain row payload for the insert.
+  dynamic data;
+
+  /// Returns a shallow copy of this [CrdtMergeInsert]
+  /// with some or all fields replaced by the given arguments.
+  @override
+  @_iss.useResult
+  CrdtMergeInsert copyWith({
+    DateTime? hlcDatetime,
+    int? hlcCounter,
+    _iss.UuidValue? uuidSpaceId,
+    String? tableName,
+    _iss.UuidValue? uuidRowId,
+    _iss.UuidValue? uuidNodeId,
+    dynamic data,
+  });
+  @override
+  Map<String, dynamic> toJson() {
+    return {
+      '__className__': 'serverpod_offline_sync.CrdtMergeInsert',
+      'hlcDatetime': hlcDatetime.toJson(),
+      'hlcCounter': hlcCounter,
+      'uuidSpaceId': uuidSpaceId.toJson(),
+      'tableName': tableName,
+      'uuidRowId': uuidRowId.toJson(),
+      'uuidNodeId': uuidNodeId.toJson(),
+      'data': _icw2tu00.Protocol().dynamicFieldToJson(data),
+    };
+  }
+
+  @override
+  Map<String, dynamic> toJsonForProtocol() {
+    return {
+      '__className__': 'serverpod_offline_sync.CrdtMergeInsert',
+      'hlcDatetime': hlcDatetime.toJson(),
+      'hlcCounter': hlcCounter,
+      'uuidSpaceId': uuidSpaceId.toJson(),
+      'tableName': tableName,
+      'uuidRowId': uuidRowId.toJson(),
+      'uuidNodeId': uuidNodeId.toJson(),
+      'data': _icw2tu00.Protocol().dynamicFieldToJson(
+        data,
+        forProtocol: true,
+      ),
+    };
+  }
+
+  @override
+  String toString() {
+    return _iss.SerializationManager.encode(this);
+  }
+}
+
+class _CrdtMergeInsertImpl extends CrdtMergeInsert {
+  _CrdtMergeInsertImpl({
+    required DateTime hlcDatetime,
+    required int hlcCounter,
+    required _iss.UuidValue uuidSpaceId,
+    required String tableName,
+    required _iss.UuidValue uuidRowId,
+    required _iss.UuidValue uuidNodeId,
+    required dynamic data,
+  }) : super._(
+         hlcDatetime: hlcDatetime,
+         hlcCounter: hlcCounter,
+         uuidSpaceId: uuidSpaceId,
+         tableName: tableName,
+         uuidRowId: uuidRowId,
+         uuidNodeId: uuidNodeId,
+         data: data,
+       );
+
+  /// Returns a shallow copy of this [CrdtMergeInsert]
+  /// with some or all fields replaced by the given arguments.
+  @_iss.useResult
+  @override
+  CrdtMergeInsert copyWith({
+    DateTime? hlcDatetime,
+    int? hlcCounter,
+    _iss.UuidValue? uuidSpaceId,
+    String? tableName,
+    _iss.UuidValue? uuidRowId,
+    _iss.UuidValue? uuidNodeId,
+    Object? data = _Undefined,
+  }) {
+    return CrdtMergeInsert(
+      hlcDatetime: hlcDatetime ?? this.hlcDatetime,
+      hlcCounter: hlcCounter ?? this.hlcCounter,
+      uuidSpaceId: uuidSpaceId ?? this.uuidSpaceId,
+      tableName: tableName ?? this.tableName,
+      uuidRowId: uuidRowId ?? this.uuidRowId,
+      uuidNodeId: uuidNodeId ?? this.uuidNodeId,
+      data: data != _Undefined ? data : this.data,
+    );
+  }
+}

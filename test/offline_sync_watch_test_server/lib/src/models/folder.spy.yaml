@@ -1,0 +1,6 @@
+class: Folder
+table: folder
+database: sync
+fields:
+  name: String
+  notes: List<Note>?, relation(name=folder_notes)

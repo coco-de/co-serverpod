@@ -26,6 +26,18 @@ melos:
       run: cd packages/co_offline_sync && dart test && cd ../co_sync && flutter test test example
       description: 순수 Dart 코어와 Flutter 어댑터 테스트
 
+    serverpod-offline-sync:analyze:
+      run: cd packages/serverpod_offline_sync && dart analyze --fatal-infos && cd ../serverpod_offline_sync_client && dart analyze --fatal-infos && cd ../serverpod_offline_sync_server && dart analyze --fatal-infos && cd ../../test/offline_sync_watch_test_server && dart analyze --fatal-infos && cd ../offline_sync_watch_test_client && dart analyze --fatal-infos
+      description: serverpod_offline_sync 포크와 watch fixture 분석 (각 패키지 pub get 선행)
+
+    serverpod-offline-sync:test:
+      run: cd packages/serverpod_offline_sync && dart test && cd ../serverpod_offline_sync_server && dart test --concurrency=1 && cd ../../test/offline_sync_watch_test_client && dart test
+      description: 포크 엔진 단위·모듈 통합(SQLite)·Model.db.watch 테스트
+
+    serverpod-offline-sync:generate:
+      run: cd packages/serverpod_offline_sync_server && dart run serverpod_cli generate && cd ../../test/offline_sync_watch_test_server && dart run serverpod_cli generate
+      description: 포크 모듈과 watch fixture 코드 재생성 (의존성의 CLI 4.1.0-beta.1 사용)
+
     analyze:
       run: melos exec -- dart analyze --fatal-infos
       description: 전체 패키지 정적 분석

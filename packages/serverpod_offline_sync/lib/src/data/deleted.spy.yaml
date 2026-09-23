@@ -1,0 +1,26 @@
+### CRDT visibility generation table.
+###
+### This table stores materialized monotone CLFlag metadata after a visibility
+### change event has been recorded.
+class: CrdtDataDeleted
+extends: BaseHlc
+table: crdt_data_tombstone
+database: all
+fields:
+  ### Row whose visibility is tracked.
+  row: CrdtDataRow?, relation(name=row_deleted, field=rowId, onDelete=Cascade)
+  rowId: int
+
+  ### The node that updated the field.
+  node: CrdtNode?, relation
+
+  ### Monotone causal-length flag. Odd values are visible and even values are deleted.
+  clFlag: int
+
+  ### Why the row entered its current visibility generation.
+  reason: CrdtDataDeletedReason
+
+indexes:
+  crdt_data_tombstone_row_idx:
+    fields: rowId
+    unique: true

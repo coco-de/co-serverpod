@@ -1,0 +1,8 @@
+include: analysis_options.upstream.yaml
+
+# analyzer:
+#   exclude:
+#     - lib/src/generated/**
+
+formatter:
+  trailing_commas: preserve

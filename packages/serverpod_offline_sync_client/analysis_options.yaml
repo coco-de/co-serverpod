@@ -1,0 +1,8 @@
+include: ../serverpod_offline_sync/analysis_options.upstream.yaml
+
+# analyzer:
+#   exclude:
+#     - lib/src/protocol/**
+
+formatter:
+  trailing_commas: preserve

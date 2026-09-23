@@ -1,0 +1,9 @@
+include: ../serverpod_offline_sync/analysis_options.upstream.yaml
+
+analyzer:
+  exclude:
+    # - lib/src/generated/**
+    - test/integration/test_tools/serverpod_test_tools.dart
+
+formatter:
+  trailing_commas: preserve
