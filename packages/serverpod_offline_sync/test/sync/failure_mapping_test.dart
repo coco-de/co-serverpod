@@ -128,6 +128,38 @@ void main() {
     }
   });
 
+  group('Given the wire failure code,', () {
+    // A newer server may send a code this build does not know. Throwing while
+    // parsing would make Serverpod's client close the whole WebSocket
+    // connection, so the enum decodes it as `unknown` (`default: unknown`).
+    test(
+      'when decoding a code this build does not know, then it is unknown.',
+      () {
+        expect(
+          OfflineSyncFailureCode.fromJson('aCodeAddedLater'),
+          OfflineSyncFailureCode.unknown,
+        );
+        expect(
+          OfflineSyncRemoteException.fromJson({
+            'code': 'aCodeAddedLater',
+            'message': 'from a newer server',
+          }).code,
+          OfflineSyncFailureCode.unknown,
+        );
+      },
+    );
+
+    test('when mapping a failure, then the server never sends unknown.', () {
+      expect(
+        {
+          for (final (error, _) in mapped.values)
+            (toOfflineSyncWireError(error) as OfflineSyncRemoteException).code,
+        },
+        isNot(contains(OfflineSyncFailureCode.unknown)),
+      );
+    });
+  });
+
   group('Given a failure the mapping does not own,', () {
     final passthrough = <String, Object>{
       'a schema hash mismatch': const OfflineSyncTablesHashMismatchException(

@@ -6,7 +6,8 @@ import 'package:serverpod_offline_sync/serverpod_offline_sync.dart';
 /// Why a sync round failed, as seen by this device.
 ///
 /// The first five values mirror [OfflineSyncFailureCode], the codes the server
-/// sends. The rest are failures this device observes itself.
+/// sends. The rest are failures this device observes itself, plus [unknown] for
+/// a server code this build does not know ([OfflineSyncFailureCode.unknown]).
 enum OfflineSyncFailureReason {
   /// The server rejected this device's timestamps: this device's clock is
   /// ahead. Same meaning as co_sync's `clock_drift`.
@@ -43,6 +44,21 @@ enum OfflineSyncFailureReason {
   /// decided here; the app owns that call.
   schemaMismatch,
 
+  /// The server refused to open the sync stream because the request is not
+  /// authenticated, after the client already tried to refresh its auth key
+  /// once. Retrying does not help until the user signs in again.
+  authenticationFailed,
+
+  /// The server refused to open the sync stream because the signed-in user
+  /// lacks the required scopes.
+  authorizationDeclined,
+
+  /// The server refused to open the sync stream because it has no such
+  /// endpoint or rejected the call's arguments: the app and the server disagree
+  /// on the API, as when the server module is not deployed or the versions are
+  /// incompatible.
+  incompatibleEndpoint,
+
   /// The connection failed or closed before the round finished.
   transport,
 
@@ -54,9 +70,16 @@ enum OfflineSyncFailureReason {
   /// Clock, overflow, transport and unknown failures can clear on their own,
   /// so they are not permanent. [schemaMismatch] is not permanent either,
   /// because a server that is behind catches up; an app that decides the app
-  /// itself is outdated should treat it as permanent.
+  /// itself is outdated should treat it as permanent. A refused stream
+  /// ([authenticationFailed], [authorizationDeclined], [incompatibleEndpoint])
+  /// is permanent: the same request is refused again until the user signs in,
+  /// gains access, or the app or server is updated.
   bool get isPermanent => switch (this) {
-    duplicateNode || integrityViolation => true,
+    duplicateNode ||
+    integrityViolation ||
+    authenticationFailed ||
+    authorizationDeclined ||
+    incompatibleEndpoint => true,
     clockDrift ||
     serverClockDrift ||
     hlcOverflow ||
@@ -76,6 +99,9 @@ enum OfflineSyncFailureReason {
     duplicateNode ||
     integrityViolation ||
     schemaMismatch ||
+    authenticationFailed ||
+    authorizationDeclined ||
+    incompatibleEndpoint ||
     transport ||
     unknown => false,
   };
@@ -112,7 +138,10 @@ class OfflineSyncFailure {
   /// | [DuplicateNodeException] | [OfflineSyncFailureReason.duplicateNode] |
   /// | [OfflineSyncIntegrityViolationException] | [OfflineSyncFailureReason.integrityViolation] |
   /// | [OfflineSyncTablesHashMismatchException] | [OfflineSyncFailureReason.schemaMismatch] |
-  /// | [MethodStreamException], [OfflineSyncStreamClosedException], [TimeoutException] | [OfflineSyncFailureReason.transport] |
+  /// | [OpenMethodStreamException] `authenticationFailed` | [OfflineSyncFailureReason.authenticationFailed] |
+  /// | [OpenMethodStreamException] `authorizationDeclined` | [OfflineSyncFailureReason.authorizationDeclined] |
+  /// | [OpenMethodStreamException] `endpointNotFound`, `invalidArguments` | [OfflineSyncFailureReason.incompatibleEndpoint] |
+  /// | any other [MethodStreamException], [OfflineSyncStreamClosedException], [TimeoutException] | [OfflineSyncFailureReason.transport] |
   /// | anything else | [OfflineSyncFailureReason.unknown] |
   ///
   /// A [ClockDriftException] reaching this device was raised by this device's
@@ -131,6 +160,7 @@ class OfflineSyncFailure {
             OfflineSyncFailureReason.duplicateNode,
           OfflineSyncFailureCode.integrityViolation =>
             OfflineSyncFailureReason.integrityViolation,
+          OfflineSyncFailureCode.unknown => OfflineSyncFailureReason.unknown,
         },
         error: error,
         drift: _millisecondsOrNull(error.driftMs),
@@ -159,6 +189,22 @@ class OfflineSyncFailure {
       ),
       OfflineSyncTablesHashMismatchException() => OfflineSyncFailure(
         code: OfflineSyncFailureReason.schemaMismatch,
+        error: error,
+      ),
+      // Before the transport case: OpenMethodStreamException is a
+      // MethodStreamException, but a refused stream is not a network failure.
+      OpenMethodStreamException(:final responseType) => OfflineSyncFailure(
+        code: switch (responseType) {
+          OpenMethodStreamResponseType.authenticationFailed =>
+            OfflineSyncFailureReason.authenticationFailed,
+          OpenMethodStreamResponseType.authorizationDeclined =>
+            OfflineSyncFailureReason.authorizationDeclined,
+          OpenMethodStreamResponseType.endpointNotFound ||
+          OpenMethodStreamResponseType.invalidArguments =>
+            OfflineSyncFailureReason.incompatibleEndpoint,
+          // Serverpod never throws for a successful open.
+          OpenMethodStreamResponseType.success => OfflineSyncFailureReason.unknown,
+        },
         error: error,
       ),
       MethodStreamException() ||

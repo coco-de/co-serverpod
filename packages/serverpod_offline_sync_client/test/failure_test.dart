@@ -28,6 +28,17 @@ void main() {
         maxDriftMs: 3600000,
       );
 
+  final violation = OfflineSyncIntegrityViolation(
+    type: OfflineSyncViolationType.unauthorizedWrite,
+    domainTableName: 'note',
+    uuidRowId: nodeId,
+    incomingSpaceUuid: nodeId,
+    operation: OfflineSyncViolationOperation.mergeInsert,
+    firstSeenAt: wallTime,
+    lastSeenAt: wallTime,
+    occurrences: 1,
+  );
+
   final cases = <String, (Object, OfflineSyncFailureReason)>{
     'a server clockDrift': (
       remote(OfflineSyncFailureCode.clockDrift),
@@ -49,6 +60,10 @@ void main() {
       remote(OfflineSyncFailureCode.integrityViolation),
       OfflineSyncFailureReason.integrityViolation,
     ),
+    'a server code this build does not know': (
+      remote(OfflineSyncFailureCode.unknown),
+      OfflineSyncFailureReason.unknown,
+    ),
     'a local remoteAhead drift (this device is behind)': (
       localDrift(ClockDriftKind.remoteAhead),
       OfflineSyncFailureReason.clockDriftBehind,
@@ -65,12 +80,40 @@ void main() {
       DuplicateNodeException(nodeId),
       OfflineSyncFailureReason.duplicateNode,
     ),
+    'a local integrity violation': (
+      OfflineSyncIntegrityViolationException(violation),
+      OfflineSyncFailureReason.integrityViolation,
+    ),
     'a schema hash mismatch': (
       const OfflineSyncTablesHashMismatchException(received: 'a', expected: 'b'),
       OfflineSyncFailureReason.schemaMismatch,
     ),
+    'a stream refused as unauthenticated': (
+      OpenMethodStreamException(
+        OpenMethodStreamResponseType.authenticationFailed,
+      ),
+      OfflineSyncFailureReason.authenticationFailed,
+    ),
+    'a stream refused as unauthorized': (
+      OpenMethodStreamException(
+        OpenMethodStreamResponseType.authorizationDeclined,
+      ),
+      OfflineSyncFailureReason.authorizationDeclined,
+    ),
+    'a stream refused for a missing endpoint': (
+      OpenMethodStreamException(OpenMethodStreamResponseType.endpointNotFound),
+      OfflineSyncFailureReason.incompatibleEndpoint,
+    ),
+    'a stream refused for invalid arguments': (
+      OpenMethodStreamException(OpenMethodStreamResponseType.invalidArguments),
+      OfflineSyncFailureReason.incompatibleEndpoint,
+    ),
     'a closed method stream': (
       const ConnectionClosedException(),
+      OfflineSyncFailureReason.transport,
+    ),
+    'a failed WebSocket connect': (
+      const WebSocketConnectException('refused'),
       OfflineSyncFailureReason.transport,
     ),
     'a stream closed mid-handshake': (
@@ -113,7 +156,8 @@ void main() {
 
     test(
       'when asking which are permanent, '
-      'then only a duplicate node and an integrity violation are.',
+      'then only a duplicate node, an integrity violation and a refused '
+      'stream are.',
       () {
         expect(
           {
@@ -123,6 +167,9 @@ void main() {
           {
             OfflineSyncFailureReason.duplicateNode,
             OfflineSyncFailureReason.integrityViolation,
+            OfflineSyncFailureReason.authenticationFailed,
+            OfflineSyncFailureReason.authorizationDeclined,
+            OfflineSyncFailureReason.incompatibleEndpoint,
           },
         );
       },
@@ -168,6 +215,44 @@ void main() {
         expect(
           OfflineSyncFailure.from(exception).code,
           OfflineSyncFailureReason.clockDrift,
+        );
+      },
+    );
+
+    // Without `default: unknown` on the wire enum, a code this build does not
+    // know throws while the message is parsed. Serverpod's client then closes
+    // the whole WebSocket connection, not just this stream.
+    test(
+      'when it carries a code this build does not know, '
+      'then it still decodes and the failure is unknown.',
+      () {
+        final message = MethodStreamSerializableException.buildMessage(
+          endpoint: 'serverpod_offline_sync.offlineSync',
+          method: 'sync',
+          connectionId: nodeId,
+          object: remote(OfflineSyncFailureCode.clockDrift),
+          serializationManager: Protocol(),
+        );
+        const sent = '"code":"clockDrift"';
+        expect(message, contains(sent));
+        final fromNewerServer = message.replaceFirst(
+          sent,
+          '"code":"aCodeAddedLater"',
+        );
+
+        final decoded = WebSocketMessage.fromJsonString(
+          fromNewerServer,
+          Protocol(),
+        );
+        final exception =
+            (decoded as MethodStreamSerializableException).exception
+                as OfflineSyncRemoteException;
+
+        expect(exception.code, OfflineSyncFailureCode.unknown);
+        expect(exception.driftMs, 3600001);
+        expect(
+          OfflineSyncFailure.from(exception).code,
+          OfflineSyncFailureReason.unknown,
         );
       },
     );

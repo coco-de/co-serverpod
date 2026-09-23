@@ -19,6 +19,13 @@ import 'package:serverpod_serialization/serverpod_serialization.dart' as _iss;
 /// listed. A schema hash mismatch is not: each peer verifies the other's hash
 /// itself and already gets a typed exception. New values break exhaustive
 /// switches in consumers, so add them deliberately.
+///
+/// Wire contract: a code this build does not know decodes as [unknown]
+/// (`default: unknown`) instead of throwing. Without it, a code added in a
+/// later server release fails to parse on an older app, and Serverpod's client
+/// then closes the whole WebSocket connection with every method stream on it
+/// (`UnknownMessageException`), which the app would see as a transport error.
+/// Never remove this default or the [unknown] value.
 enum OfflineSyncFailureCode implements _iss.SerializableModel {
   /// The server rejected a device timestamp that is further ahead of the
   /// server clock than its maxClockDrift: the device clock is ahead. Same
@@ -40,7 +47,11 @@ enum OfflineSyncFailureCode implements _iss.SerializableModel {
 
   /// The server observed a terminal CRDT integrity violation, such as a write
   /// to a space the user may only read.
-  integrityViolation;
+  integrityViolation,
+
+  /// A code sent by a newer server that this build does not know. The server
+  /// never sends it; it is what an unrecognized code decodes to.
+  unknown;
 
   static OfflineSyncFailureCode fromJson(String name) {
     switch (name) {
@@ -54,10 +65,10 @@ enum OfflineSyncFailureCode implements _iss.SerializableModel {
         return OfflineSyncFailureCode.duplicateNode;
       case 'integrityViolation':
         return OfflineSyncFailureCode.integrityViolation;
+      case 'unknown':
+        return OfflineSyncFailureCode.unknown;
       default:
-        throw ArgumentError(
-          'Value "$name" cannot be converted to "OfflineSyncFailureCode"',
-        );
+        return OfflineSyncFailureCode.unknown;
     }
   }
 
