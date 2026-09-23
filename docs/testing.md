@@ -35,17 +35,19 @@ cd test/offline_sync_watch_test_client && dart pub get && dart test
 
 | 위치 | 검증 |
 |---|---|
-| 엔진 `test/hlc/hlc_max_drift_test.dart`·`test/managers/hlc_manager_test.dart` | 기본 1시간, 정확히 한도는 허용·1ms 초과는 거부(`merge`·`increment` 양쪽), 5분 사용자 값, `merge` 가 받은 스탬프 뒤 `increment` 성공(한 값 공유), `kind`·`remoteNodeId`·`toString` |
-| 엔진 `test/sync/` | context·엔진의 값 전달과 충돌 `ArgumentError`, 와이어 매퍼 구조 단언과 메서드 스트림 메시지 왕복, 알 수 없는 예외 통과 |
-| 클라이언트 `test/failure_test.dart` | `OfflineSyncFailure.from` 전 분기, `isPermanent`·`isClockDrift` 집합, 생성 client Protocol 로 복호 |
+| 엔진 `test/hlc/hlc_max_drift_test.dart`·`test/managers/hlc_manager_test.dart` | 기본 1시간, 정확히 한도는 허용·1ms 초과는 거부(`merge`·`increment`·`adoptOwn`), 5분 사용자 값, `merge` 가 받은 스탬프 뒤 `increment` 성공(한 값 공유), `kind`·`remoteNodeId`·`toString` |
+| 엔진 `test/sync/` | context·엔진의 값 전달과 충돌 `ArgumentError`, 와이어 매퍼 구조 단언과 메서드 스트림 메시지 왕복, 알 수 없는 예외 통과, 모르는 코드 → `unknown`, 1ms 미만 초과의 `driftMs` 올림 |
+| 클라이언트 `test/failure_test.dart` | `OfflineSyncFailure.from` 전 분기(기기 로컬 무결성 위반·열기 거부 4종·모르는 서버 코드 포함), `isPermanent`·`isClockDrift` 집합, 생성 client Protocol 로 복호(모르는 코드도 연결을 닫지 않고 복호) |
 | 서버 모듈 `failure_mapping_test.dart` | `initializeOfflineSync(maxClockDrift:)` 배선, 파사드 매핑, 생성 endpoint 경유 `integrityViolation` |
-| watch `clock_drift_test.dart` | 고정 시계(`withClock`)로 K1(기기 뒤처짐)·K2(기기 앞섬, 타입 있는 예외)·K3(로컬 역행)·허용치 차이(C ≥ S)·실패 회차 재전송 |
+| watch `clock_drift_test.dart` | 고정 시계(`withClock`)로 K1(기기 뒤처짐)·K2(기기 앞섬, 타입 있는 예외, 서버 노드 id 위조)·K3(로컬 역행)·허용치 차이(C < S 면 시계가 정확한 기기도 K1)·실패 회차 재전송(서버가 놓친 경우·병합한 경우 각각)·같은 한도 재래핑 |
 
 > **하네스 한계**: `serverpod_test` 는 스트리밍 endpoint 의 오류를 원본 그대로 넘기므로, 실제 소켓에서
 > `SerializableException` 이 아닌 예외가 사라지는 것을 재현하지 못합니다 — 그래서 매퍼가 메서드 스트림
 > 메시지 왕복을 따로 단언합니다. watch 하네스는 두 복제본을 한 프로세스에서 직접 잇기 때문에, 기기
 > iterator 가 서버 생성기를 `yield` 에서 멈춰 둡니다. 기기 병합이 실패한 회차에 서버가 기기 배치를 읽지
-> 못하는 것은 이 하네스의 성질이며, WebSocket 에서는 다를 수 있습니다.
+> 못하는 것은 이 하네스의 성질이며, WebSocket 에서는 다를 수 있습니다. 그래서 재전송 테스트는 WebSocket 쪽
+> 경우를 `peerOf(holdServerDataUntil:)` 로 따로 강제합니다 — 서버는 back-pressure 없이 달리고, 기기는 서버가
+> 기기 배치를 병합해 체크포인트를 남긴 뒤에야 서버 배치를 받습니다. 관측한 상태로 기대값을 고르지 마세요.
 
 > **로컬 재실행 주의**: 서버 모듈의 `untracked_update_test.dart`는 Serverpod 내장 PostgreSQL을 띄우는데,
 > 테스트가 끝나도 그 프로세스가 남습니다(업스트림 Serverpod 4.0.0에서도 동일). 남은 프로세스가 있으면

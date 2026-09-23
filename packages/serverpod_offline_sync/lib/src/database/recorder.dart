@@ -105,9 +105,23 @@ class OfflineSyncDatabaseContext {
   ///   [ClockDriftException] with [ClockDriftKind.localAhead].
   ///
   /// On a server this is also how far one device's clock can pull the shared
-  /// server node ahead, so a device should use a value at least as large as
-  /// the server's. Otherwise a device whose clock is correct rejects server
-  /// timestamps another device pulled ahead.
+  /// server node ahead, so a device's value (C) should exceed the server's (S)
+  /// by at least how far a device clock may lag the server clock: C ≥ S + lag.
+  /// A device that is behind the server by any lag rejects server timestamps
+  /// another device pulled a full S ahead, so C = S only holds for devices
+  /// whose clock is not behind the server's.
+  ///
+  /// The node's last timestamp is persisted. Lowering this value while that
+  /// timestamp is ahead of the wall clock by more than the new value blocks
+  /// every local CRDT write on the node with [ClockDriftKind.localAhead] until
+  /// the wall clock catches up, for up to the old value. On a server that is
+  /// every user's synced write. Check how far the current `crdt_nodes.lastHlc`
+  /// is ahead of the wall clock before lowering it, or lower it in steps.
+  ///
+  /// While the node's clock stays ahead of the wall clock, every timestamp it
+  /// issues reuses the same instant and only increments the counter, which
+  /// overflows after 65,535 timestamps ([OverflowException]); an update takes
+  /// one per changed field. A larger value lets the clock stay ahead longer.
   final Duration maxClockDrift;
 
   final List<TableDefinition> _tableDefinitions;

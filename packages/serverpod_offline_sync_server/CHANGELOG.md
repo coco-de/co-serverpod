@@ -8,6 +8,9 @@
   `OfflineSyncRemoteException` instead of a bare connection error when the
   server rejects its clock, overflows its counter, sees a duplicate node or an
   integrity violation.
+- docs: `maxClockDrift` notes the rule `C ≥ S + device lag`, the write outage
+  when the limit is lowered while the server node is ahead, and the counter
+  overflow exposure while it stays ahead.
 
 ## 0.0.8+co.1 (co-serverpod fork)
 

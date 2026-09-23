@@ -39,14 +39,15 @@ drift의 `watch()`처럼 로컬 쓰기와 동기화 병합을 화면에 자동�
 | 세 패키지 `pubspec.yaml` | Serverpod `^4.1.0-beta.1`, 형제 path 의존, 워크스페이스 해제, `publish_to: none` |
 | 세 패키지 `analysis_options.yaml` | 업스트림 루트 린트를 `analysis_options.upstream.yaml`로 옮겨 include |
 | `README.md`·`CHANGELOG.md` | 업스트림 루트를 가리키던 심볼릭 링크를 실제 파일로 교체 |
-| `lib/src/hlc/hlc.dart` | 시계 오차 허용치: 업스트림의 1분 고정(`_maxDrift` + `increment` 의 `Duration(minutes: 1)` 리터럴)을 `Hlc.defaultMaxDrift`(**1시간**)와 `increment`·`merge` 의 `maxDrift` 인자로 교체. 검사 구조(로컬 역행 검사 포함)는 그대로 ([시계 오차](#시계-오차-허용치와-동기화-실패-분류)) |
-| `lib/src/hlc/exceptions.dart` | `ClockDriftException` 에 `kind`(`ClockDriftKind.remoteAhead`·`localAhead`)·`remoteNodeId` 추가, `toString` 의 `Duration` 뒤 `ms` 표기 오류 수정 |
-| `lib/src/managers/hlc.dart` | `HlcManager.forSpace(maxDrift:)` — `increment`·`peekNext`·`merge` 에 같은 값 전달 |
+| `lib/src/hlc/hlc.dart` | 시계 오차 허용치: 업스트림의 1분 고정(`_maxDrift` + `increment` 의 `Duration(minutes: 1)` 리터럴)을 `Hlc.defaultMaxDrift`(**1시간**)와 `increment`·`merge` 의 `maxDrift` 인자로 교체. 검사 구조(로컬 역행 검사 포함)는 그대로. 자기 노드 스탬프를 같은 한도로 받는 `adoptOwn` 신설 ([시계 오차](#시계-오차-허용치와-동기화-실패-분류)) |
+| `lib/src/hlc/exceptions.dart` | `ClockDriftException` 에 `kind`(`ClockDriftKind.remoteAhead`·`localAhead`)·`remoteNodeId` 추가, `toString` 의 `Duration` 뒤 `ms` 표기 오류 수정·1ms 미만 부분 표기 |
+| `lib/src/managers/hlc.dart` | `HlcManager.forSpace(maxDrift:)` — `increment`·`peekNext`·`merge`·`adoptOwn` 에 같은 값 전달 |
+| `lib/src/database/merge.dart` | `_updateHlcFromIncomingOperations`: 배치 최대값 하나만 보던 것을 다른 노드 최대값 `merge` → 자기 노드 최대값 `adoptOwn` 순서로 나눔. 업스트림은 최대값이 자기 노드 id 면 검사 없이 채택했다 ([위조 노드 id](#시계-오차-허용치와-동기화-실패-분류)) |
 | `lib/src/database/recorder.dart`·`merge_utils/recorder_context.dart` | `OfflineSyncDatabaseContext.maxClockDrift`(0 이하 `ArgumentError`)·`resolve`, `hlcManagerFor` 가 그 값을 전달 |
 | `lib/src/database/database.dart`·`session.dart`·`lib/src/sync/engine.dart` | `maxClockDrift` named 인자(공유 context 와 다르면 `ArgumentError`)와 getter. 동기화 루프·프로토콜은 무변경 |
-| `lib/src/sync/failure_code.spy.yaml`·`remote_exception.spy.yaml`·`failure_mapping.dart` (신규) | 와이어 예외 `OfflineSyncRemoteException`·`OfflineSyncFailureCode`, 매퍼 `toOfflineSyncWireError`·`offlineSyncWireErrors`. 생성 코드 2개 추가 |
+| `lib/src/sync/failure_code.spy.yaml`·`remote_exception.spy.yaml`·`failure_mapping.dart` (신규) | 와이어 예외 `OfflineSyncRemoteException`·`OfflineSyncFailureCode`(`unknown` + `default: unknown`), 매퍼 `toOfflineSyncWireError`(`driftMs` 올림)·`offlineSyncWireErrors`. 생성 코드 2개 추가 |
 | `serverpod_offline_sync_server` `business/offline_sync.dart` | `initializeOfflineSync(maxClockDrift:)`, `OfflineSyncSession.sync` 에 매퍼 적용, `maxClockDrift` getter |
-| `serverpod_offline_sync_client` `lib/src/sync/failure.dart` (신규) | 앱 분류기 `OfflineSyncFailure.from`·`OfflineSyncFailureReason` |
+| `serverpod_offline_sync_client` `lib/src/sync/failure.dart` (신규) | 앱 분류기 `OfflineSyncFailure.from`·`OfflineSyncFailureReason` (열기 거부 `OpenMethodStreamException` 3종 포함) |
 
 ## 설치
 
@@ -150,7 +151,7 @@ await session.db.initialize();
 
 | 어디서 | 무엇이 막히나 | 기기가 받는 것 | `OfflineSyncFailure.from(e).code` |
 |---|---|---|---|
-| 기기 병합 (K1) | 서버 스탬프가 기기 벽시계보다 C 초과 앞섬 — **기기가 뒤처짐** | `ClockDriftException(remoteAhead)` | `clockDriftBehind` |
+| 기기 병합 (K1) | 서버 스탬프가 기기 벽시계보다 C 초과 앞섬 — **기기가 뒤처짐**, 또는 다른 기기가 서버 노드를 끌어올림(기기는 둘을 구분하지 못함) | `ClockDriftException(remoteAhead)` | `clockDriftBehind` |
 | 서버 병합 (K2) | 기기 스탬프가 서버 벽시계보다 S 초과 앞섬 — **기기가 앞섬** | `OfflineSyncRemoteException(clockDrift)` | `clockDrift` |
 | 서버 로컬 증가 | 서버 노드 시계가 서버 벽시계보다 S 초과 앞섬 — 기기 탓이 아님 | `OfflineSyncRemoteException(serverClockDrift)` | `serverClockDrift` |
 | 기기 로컬 쓰기 (K3) | 기기 벽시계가 마지막 스탬프보다 C 초과 뒤로 감 | `ClockDriftException(localAhead)` (ORM 쓰기에서) | `clockRollback` |
@@ -161,15 +162,43 @@ await session.db.initialize();
   위반을 `OfflineSyncRemoteException` 으로 바꿉니다. **앱 endpoint 는 이 파사드를 써야 합니다** — 엔진
   (`session.db.offlineSyncDb.sync`)을 직접 부르면 타입이 다시 사라집니다. 스키마 해시 불일치는 매핑하지
   않습니다. 각 피어가 상대 해시를 직접 검증해 이미 타입 있는 예외를 받고, 방향 판정은 앱 몫입니다.
-- **C ≥ S**: 서버는 모든 space 가 **노드 하나를 공유**합니다(`managers/space.dart`). S 이내로 앞선 기기 한 대가
-  서버 노드를 끌어올리면, 그 뒤 서버가 쓰는 스탬프도 앞서 나갑니다. 기기 한도 C 가 S 보다 작으면 시계가 정확한
-  다른 기기도 K1 로 멈춥니다(unibook#13202 ⓒ 와 같은 구조). 한도가 1분에서 1시간이 되면서 이 창도 60배
-  넓어졌습니다 — 서버 작성 쓰기(백필 등)가 그 창 안에서 미래 스탬프를 받아 LWW 에서 이길 수 있습니다.
+- **C ≥ S + 기기의 예상 지연**: 서버는 모든 space 가 **노드 하나를 공유**합니다(`managers/space.dart`). S 이내로
+  앞선 기기 한 대가 서버 노드를 서버 벽시계 + S 까지 끌어올리면, 그 뒤 서버가 쓰는 스탬프도 그만큼 앞섭니다.
+  서버보다 δ 만큼 뒤처진 기기는 그 스탬프를 S + δ 앞선 것으로 보므로, C 가 S + δ 보다 작으면 K1 로 멈춥니다
+  (unibook#13202 ⓒ 와 같은 구조). ⚠️ **기본값 C = S = 1시간은 이 규칙을 δ = 0 에서만 만족합니다** — 서버보다
+  조금이라도 느린 기기는 서버 노드가 한도 끝까지 끌려간 동안 멈출 수 있습니다. 여유를 두려면 서버 S 를 기기 C
+  보다 예상 지연만큼 작게 잡으세요(예: S 30분, C 1시간). C < S 이면 시계가 정확한 기기도 멈춥니다. 한도가 1분에서
+  1시간이 되면서 이 창도 60배 넓어졌습니다 — 서버 작성 쓰기(백필 등)가 그 창 안에서 미래 스탬프를 받아 LWW 에서
+  이길 수 있습니다.
+- **위조 노드 id**: 피어는 아무 노드 id 로나 변경을 보낼 수 있습니다. 업스트림 병합은 배치의 최대 HLC 하나만 검사하고,
+  그것이 자기 노드 id 면 검사 없이 채택했습니다 — 서버 노드 id 로 +3시간 행 하나를 끼우면 같은 배치의 다른 행도
+  검사를 건너뛰고 서버 노드가 한도 없이 끌려갔습니다. 포크는 다른 노드 최대값을 먼저 `merge` 로 검사하고, 자기
+  노드 스탬프도 `adoptOwn` 으로 같은 한도 안에서만 받습니다. 그래서 "기기 한 대가 서버 노드를 끌어올릴 수 있는
+  폭은 S 까지" 가 성립하고, `serverClockDrift` 가 기기 탓이 아니라는 분류도 이것에 기댑니다.
+- **한도를 낮출 때**: 노드의 마지막 스탬프(`crdt_nodes.lastHlc`)는 영속됩니다. 노드 시계가 큰 한도 아래서 이미
+  벽시계보다 앞선 상태에서 한도를 낮춰 재시작하면, 벽시계가 따라잡을 때까지(최대 옛 한도만큼) 그 노드의 **모든 로컬
+  CRDT 쓰기**가 `localAhead` 로 실패합니다. 서버는 노드 하나를 공유하므로 **전 사용자의 동기화 테이블 쓰기**가
+  막히고, 서버 스탬프가 필요한 동기화는 기기에 `serverClockDrift` 로 갑니다. 낮추기 전에 현재 노드의 `lastHlc`
+  가 벽시계보다 새 한도 이상 앞서 있지 않은지 확인하거나, 단계적으로 낮추세요.
+- **카운터 오버플로 노출**: 노드 시계가 벽시계보다 앞서 있는 동안에는 스탬프마다 시각은 그대로이고 카운터만
+  오릅니다(`Hlc.increment`). 카운터 상한은 `0xFFFF`(65,535)이고, update 는 **행 × 바뀐 필드마다** 스탬프를
+  찍습니다. 앞서 있을 수 있는 시간이 1분에서 1시간이 되면서 이 노출도 60배 커졌습니다 — 서버 대량 쓰기(백필 등)나
+  쓰기가 많은 기기가 끌려간 창 안에서 `OverflowException`(`hlcOverflow`)을 낼 수 있고, 벽시계가 따라잡을 때까지
+  계속됩니다. 대량 쓰기 전에 서버 노드가 앞서 있지 않은지 확인하세요.
 - **K3 는 업스트림대로 유지**합니다. 기기 시계를 한도보다 크게 되돌리면 그 시간만큼 모든 로컬 쓰기가 실패합니다
   (`co_offline_sync` 의 `now()` 에는 없던 실패 모드입니다).
 - **분류기**: `OfflineSyncFailure.from(error)` 가 `code`·`isPermanent`·`isClockDrift` 를 줍니다. `isClockDrift` 는
   기기 시계 확인 안내 대상(`clockDrift`·`clockDriftBehind`·`clockRollback`)이고, `serverClockDrift` 는 포함하지
-  않습니다. `schemaMismatch` 는 방향을 판정하지 않으므로 영구로 분류하지 않습니다.
+  않습니다. `schemaMismatch` 는 방향을 판정하지 않으므로 영구로 분류하지 않습니다. 스트림 **열기 거부**
+  (`OpenMethodStreamException`)는 네트워크 끊김이 아닙니다 — `authenticationFailed`(토큰 갱신 1회 뒤에도 인증 실패)·
+  `authorizationDeclined`·`incompatibleEndpoint`(`endpointNotFound`·`invalidArguments`)로 나누고 영구로 봅니다.
+  그 밖의 `MethodStreamException` 만 `transport` 입니다.
+- **와이어 계약 — `unknown`**: `OfflineSyncFailureCode` 는 모르는 코드를 `unknown` 으로 풉니다(`default: unknown`).
+  던지게 두면 서버가 나중에 코드를 더했을 때 구버전 앱에서 `UnknownMessageException` 이 나고, Serverpod 클라이언트가
+  **WebSocket 연결 전체**(그 위의 모든 메서드 스트림)를 닫습니다. 이 기본값과 `unknown` 값은 지우지 마세요.
+  서버는 `unknown` 을 보내지 않습니다.
+- **`driftMs` 는 올림**: `merge` 는 벽시계를 마이크로초로 비교하므로 한도를 1ms 미만 넘긴 거부가 있습니다.
+  `driftMs` 는 올리고 `maxDriftMs` 는 내려서, 거부된 경우 항상 `driftMs > maxDriftMs` 입니다.
 - **후속 후보 (하지 않음)**: 병합의 시계 검사는 `mergeChanges` 끝(`_updateHlcFromIncomingOperations`)에 있어서
   거부될 배치도 모든 행을 쓴 뒤 롤백합니다. 앞단 사전 검사로 옮기면 낭비가 줄지만, 관찰 결과가 같고 업스트림과의
   차이가 늘어 이번에는 하지 않았습니다.
