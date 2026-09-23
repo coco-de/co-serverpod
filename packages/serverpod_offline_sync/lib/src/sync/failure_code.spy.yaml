@@ -1,0 +1,27 @@
+### Why a sync peer stopped a round, carried to the other peer inside an
+### [OfflineSyncRemoteException].
+###
+### Only failures whose type Serverpod would otherwise lose on the wire are
+### listed. A schema hash mismatch is not: each peer verifies the other's hash
+### itself and already gets a typed exception. New values break exhaustive
+### switches in consumers, so add them deliberately.
+enum: OfflineSyncFailureCode
+serialized: byName
+values:
+  ### The server rejected a device timestamp that is further ahead of the
+  ### server clock than its maxClockDrift: the device clock is ahead. Same
+  ### meaning as co_sync's `clock_drift`.
+  - clockDrift
+  ### The server could not issue its own timestamp because its node clock is
+  ### further ahead of the server wall clock than its maxClockDrift. The shared
+  ### server node was pulled ahead, or the server clock went back. Not the
+  ### device's fault.
+  - serverClockDrift
+  ### The server's timestamp counter overflowed while its node clock stayed
+  ### ahead of the wall clock.
+  - hlcOverflow
+  ### Two nodes share one node id.
+  - duplicateNode
+  ### The server observed a terminal CRDT integrity violation, such as a write
+  ### to a space the user may only read.
+  - integrityViolation
