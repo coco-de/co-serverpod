@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:clock/clock.dart';
+import 'package:meta/meta.dart' show visibleForTesting;
 import 'package:serverpod_database/serverpod_database.dart';
 import 'package:uuid/uuid.dart';
 
@@ -610,23 +611,89 @@ class OfflineSyncEngine {
     final tableNames = _syncTablesByName.keys.toSet();
     if (tableNames.isEmpty) return 0;
 
-    // Read the checkpoints first: a checkpoint that advances after this read
-    // leaves the count high, never low.
+    // Read the checkpoints before the rows and again after them. One that
+    // advanced meanwhile leaves the count high. One that went back (the
+    // handshake of a server that lost data replaces it) would leave it low, so
+    // the count runs again from the checkpoints read after.
+    var confirmed = await _ownCheckpoints(session, localNodeId);
+    for (var attempt = 1; ; attempt++) {
+      await debugOnUnsentRowCheckpointsRead?.call();
+      final count = await _countOwnRowsAfter(
+        session,
+        localNodeId: localNodeId,
+        tableNames: tableNames,
+        confirmedBySpaceId: confirmed,
+      );
+      final current = await _ownCheckpoints(session, localNodeId);
+      if (!_anyCheckpointWentBack(confirmed, current)) return count;
+      if (attempt == _unsentRowCountAttempts) {
+        // They keep going back: every row of this node is an upper bound.
+        return _countOwnRowsAfter(
+          session,
+          localNodeId: localNodeId,
+          tableNames: tableNames,
+          confirmedBySpaceId: const {},
+        );
+      }
+      confirmed = current;
+    }
+  }
+
+  /// How many times [countUnsentRows] counts before it falls back to counting
+  /// every row of the node.
+  static const _unsentRowCountAttempts = 3;
+
+  /// Called by [countUnsentRows] after it reads the checkpoints and before it
+  /// reads the rows, in every attempt.
+  ///
+  /// Fork (unibook#14183): lets a test commit a checkpoint change in between.
+  @visibleForTesting
+  static Future<void> Function()? debugOnUnsentRowCheckpointsRead;
+
+  /// The checkpoint recorded for [localNodeId] per space id, with the node id
+  /// normalized to [localNodeId]. A space without one is absent.
+  Future<Map<int, Hlc>> _ownCheckpoints(
+    DatabaseSession session,
+    UuidValue localNodeId,
+  ) async {
     final ownSpaceNodes = await OfflineSyncSpaceNode.db.find(
       session,
       where: (t) => t.node.uuidNodeId.equals(localNodeId),
     );
-    final confirmedBySpaceId = {
+    return {
       for (final spaceNode in ownSpaceNodes)
-        spaceNode.spaceId: ?spaceNode.lastReceivedHlc,
+        if (spaceNode.lastReceivedHlc case final confirmed?)
+          spaceNode.spaceId: Hlc(
+            confirmed.datetime,
+            confirmed.counter,
+            localNodeId,
+          ),
     };
+  }
+
+  /// Whether a checkpoint in [before] is lower or missing in [after].
+  static bool _anyCheckpointWentBack(
+    Map<int, Hlc> before,
+    Map<int, Hlc> after,
+  ) {
+    for (final MapEntry(key: spaceId, value: checkpoint) in before.entries) {
+      final now = after[spaceId];
+      if (now == null || now < checkpoint) return true;
+    }
+    return false;
+  }
+
+  /// Counts the rows holding a change of [localNodeId] after its checkpoint in
+  /// [confirmedBySpaceId], every row of the node in a space without one.
+  Future<int> _countOwnRowsAfter(
+    DatabaseSession session, {
+    required UuidValue localNodeId,
+    required Set<String> tableNames,
+    required Map<int, Hlc> confirmedBySpaceId,
+  }) async {
     final spaces = await OfflineSyncSpace.db.find(session);
     final checkpointsBySpaceId = {
-      for (final space in spaces)
-        space.id!: [
-          if (confirmedBySpaceId[space.id!] case final confirmed?)
-            Hlc(confirmed.datetime, confirmed.counter, localNodeId),
-        ],
+      for (final space in spaces) space.id!: [?confirmedBySpaceId[space.id!]],
     };
     if (checkpointsBySpaceId.isEmpty) return 0;
 

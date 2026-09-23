@@ -234,7 +234,8 @@ void main() {
       expect(
         CrdtMutationRecorder.debugProjectionRebuildCount - opening,
         greaterThan(0),
-        reason: 'the fixture must have a changed registry, else this is vacuous',
+        reason:
+            'the fixture must have a changed registry, else this is vacuous',
       );
       await Note.db.insertRow(device, Note(title: 'a'));
       final tracker = trackerOf(peerOf(server), device, watchUnsentRows: false);
@@ -248,6 +249,49 @@ void main() {
       expect(CrdtMutationRecorder.debugProjectionRebuildCount - idle, 0);
       expect(tracker.status.unsentRowCount, 0);
     });
+  });
+
+  group('Given a checkpoint that goes back while the count runs,', () {
+    tearDown(() => OfflineSyncEngine.debugOnUnsentRowCheckpointsRead = null);
+
+    // The handshake of a server that lost the data replaces the checkpoint
+    // with a lower one. Committed between the count's checkpoint and row
+    // reads, it must not leave the count at the old, higher checkpoint.
+    test(
+      'should_count_again_from_the_lowered_checkpoint_instead_of_counting_low',
+      () async {
+        final userId = const Uuid().v7obj();
+        final server = await openReplica(userId);
+        final device = await openReplica(userId);
+        final deviceNodeId = await device.db.currentNodeId();
+        await Note.db.insertRow(device, Note(title: 'a'));
+        await Note.db.insertRow(device, Note(title: 'b'));
+        await peerOf(server).syncOnce(device);
+        expect(await device.db.unsentRowCount(), 0);
+
+        var reads = 0;
+        OfflineSyncEngine.debugOnUnsentRowCheckpointsRead = () async {
+          if (reads++ > 0) return;
+          final own = await OfflineSyncSpaceNode.db.find(
+            device,
+            where: (t) => t.node.uuidNodeId.equals(deviceNodeId),
+          );
+          expect(own.map((spaceNode) => spaceNode.lastReceivedHlc), [
+            isNotNull,
+          ]);
+          for (final spaceNode in own) {
+            await OfflineSyncSpaceNode.db.updateRow(
+              device,
+              spaceNode.copyWith(lastReceivedHlc: null),
+              columns: (t) => [t.lastReceivedHlc],
+            );
+          }
+        };
+
+        expect(await device.db.unsentRowCount(), 2);
+        expect(reads, 2, reason: 'the second attempt reads the lowered one');
+      },
+    );
   });
 
   group('Given a round that fails,', () {

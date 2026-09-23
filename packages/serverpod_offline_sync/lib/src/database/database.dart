@@ -206,8 +206,11 @@ class OfflineSyncDatabase implements Database {
   /// no end the server confirms. Rows this node wrote in a space the server no
   /// longer syncs with this user keep counting, since nothing will send them.
   ///
-  /// The checkpoints are read before the rows, so a sync that commits while the
-  /// count runs can make it high, never low.
+  /// The checkpoints are read before the rows and again after them. When one
+  /// went back in between (a server that lost data), the count runs again from
+  /// the lower ones. So a sync that commits while the count runs can make it
+  /// high, never low. Local writes that commit while it runs may or may not
+  /// count: recount after them.
   Future<int> unsentRowCount() async {
     await _ensureInitialized();
     return _sync.countUnsentRows(
