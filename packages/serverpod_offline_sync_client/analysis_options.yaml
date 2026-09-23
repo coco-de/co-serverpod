@@ -1,4 +1,4 @@
-include: ../../analysis_options.yaml
+include: ../serverpod_offline_sync/analysis_options.upstream.yaml
 
 # analyzer:
 #   exclude:

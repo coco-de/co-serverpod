@@ -1,17 +1,20 @@
 name: serverpod_offline_sync_client
-version: 0.0.8
-description: Client transport adapter for the Serverpod Offline Sync project.
+version: 0.0.8+co.1
+description: >-
+  co-serverpod fork of the Serverpod Offline Sync client transport adapter,
+  built for Serverpod 4.1.
 homepage: https://github.com/marcelomendoncasoares/serverpod_offline_sync
+repository: https://github.com/coco-de/co-serverpod
+publish_to: none
 
 environment:
   sdk: '^3.12.2'
 
-resolution: workspace
-
 dependencies:
-  serverpod_client: 4.0.0
-  serverpod_database: 4.0.0
-  serverpod_offline_sync: 0.0.8
+  serverpod_client: ^4.1.0-beta.1
+  serverpod_database: ^4.1.0-beta.1
+  serverpod_offline_sync:
+    path: ../serverpod_offline_sync
 
 dev_dependencies:
   lints: '>=3.0.0 <7.0.0'

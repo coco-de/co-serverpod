@@ -5,6 +5,8 @@
 import 'dart:async';
 
 import 'package:serverpod_database/serverpod_database.dart';
+import 'package:serverpod_serialization/serverpod_serialization.dart'
+    show SerializationManager;
 import 'package:uuid/uuid.dart';
 
 import '../crdt/extensions.dart';
@@ -247,6 +249,103 @@ class OfflineSyncDatabase implements Database {
       lockBehavior: lockBehavior,
     );
     return _stripSpaceIdFromSpaceScopedRead(result, include, transaction);
+  }
+
+  /// CRDT tables whose writes change a visibility-filtered read without touching
+  /// the queried domain table: deletes, restores and conflict projections only
+  /// rewrite [CrdtDataRow] visibility, and space membership decides which spaces
+  /// a read covers.
+  static final List<Table> _watchVisibilityTables = [
+    CrdtDataRow.t,
+    OfflineSyncSpace.t,
+    OfflineSyncSpaceMember.t,
+  ];
+
+  /// Emits the visible rows matching the query, then re-emits them whenever a
+  /// committed write can change the result, as if [find] was re-run.
+  ///
+  /// Re-queries are triggered by writes to the queried table, to the tables
+  /// referenced by [where], [orderBy], [orderByList] and [include], to
+  /// [alsoTriggerOnTables], and to the CRDT visibility tables. The latter are
+  /// required because a delete or a merged tombstone only writes CRDT metadata,
+  /// never the domain row, and the visibility predicate is raw SQL that the
+  /// delegate's dependency detection does not inspect.
+  ///
+  /// Every emission runs [find], so the tombstone and space predicates are
+  /// rebuilt against the current membership instead of being frozen when the
+  /// stream is created. Since every synced write touches the shared CRDT tables,
+  /// a result that serializes identically to the previous emission is skipped.
+  ///
+  /// Only supported on SQLite. The delegate throws [UnsupportedError] otherwise.
+  @override
+  Stream<List<T>> watch<T extends TableRow>({
+    Expression? where,
+    int? limit,
+    int? offset,
+    Column? orderBy,
+    List<Column>? orderByList,
+    Include? include,
+    Duration? throttle = const Duration(milliseconds: 30),
+    Iterable<Table>? alsoTriggerOnTables,
+  }) {
+    final table = serializationManager.getTableForType(T);
+    if (table == null) {
+      throw ArgumentError.value(T, 'T', 'is not a database table type');
+    }
+    final triggerTables = _watchTriggerTables(
+      table,
+      where: where,
+      orderBy: orderBy,
+      orderByList: orderByList,
+      include: include,
+      extraTables: [...?alsoTriggerOnTables, ..._watchVisibilityTables],
+    );
+    final restoreIncludeWheres = _captureIncludeWheres(include);
+    String? lastEmitted;
+
+    // The delegate only provides the commit signal; the CRDT-aware read below
+    // is what rebuilds the visibility predicates on every change.
+    return _delegate
+        .unsafeWatch('SELECT 1', triggerOnTables: triggerTables, throttle: throttle)
+        .asyncMap((_) {
+          // find() ANDs the visibility predicate into IncludeList.where in place,
+          // so the caller's predicates are restored before every re-run.
+          for (final restore in restoreIncludeWheres) {
+            restore();
+          }
+          return find<T>(
+            where: where,
+            // SQLite requires a LIMIT before an OFFSET, and -1 means no cap.
+            limit: offset != null ? (limit ?? -1) : limit,
+            offset: offset,
+            orderBy: orderBy,
+            orderByList: orderByList,
+            include: include,
+          );
+        })
+        .where((rows) {
+          final encoded = SerializationManager.encode(rows);
+          if (encoded == lastEmitted) return false;
+          lastEmitted = encoded;
+          return true;
+        });
+  }
+
+  /// Raw SQL is not CRDT-filtered, same as [unsafeQuery], so this forwards to
+  /// the delegate unchanged.
+  @override
+  Stream<DatabaseResult> unsafeWatch(
+    String query, {
+    QueryParameters? parameters,
+    Duration? throttle = const Duration(milliseconds: 30),
+    Iterable<String>? triggerOnTables,
+  }) {
+    return _delegate.unsafeWatch(
+      query,
+      parameters: parameters,
+      throttle: throttle,
+      triggerOnTables: triggerOnTables,
+    );
   }
 
   @override
@@ -1133,4 +1232,81 @@ class OfflineSyncDatabase implements Database {
 
   @override
   Future<bool> testConnection() => _delegate.testConnection();
+}
+
+/// Collects the tables a typed watch reads: the queried [table], every table
+/// referenced by [where], [orderBy], [orderByList] and the [include] graph
+/// (relation hops included), plus [extraTables].
+///
+/// Mirrors the collection Serverpod runs for its own watches, which it does not
+/// export.
+Set<String> _watchTriggerTables(
+  Table table, {
+  Expression? where,
+  Column? orderBy,
+  List<Column>? orderByList,
+  Include? include,
+  Iterable<Table> extraTables = const [],
+}) {
+  final tables = <String>{};
+
+  void addTable(Table table) {
+    tables.add(table.unqualifiedTableName);
+    final hops = table.tableRelation?.getRelations;
+    if (hops == null) return;
+    for (final hop in hops) {
+      tables
+        ..add(hop.fieldTable.unqualifiedTableName)
+        ..add(hop.foreignTable.unqualifiedTableName);
+    }
+  }
+
+  void addColumn(Column? column) {
+    if (column == null) return;
+    if (column is Order) {
+      addColumn(column.column);
+      return;
+    }
+    addTable(column.table);
+    if (column is ColumnCount) column.innerWhere?.columns.forEach(addColumn);
+  }
+
+  void addInclude(Include? include) {
+    if (include == null) return;
+    addTable(include.table);
+    if (include is IncludeList) {
+      include.where?.columns.forEach(addColumn);
+      addColumn(include.orderBy);
+      include.orderByList?.forEach(addColumn);
+      addInclude(include.include);
+    }
+    include.includes.values.forEach(addInclude);
+  }
+
+  addTable(table);
+  where?.columns.forEach(addColumn);
+  addColumn(orderBy);
+  orderByList?.forEach(addColumn);
+  addInclude(include);
+  extraTables.forEach(addTable);
+  return tables;
+}
+
+/// Snapshots every [IncludeList.where] in [include] and returns callbacks that
+/// restore them.
+List<void Function()> _captureIncludeWheres(Include? include) {
+  final restorers = <void Function()>[];
+
+  void capture(Include? include) {
+    if (include == null) return;
+    if (include is IncludeList) {
+      final original = include.where;
+      restorers.add(() => include.where = original);
+      capture(include.include);
+    }
+    include.includes.values.forEach(capture);
+  }
+
+  capture(include);
+  return restorers;
 }
