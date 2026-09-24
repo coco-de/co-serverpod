@@ -65,7 +65,7 @@ drift의 `watch()`처럼 로컬 쓰기와 동기화 병합을 화면에 자동�
 | `serverpod_offline_sync_client` `lib/offline_sync.dart`·`lib/serverpod_offline_sync_client.dart` (배럴) | `src/sync/failure.dart`·`src/sync/sync_status.dart` export 추가 — 공개 API 가 늘어남 |
 | `lib/src/sync/connect.spy.yaml`·`lib/src/generated/sync/connect.dart`·`generated/sync/stream_event.dart` | 연속 동기화 간격의 세션별 요청(unibook#14207): 핸드셰이크 `OfflineSyncConnect` 에 nullable `continuousSyncInterval` 1필드 — **와이어 추가**. 구버전 피어는 보내지 않고 받으면 무시한다(생성 `fromJson` 은 아는 키만 읽음). 재생성 산출물은 `connect.dart` 와, nullable `copyWith` 용 `_Undefined` 를 둔 `stream_event.dart`(같은 library 의 `part` 부모) |
 | `lib/src/sync/engine.dart` (세션별 간격) | `sync(continuousSyncInterval:)`: 연속 세션만 자기 요청을 Connect 에 싣고(`once` 는 `null`), 상대 Connect 를 받은 뒤 `resolveContinuousSyncInterval`(`@visibleForTesting`, 두 요청 중 느린 쪽을 설정 간격 ~ `maxContinuousSyncInterval` 로 자름)을 **한 번** 계산해 루프 말미 대기에 쓴다 — 루프 변경은 대기 값 한 줄. 생성자 `maxContinuousSyncInterval`(기본 `defaultMaxContinuousSyncInterval` 30초, 설정 간격이 더 길면 그 간격 · 설정 간격 미만은 `ArgumentError` — `resolveMaxContinuousSyncInterval`), getter `continuousSyncInterval`·`maxContinuousSyncInterval`, `wrapDatabase` 전달 |
-| `lib/src/database/database.dart` (세션별 간격) | `OfflineSyncDatabase(maxContinuousSyncInterval:)`(생성 시 검증), `sync(continuousSyncInterval:)` 를 엔진에 전달. `OfflineSyncDatabaseSession` 에는 상한 인자를 더하지 않음(기기 상한은 기본값) |
+| `lib/src/database/database.dart`·`session.dart` (세션별 간격) | `OfflineSyncDatabase(maxContinuousSyncInterval:)`(생성 시 검증), `sync(continuousSyncInterval:)` 를 엔진에 전달. `OfflineSyncDatabaseSession(...)`·`.wraps(...)` 도 `maxContinuousSyncInterval` 을 받아 전달한다(이미 감싼 db 면 `continuousSyncInterval` 처럼 무시). 생성 `createSyncSession` 은 둘 다 전달하지 않음 |
 | `lib/src/sync/client_sync.dart` | `OfflineSyncClient.syncContinuously(continuousSyncInterval:)` 를 기기 엔진까지 전달. `syncOnce` 에는 인자가 없다. `OfflineSyncTransport`·모듈 endpoint·생성 클라이언트는 **무변경** |
 | **포크 전용 테스트** (업스트림에 없음) | 엔진 `test/hlc/hlc_max_drift_test.dart`·`test/managers/hlc_manager_test.dart`·`test/sync/failure_mapping_test.dart`·`test/sync/max_clock_drift_config_test.dart`·`test/database/unsent_row_count_test.dart`·`test/sync/continuous_sync_interval_policy_test.dart`, 클라이언트 `test/failure_test.dart`·`test/sync_status_test.dart`, 서버 모듈 `test/integration/failure_mapping_test.dart`·`test/integration/continuous_sync_interval_test.dart`. 업스트림을 새로 풀면 **지워진다** — [업스트림 따라가기](#업스트림-따라가기) 1단계 |
 
@@ -324,7 +324,7 @@ final unsent = await tracker.countUnsentRows();
 | 간격 | 정하는 곳 | 좌우하는 것 |
 |---|---|---|
 | 서버 | `initializeOfflineSync(continuousSyncInterval:)` — **서버 전체에 하나**, 세션 요청의 하한 | 서버가 자기 쪽 변경(다른 기기가 올린 쓰기 포함)을 모아 이 기기로 보내는 주기. 기기가 보낼 것이 없으면 서버는 유휴 타임아웃 1초를 기다린 뒤 이 간격만큼 쉬고 다시 모읍니다(대략 1초 + 간격) |
-| 기기 | `OfflineSyncDatabaseSession.wraps(continuousSyncInterval:)` | 기기가 로컬 쓰기를 모아 보내는 주기와, 받아 둔 서버 배치를 적용하는 주기 |
+| 기기 | `OfflineSyncDatabaseSession.wraps(continuousSyncInterval:)` (상한은 `maxContinuousSyncInterval:`) | 기기가 로컬 쓰기를 모아 보내는 주기와, 받아 둔 서버 배치를 적용하는 주기 |
 
 ⚠️ 기기 간격을 줄여도 **서버가 보내는 주기는 그대로입니다**. 보낼 것이 없는 기기는 배치 끝을 보내지 않아서, 서버는
 여전히 유휴 타임아웃과 자기 간격을 기다립니다. 내려오는 쪽 지연은 서버 주기와 기기 주기를 둘 다 거칩니다. 세션마다
@@ -383,7 +383,7 @@ yield* session.offlineSync.sync(
 | 요청 없음 | 설정 간격 그대로 — 필드 이전과 같은 동작 |
 | `once` | 요청을 싣지도 상대 요청을 쓰지도 않습니다(회차 대기가 없다). `syncOnce` 에는 인자가 없습니다 |
 | 구버전 피어 | 필드를 보내지 않고(= 요청 없음) 받으면 무시합니다. **새 기기 + 구 서버면 요청이 조용히 무시**되고 서버는 설정 간격으로 돕니다 — 서버를 먼저 배포하세요 |
-| 비대칭 | 각 피어는 **자기** 하한·상한으로 자릅니다. 기기 상한(`OfflineSyncDatabaseSession` 은 기본 30초)과 서버 상한이 다르면 두 피어의 실제 간격이 다를 수 있습니다. 서로의 확정값을 알리는 프레임은 없습니다 |
+| 비대칭 | 각 피어는 **자기** 하한·상한으로 자릅니다. 기기 상한(`OfflineSyncDatabaseSession.wraps(maxContinuousSyncInterval:)`, 기본 30초)과 서버 상한이 다르면 두 피어의 실제 간격이 다를 수 있습니다. 서로의 확정값을 알리는 프레임은 없습니다. 짧은 쪽 피어가 먼저 보낸 배치는 상대가 깨어날 때 회차마다 하나씩 읽힙니다 — 유실은 없고 지연만 늘어납니다 |
 
 ⚠️ **요청하지 않은 세션이 가장 빠르게 돕니다.** 하한이 설정 간격이라, 요청하지 않은 세션과 구버전 기기는 서버가
 허용하는 최고 속도로 돕니다. 서버 부하를 줄이려면 설정 간격을 운영 값으로 **명시**하고, 연속 세션은 실시간이 필요한
@@ -394,7 +394,11 @@ yield* session.offlineSync.sync(
 유휴 타임아웃을 타지 않아 간격이 곧 주기입니다.
 
 ⚠️ **간격을 늘리면 끊긴 세션이 더 오래 남습니다.** 대기하는 동안에는 상대를 읽지 않으므로, 기기가 떠나도 서버
-세션은 최대 한 간격 뒤에 끝납니다. 상한이 그 잔존 시간의 상한입니다.
+세션은 최대 한 간격 뒤에 끝나고, 끝나기 전에 회차 한 번(space 재조정·보낼 변경 조회)을 더 돕니다. 상한이 그 잔존
+시간의 상한이고, 재연결이 몰리면 남은 세션 수도 상한에 비례해 늘어납니다. 상한은 앱이 실제로 요청하는 가장 긴 간격으로
+좁혀 **명시**하세요. 대기를 상대 종료와 경합시키면 없앨 수 있지만 하지 않았습니다 — 대기 중 inbound 구독을 재개하면
+1초 유휴 타임아웃 타이머가 다시 돌아, 쌓인 유휴 표식이 다음 회차의 배치 수집을 곧바로 끝내 버립니다. 루프 구조를
+바꾸는 일이라 업스트림 대비 변경을 늘립니다.
 
 **앱에서 쓰는 방식** (unibook#14193 동기화 관리 레이어, ADR §5.4): 기본 경로는 서버 알림(changeStream)을 받아
 `syncOnce` 를 한 번 도는 것이고 간격이 없습니다. 실시간이 필요한 화면만 `syncContinuously(continuousSyncInterval:)`

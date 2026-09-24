@@ -24,6 +24,13 @@ class OfflineSyncDatabaseSession implements DatabaseSession {
     /// Delay between continuous sync rounds.
     Duration continuousSyncInterval = OfflineSyncEngine.defaultContinuousSyncInterval,
 
+    /// The longest delay between continuous sync rounds a session can ask for,
+    /// see [OfflineSyncEngine.resolveMaxContinuousSyncInterval] (fork,
+    /// unibook#14207): a longer request from either peer waits this. Like
+    /// `continuousSyncInterval`, it is ignored when `db` is already an
+    /// [OfflineSyncDatabase].
+    Duration? maxContinuousSyncInterval,
+
     /// The user ID to use for all CRDT operations. This should only be used for
     /// databases operating on the client side, where all data is for the same user.
     /// Otherwise, the user ID must be passed through the transaction.
@@ -47,6 +54,7 @@ class OfflineSyncDatabaseSession implements DatabaseSession {
                context: context,
                syncBatchSize: syncBatchSize,
                continuousSyncInterval: continuousSyncInterval,
+               maxContinuousSyncInterval: maxContinuousSyncInterval,
                persistentUserId: persistentUserId,
                maxClockDrift: maxClockDrift,
              );
@@ -66,6 +74,14 @@ class OfflineSyncDatabaseSession implements DatabaseSession {
 
     /// Delay between continuous sync rounds.
     Duration continuousSyncInterval = OfflineSyncEngine.defaultContinuousSyncInterval,
+
+    /// The longest delay between continuous sync rounds a session can ask for,
+    /// see [OfflineSyncDatabaseSession.new] (fork, unibook#14207).
+    ///
+    /// The generated `createSyncSession` forwards neither this nor
+    /// `continuousSyncInterval`. To set them on a client, open the session
+    /// with this factory instead.
+    Duration? maxContinuousSyncInterval,
 
     /// The user ID to use for all CRDT operations. This should only be used for
     /// databases operating on the client side, where all data is for the same user.
@@ -89,6 +105,7 @@ class OfflineSyncDatabaseSession implements DatabaseSession {
     context: context,
     syncBatchSize: syncBatchSize,
     continuousSyncInterval: continuousSyncInterval,
+    maxContinuousSyncInterval: maxContinuousSyncInterval,
     persistentUserId: persistentUserId,
     maxClockDrift: maxClockDrift,
   ).._wrappedSession = session;

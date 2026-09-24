@@ -15,9 +15,11 @@
     `defaultMaxContinuousSyncInterval` (30 s), or to the configured interval
     when that is longer, so a longer interval configured before keeps
     working. A value below the interval throws `ArgumentError`
-    (`resolveMaxContinuousSyncInterval`). `OfflineSyncDatabase` takes it and
-    checks it on construction; `OfflineSyncDatabaseSession` does not, so a
-    device keeps the default.
+    (`resolveMaxContinuousSyncInterval`). `OfflineSyncDatabase`,
+    `OfflineSyncDatabaseSession` and `OfflineSyncDatabaseSession.wraps` take
+    it and check it on construction; like `continuousSyncInterval` it is
+    ignored when the session is given an already wrapped `OfflineSyncDatabase`.
+    The generated `createSyncSession` forwards neither.
   - Wire: one nullable field on the connect frame, left out when null. A peer
     built before it sends none and ignores one (generated `fromJson` reads
     known keys only), so a new device on an old server gets the server's
@@ -29,13 +31,23 @@
     fastest any request allows. Configure that interval for the load you
     accept; requests cannot make up for a low one.
   - While it waits, a peer does not read the other side, so a session whose
-    device left ends up to one interval later. The maximum bounds that.
+    device left ends up to one interval later, after one more round (space
+    reconcile and the pending-change query). The maximum bounds that, and
+    the number of such sessions after a burst of reconnects grows with it.
+    Racing the wait against the peer closing would remove it but changes the
+    loop: resuming the inbound subscription during the wait restarts the idle
+    timeout, whose marker would then end the next round's batch at once.
   - Adds `OfflineSyncEngine.continuousSyncInterval`,
     `maxContinuousSyncInterval` and `@visibleForTesting
     resolveContinuousSyncInterval`.
-  - Breaking for implementations: a class that implements or overrides
+  - Breaking for implementations: a class that implements
+    `OfflineSyncEngine` must add the getters `continuousSyncInterval` and
+    `maxContinuousSyncInterval` and the method
+    `resolveContinuousSyncInterval`, unless it forwards missing members
+    through `noSuchMethod`. A class that implements or overrides
     `OfflineSyncEngine.sync`, `OfflineSyncDatabase.sync` or
-    `OfflineSyncClient.syncContinuously` must add the parameter.
+    `OfflineSyncClient.syncContinuously` must add the `continuousSyncInterval`
+    parameter; `noSuchMethod` does not cover a declared override.
 
 - feat!: A server gives every space its own CRDT node (unibook#14218).
   Upstream shared one node across all spaces of a database. On a server that

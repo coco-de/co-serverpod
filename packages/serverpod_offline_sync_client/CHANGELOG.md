@@ -2,7 +2,9 @@
 
 - feat: `OfflineSyncStatusTracker.syncContinuously(continuousSyncInterval:)`
   forwards the request to `OfflineSyncClient.syncContinuously`
-  (unibook#14207).
+  (unibook#14207). Breaking for implementations: a class that implements or
+  overrides `OfflineSyncStatusTracker.syncContinuously` must add the
+  parameter.
 
 - docs: `OfflineSyncFailureReason.clockDriftBehind` lists its causes with a
   server node per space (unibook#14218): this device is behind, another device

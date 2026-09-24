@@ -8,7 +8,9 @@
   startup). The device asks in its connect frame, so the module endpoint
   `offlineSync.sync` is unchanged. `OfflineSyncSession.sync` takes
   `continuousSyncInterval` too, for an app endpoint to slow a session down on
-  top of the device's request: the slower one wins.
+  top of the device's request: the slower one wins. Breaking for
+  implementations: a class that implements or overrides
+  `OfflineSyncSession.sync` must add the parameter.
 
 - docs: `initializeOfflineSync(maxClockDrift:)` describes the server node per
   space (unibook#14218): one device's pull reaches only its own space, and
