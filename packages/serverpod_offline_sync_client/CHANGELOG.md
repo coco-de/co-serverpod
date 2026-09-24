@@ -1,5 +1,9 @@
 ## Unreleased (co-serverpod fork)
 
+- feat: `OfflineSyncStatusTracker.syncContinuously(continuousSyncInterval:)`
+  forwards the request to `OfflineSyncClient.syncContinuously`
+  (unibook#14207).
+
 - docs: `OfflineSyncFailureReason.clockDriftBehind` lists its causes with a
   server node per space (unibook#14218): this device is behind, another device
   of the same account pulled the space's server clock ahead, or rarely server

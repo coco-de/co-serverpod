@@ -27,8 +27,9 @@ drift의 `watch()`처럼 로컬 쓰기와 동기화 병합을 화면에 자동�
 - 앱이 의존하는 **포크 전용 API·동작**이 늘었습니다(업스트림에 없음). 시계 오차 허용치 설정(`maxClockDrift`,
   unibook#14182), 와이어 실패 코드와 분류기(`OfflineSyncRemoteException`·`offlineSyncWireErrors`·
   `OfflineSyncFailure`, unibook#14182), 동기화 상태와 미전송 건수(`OfflineSyncStatusTracker`·
-  `unsentRowCount`·`watchUnsentRowCount`, 그 근거인 기기의 서버 확인 체크포인트 기록, unibook#14183)입니다.
-  목록은 [변경점 표](#업스트림-기준과-변경점)가 정본입니다.
+  `unsentRowCount`·`watchUnsentRowCount`, 그 근거인 기기의 서버 확인 체크포인트 기록, unibook#14183), 연속 동기화
+  간격의 세션별 요청(`syncContinuously(continuousSyncInterval:)`·`OfflineSyncConnect.continuousSyncInterval`·
+  `maxContinuousSyncInterval`, unibook#14207)입니다. 목록은 [변경점 표](#업스트림-기준과-변경점)가 정본입니다.
 
 그래서 업스트림이 Serverpod 4.1과 watch를 지원하는 것만으로는 이 포크를 지울 수 없습니다. 위 포크 전용 API·동작의
 대응물이 업스트림에 생기거나 업스트림에 넣은 뒤에 pub 패키지로 돌아갑니다([포크 제거](#포크-제거)).
@@ -51,18 +52,22 @@ drift의 `watch()`처럼 로컬 쓰기와 동기화 병합을 화면에 자동�
 | `lib/src/managers/hlc.dart` | `HlcManager.forSpace(maxDrift:)` — `increment`·`peekNext`·`merge`·`adoptOwn` 에 같은 값 전달 |
 | `lib/src/database/merge.dart` | `_updateHlcFromIncomingOperations`: 배치 최대값 하나만 보던 것을 다른 노드 최대값 `merge` → 자기 노드 최대값 `adoptOwn` 순서로 나눔. 업스트림은 최대값이 자기 노드 id 면 검사 없이 채택했다 ([위조 노드 id](#시계-오차-허용치와-동기화-실패-분류)) |
 | `lib/src/database/recorder.dart`·`merge_utils/recorder_context.dart` | `OfflineSyncDatabaseContext.maxClockDrift`(0 이하 `ArgumentError`)·`resolve`, `hlcManagerFor` 가 그 값을 전달 |
-| `lib/src/database/database.dart`·`session.dart`·`lib/src/sync/engine.dart` | `maxClockDrift` named 인자(공유 context 와 다르면 `ArgumentError`)와 getter. 동기화 루프·프로토콜은 무변경 |
+| `lib/src/database/database.dart`·`session.dart`·`lib/src/sync/engine.dart` | `maxClockDrift` named 인자(공유 context 와 다르면 `ArgumentError`)와 getter. 이 항목은 동기화 루프·프로토콜을 바꾸지 않음 |
 | `lib/src/sync/engine.dart`·`space_state.dart` | 미전송 건수의 근거(unibook#14183): 기기(follower)가 서버 핸드셰이크의 자기 노드 체크포인트로 (space, 자기 노드) `offline_sync_space_nodes.lastReceivedHlc` 를 **덮어쓰고**(A), `once` 세션에서 서버 `OfflineSyncClose` 를 받은 뒤에만 보낸 변경의 최대값을 기록한다(B). 동기화 루프에 기기 쪽 DB 쓰기가 늘었고, 와이어 프로토콜·스키마·권위 피어 동작은 무변경. 이 쓰기는 새 `OfflineSyncDatabase` 래퍼가 아니라 plain DB 위의 recorder 로 한다(래퍼의 첫 작업은 레지스트리가 바뀐 프로세스에서 전 space 를 재투영한다). `countUnsentRows`(수집 필터를 자기 노드로 좁힌 3쿼리, 행을 읽은 뒤 체크포인트를 다시 읽어 내려갔으면 다시 셈), 테스트 훅 `@visibleForTesting debugOnUnsentRowCheckpointsRead`, `OfflineSyncSpaceState.checkpointOf`·`handshakenSpaceIds` ([동기화 상태](#동기화-상태와-미전송-건수)) |
 | `lib/src/sync/engine.dart` (`_readPendingChanges`) | 보낼 변경 수집의 **유실 수정**(unibook#14183): 업스트림은 삽입·갱신·삭제 쿼리를 각 스트림이 시작할 때 따로 돌려, 그 사이 커밋된 쓰기를 뒤 쿼리만 봤다. 뒤에 읽힌 갱신이 먼저 놓친 삽입보다 높은 HLC 로 체크포인트를 올려 그 삽입은 다음 세션에도 보내지지 않았다. 세 쿼리를 첫 변경을 내기 전에 **한 스냅샷**(PostgreSQL repeatable read · SQLite 쓰기 잠금 트랜잭션)에서 읽는다. 와이어·스키마 무변경. 테스트 훅 `@visibleForTesting debugOnPendingRowsRead`(삽입과 갱신 조회 사이) |
 | `lib/src/database/database.dart`·`recorder.dart`·`unsent_row_count.dart` (신규, 배럴 미export) | `unsentRowCount`·`watchUnsentRowCount`(파이프라인 `countOnEachTrigger`)·`watchUnsentRowCountTriggers`, `@internal replaceSyncCheckpoint`(단조 증가가 아닌 덮어쓰기), 테스트 훅 `@visibleForTesting CrdtMutationRecorder.debugProjectionRebuildCount` |
 | `lib/src/sync/failure_code.spy.yaml`·`remote_exception.spy.yaml`·`failure_mapping.dart` (신규) | 와이어 예외 `OfflineSyncRemoteException`·`OfflineSyncFailureCode`(`unknown` + `default: unknown`), 매퍼 `toOfflineSyncWireError`(`driftMs` 올림, 무결성 위반은 식별자 없는 고정 문구)·`offlineSyncWireErrors(onMapped:)`. 생성 코드 2개 추가 |
 | `lib/serverpod_offline_sync.dart` (배럴) | `src/sync/failure_mapping.dart` export 추가 — 공개 API 가 늘어남 |
 | `test/hlc/hlc_fixtures.dart`·`hlc_increment_test.dart`·`hlc_merge_test.dart` (업스트림 테스트) | 1분 초과를 거부하던 케이스를 "기본값에서는 통과" 로 바꾸고 거부 경계를 1시간(`Hlc.defaultMaxDrift`)으로 옮김, `kind` 단언 추가, fixture 주석(밀리초 정렬 이유) |
-| `serverpod_offline_sync_server` `business/offline_sync.dart` | `initializeOfflineSync(maxClockDrift:)`, `OfflineSyncSession.sync` 에 매퍼 적용·바꾼 실패의 원본을 세션 로그(`LogLevel.error`)에 기록, `maxClockDrift` getter. `initializeOfflineSync` dartdoc 에 "설정은 한 번에 모두" 경고(unibook#14183, 동작 무변경) |
+| `serverpod_offline_sync_server` `business/offline_sync.dart` | `initializeOfflineSync(maxClockDrift:)`, `OfflineSyncSession.sync` 에 매퍼 적용·바꾼 실패의 원본을 세션 로그(`LogLevel.error`)에 기록, `maxClockDrift` getter. `initializeOfflineSync` dartdoc 에 "설정은 한 번에 모두" 경고(unibook#14183, 동작 무변경). `initializeOfflineSync(maxContinuousSyncInterval:)`·`OfflineSyncSession.sync(continuousSyncInterval:)` — 앱 endpoint 가 세션을 더 느리게만 만드는 손잡이(unibook#14207) |
 | `serverpod_offline_sync_client` `lib/src/sync/failure.dart` (신규) | 앱 분류기 `OfflineSyncFailure.from`·`OfflineSyncFailureReason` (열기 거부 `OpenMethodStreamException` 3종 포함) |
-| `serverpod_offline_sync_client` `lib/src/sync/sync_status.dart` (신규)·`pubspec.yaml` | 상태 API `OfflineSyncStatusTracker`·`OfflineSyncStatus`·`OfflineSyncPhase` (unibook#14183), 테스트용 `@visibleForTesting unsentRowCounter`, `clock`·`meta` 의존 추가 |
+| `serverpod_offline_sync_client` `lib/src/sync/sync_status.dart` (신규)·`pubspec.yaml` | 상태 API `OfflineSyncStatusTracker`·`OfflineSyncStatus`·`OfflineSyncPhase` (unibook#14183), 테스트용 `@visibleForTesting unsentRowCounter`, `clock`·`meta` 의존 추가. `syncContinuously(continuousSyncInterval:)` 위임(unibook#14207) |
 | `serverpod_offline_sync_client` `lib/offline_sync.dart`·`lib/serverpod_offline_sync_client.dart` (배럴) | `src/sync/failure.dart`·`src/sync/sync_status.dart` export 추가 — 공개 API 가 늘어남 |
-| **포크 전용 테스트** (업스트림에 없음) | 엔진 `test/hlc/hlc_max_drift_test.dart`·`test/managers/hlc_manager_test.dart`·`test/sync/failure_mapping_test.dart`·`test/sync/max_clock_drift_config_test.dart`·`test/database/unsent_row_count_test.dart`, 클라이언트 `test/failure_test.dart`·`test/sync_status_test.dart`, 서버 모듈 `test/integration/failure_mapping_test.dart`·`test/integration/continuous_sync_interval_test.dart`. 업스트림을 새로 풀면 **지워진다** — [업스트림 따라가기](#업스트림-따라가기) 1단계 |
+| `lib/src/sync/connect.spy.yaml`·`lib/src/generated/sync/connect.dart`·`generated/sync/stream_event.dart` | 연속 동기화 간격의 세션별 요청(unibook#14207): 핸드셰이크 `OfflineSyncConnect` 에 nullable `continuousSyncInterval` 1필드 — **와이어 추가**. 구버전 피어는 보내지 않고 받으면 무시한다(생성 `fromJson` 은 아는 키만 읽음). 재생성 산출물은 `connect.dart` 와, nullable `copyWith` 용 `_Undefined` 를 둔 `stream_event.dart`(같은 library 의 `part` 부모) |
+| `lib/src/sync/engine.dart` (세션별 간격) | `sync(continuousSyncInterval:)`: 연속 세션만 자기 요청을 Connect 에 싣고(`once` 는 `null`), 상대 Connect 를 받은 뒤 `resolveContinuousSyncInterval`(`@visibleForTesting`, 두 요청 중 느린 쪽을 설정 간격 ~ `maxContinuousSyncInterval` 로 자름)을 **한 번** 계산해 루프 말미 대기에 쓴다 — 루프 변경은 대기 값 한 줄. 생성자 `maxContinuousSyncInterval`(기본 `defaultMaxContinuousSyncInterval` 30초, 설정 간격이 더 길면 그 간격 · 설정 간격 미만은 `ArgumentError` — `resolveMaxContinuousSyncInterval`), getter `continuousSyncInterval`·`maxContinuousSyncInterval`, `wrapDatabase` 전달 |
+| `lib/src/database/database.dart` (세션별 간격) | `OfflineSyncDatabase(maxContinuousSyncInterval:)`(생성 시 검증), `sync(continuousSyncInterval:)` 를 엔진에 전달. `OfflineSyncDatabaseSession` 에는 상한 인자를 더하지 않음(기기 상한은 기본값) |
+| `lib/src/sync/client_sync.dart` | `OfflineSyncClient.syncContinuously(continuousSyncInterval:)` 를 기기 엔진까지 전달. `syncOnce` 에는 인자가 없다. `OfflineSyncTransport`·모듈 endpoint·생성 클라이언트는 **무변경** |
+| **포크 전용 테스트** (업스트림에 없음) | 엔진 `test/hlc/hlc_max_drift_test.dart`·`test/managers/hlc_manager_test.dart`·`test/sync/failure_mapping_test.dart`·`test/sync/max_clock_drift_config_test.dart`·`test/database/unsent_row_count_test.dart`·`test/sync/continuous_sync_interval_policy_test.dart`, 클라이언트 `test/failure_test.dart`·`test/sync_status_test.dart`, 서버 모듈 `test/integration/failure_mapping_test.dart`·`test/integration/continuous_sync_interval_test.dart`. 업스트림을 새로 풀면 **지워진다** — [업스트림 따라가기](#업스트림-따라가기) 1단계 |
 
 ## 설치
 
@@ -318,13 +323,12 @@ final unsent = await tracker.countUnsentRows();
 
 | 간격 | 정하는 곳 | 좌우하는 것 |
 |---|---|---|
-| 서버 | `initializeOfflineSync(continuousSyncInterval:)` — **서버 전체에 하나** | 서버가 자기 쪽 변경(다른 기기가 올린 쓰기 포함)을 모아 이 기기로 보내는 주기. 기기가 보낼 것이 없으면 서버는 유휴 타임아웃 1초를 기다린 뒤 이 간격만큼 쉬고 다시 모읍니다(대략 1초 + 간격) |
+| 서버 | `initializeOfflineSync(continuousSyncInterval:)` — **서버 전체에 하나**, 세션 요청의 하한 | 서버가 자기 쪽 변경(다른 기기가 올린 쓰기 포함)을 모아 이 기기로 보내는 주기. 기기가 보낼 것이 없으면 서버는 유휴 타임아웃 1초를 기다린 뒤 이 간격만큼 쉬고 다시 모읍니다(대략 1초 + 간격) |
 | 기기 | `OfflineSyncDatabaseSession.wraps(continuousSyncInterval:)` | 기기가 로컬 쓰기를 모아 보내는 주기와, 받아 둔 서버 배치를 적용하는 주기 |
 
 ⚠️ 기기 간격을 줄여도 **서버가 보내는 주기는 그대로입니다**. 보낼 것이 없는 기기는 배치 끝을 보내지 않아서, 서버는
-여전히 유휴 타임아웃과 자기 간격을 기다립니다. 내려오는 쪽 지연은 서버 주기와 기기 주기를 둘 다 거칩니다. 화면
-(세션)마다 다른 간격 — ADR §5.4 의 "실시간이 필요한 화면에서만" — 은 이 포크에 **없습니다**. 전역 설정만
-있습니다. 세션별 서버 간격은 unibook#14207 이 추적합니다(클라이언트 동기화 관리 레이어 unibook#14193 의 선행).
+여전히 유휴 타임아웃과 자기 간격을 기다립니다. 내려오는 쪽 지연은 서버 주기와 기기 주기를 둘 다 거칩니다. 세션마다
+다른 간격은 [아래](#세션별-간격)처럼 **요청**합니다.
 
 ⚠️ 생성된 `Serverpod` 생성자가 이미 **기본값으로** `initializeOfflineSync(syncTables: ...)` 를 부릅니다. 값을 바꾸려면
 생성 뒤에 다시 부르되, 호출마다 엔진을 통째로 교체하므로 **모든 설정을 한 번에** 넘기세요 — 간격만 넘기면
@@ -339,7 +343,63 @@ pod.initializeOfflineSync(
 );
 ```
 
-간격은 서버 전체에 하나입니다. 줄이면 모든 사용자의 모든 연속 세션이 더 자주 모읍니다.
+설정 간격은 서버 전체에 하나이고, 간격을 요청하지 않은 세션은 모두 이 간격으로 돕니다. 줄이면 모든 사용자의
+그런 연속 세션이 더 자주 모읍니다.
+
+#### 세션별 간격
+
+연속 세션은 자기 회차 간격을 **요청**할 수 있습니다(unibook#14207). 각 피어는 요청을 자기 설정으로 자릅니다 — 요청은
+세션을 느리게만 만들고, 서버를 설정 간격보다 자주 돌게 만들지 못합니다.
+
+```dart
+// 기기: 실시간이 필요한 화면에서만 연속 세션을 열고, 간격을 명시한다.
+final live = tracker.syncContinuously(continuousSyncInterval: const Duration(seconds: 5));
+// 화면을 떠날 때
+await live.cancel();
+
+// 서버: 하한(= 요청하지 않은 세션의 간격)과 상한. 다른 설정과 함께 한 번에 넘긴다.
+pod.initializeOfflineSync(
+  syncTables: syncTables,
+  continuousSyncInterval: const Duration(seconds: 2),
+  maxContinuousSyncInterval: const Duration(seconds: 30),
+  maxClockDrift: const Duration(minutes: 30),
+);
+
+// 앱 endpoint: 기기 요청과 별도로, 이 세션을 더 느리게만 만들 수 있다.
+yield* session.offlineSync.sync(
+  userId: userId,
+  inbound: changes,
+  mode: OfflineSyncPeerMode.authoritative,
+  continuousSyncInterval: const Duration(seconds: 10),
+);
+```
+
+| 규칙 | 내용 |
+|---|---|
+| 전달 | 요청은 핸드셰이크 `OfflineSyncConnect.continuousSyncInterval`(nullable)로 갑니다. 모듈 endpoint·생성 클라이언트·`OfflineSyncTransport` 시그니처는 그대로라, endpoint 를 감싸거나 재배선한 앱도 바꿀 것이 없습니다 |
+| 합성 | 두 피어의 요청 중 **느린 쪽**. 어느 쪽도 상대를 빠르게 만들지 못합니다 |
+| 하한 | 각 피어의 설정 간격(`continuousSyncInterval`) |
+| 상한 | `maxContinuousSyncInterval` — 기본 30초(`defaultMaxContinuousSyncInterval`), 설정 간격이 그보다 길면 그 간격. 설정 간격보다 작게 주면 `ArgumentError` 입니다(조용히 올리지 않음) |
+| 요청 없음 | 설정 간격 그대로 — 필드 이전과 같은 동작 |
+| `once` | 요청을 싣지도 상대 요청을 쓰지도 않습니다(회차 대기가 없다). `syncOnce` 에는 인자가 없습니다 |
+| 구버전 피어 | 필드를 보내지 않고(= 요청 없음) 받으면 무시합니다. **새 기기 + 구 서버면 요청이 조용히 무시**되고 서버는 설정 간격으로 돕니다 — 서버를 먼저 배포하세요 |
+| 비대칭 | 각 피어는 **자기** 하한·상한으로 자릅니다. 기기 상한(`OfflineSyncDatabaseSession` 은 기본 30초)과 서버 상한이 다르면 두 피어의 실제 간격이 다를 수 있습니다. 서로의 확정값을 알리는 프레임은 없습니다 |
+
+⚠️ **요청하지 않은 세션이 가장 빠르게 돕니다.** 하한이 설정 간격이라, 요청하지 않은 세션과 구버전 기기는 서버가
+허용하는 최고 속도로 돕니다. 서버 부하를 줄이려면 설정 간격을 운영 값으로 **명시**하고, 연속 세션은 실시간이 필요한
+화면으로 한정하고, 그 화면은 항상 간격을 요청하세요.
+
+⚠️ **절감은 간격에 비례하지 않습니다.** 기기가 보낼 것이 없는 서버 회차는 대략 유휴 타임아웃 1초 + 간격 + 쿼리입니다.
+200ms 에서 5초로 요청하면 회차가 약 1.2초에서 6초로 늘어 25배가 아니라 약 5배 줄어듭니다. 기기가 계속 쓰는 동안은
+유휴 타임아웃을 타지 않아 간격이 곧 주기입니다.
+
+⚠️ **간격을 늘리면 끊긴 세션이 더 오래 남습니다.** 대기하는 동안에는 상대를 읽지 않으므로, 기기가 떠나도 서버
+세션은 최대 한 간격 뒤에 끝납니다. 상한이 그 잔존 시간의 상한입니다.
+
+**앱에서 쓰는 방식** (unibook#14193 동기화 관리 레이어, ADR §5.4): 기본 경로는 서버 알림(changeStream)을 받아
+`syncOnce` 를 한 번 도는 것이고 간격이 없습니다. 실시간이 필요한 화면만 `syncContinuously(continuousSyncInterval:)`
+를 열어 화면 정책값을 **항상 명시**하고, 화면을 떠나면 `cancel()` 합니다. 서버는 `initializeOfflineSync` 에
+`continuousSyncInterval`·`maxContinuousSyncInterval` 을 명시해 기본값 변경이 조용히 따라오지 않게 합니다.
 
 ## 동작과 주의점
 
@@ -393,7 +453,10 @@ dart run serverpod_cli create-migration
    세 패키지를 다시 풀고, [변경점 표](#업스트림-기준과-변경점)의 항목을 다시 적용합니다. ⚠️ 디렉터리를 새로 풀면
    표의 **포크 전용 테스트**와 신규 파일이 사라집니다 — 푼 직후 `git checkout <직전 포크 커밋> -- <파일>` 로
    되살리세요. ⚠️ 시계 오차 항목을 빠뜨리면 **조용히 1분으로 돌아갑니다** — 그 회귀를 잡는
-   `hlc_max_drift_test.dart` 도 포크 전용이라, 되살리지 않으면 회귀와 가드가 함께 사라집니다.
+   `hlc_max_drift_test.dart` 도 포크 전용이라, 되살리지 않으면 회귀와 가드가 함께 사라집니다. ⚠️ 세션별 간격
+   항목은 `connect.spy.yaml` 의 필드부터 되살리고 재생성하세요 — 빠뜨리면 기기 요청이 **조용히 무시**되어 모든 연속
+   세션이 설정 간격(하한)으로 돕니다. 그 회귀를 잡는 `continuous_sync_interval_policy_test.dart` 와 서버·fixture 의
+   `continuous_sync_interval_test.dart` 도 포크 전용입니다.
 2. `cd packages/serverpod_offline_sync_server && dart run serverpod_cli generate`
 3. 위 테스트를 모두 실행합니다.
 4. 이 README의 기준 커밋과 `CHANGELOG.md`를 갱신합니다.
@@ -407,7 +470,9 @@ dart run serverpod_cli create-migration
    대응물이 없는 API 를 쓰는 앱은 컴파일되지 않으니 그대로 지우지 마세요. 동작 차이(시계 오차 기본값 1시간,
    기기의 서버 확인 체크포인트 기록)는 컴파일 오류로 드러나지 않습니다 — 업스트림 고정값(1분)으로 돌아가면
    1분을 넘는 기기 시계 차이가 다시 K1·K2 로 거부됩니다. 기기 DB 에 남은 자기 노드 체크포인트 행은 업스트림
-   핸드셰이크가 읽지 않아(`createSyncSinceHlc` 는 현재 노드 행을 제외) 무해합니다.
+   핸드셰이크가 읽지 않아(`createSyncSinceHlc` 는 현재 노드 행을 제외) 무해합니다. 세션별 간격 요청은 대응물이
+   없으면 `syncContinuously(continuousSyncInterval:)` 호출이 컴파일되지 않고, 업스트림 서버는 Connect 의 요청 필드를
+   무시하므로 모든 연속 세션이 설정 간격으로 돌아갑니다(서버 부하가 요청 전으로 돌아감).
 2. watch fixture 테스트를 업스트림 버전으로 돌려 삭제·병합 삭제가 반영되는지 확인합니다.
 3. 앱의 git 의존을 pub 버전으로 바꿉니다. 패키지 이름과 모듈 이름이 같아서 생성 코드와 DB는 그대로입니다.
 4. 세 패키지와 `test/offline_sync_watch_test_*`를 삭제합니다.
