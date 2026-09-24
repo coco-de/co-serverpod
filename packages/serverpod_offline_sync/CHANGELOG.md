@@ -1,5 +1,39 @@
 ## Unreleased (co-serverpod fork)
 
+- feat!: A server gives every space its own CRDT node (unibook#14218).
+  Upstream shared one node across all spaces of a database. On a server that
+  node is persisted and shared by every instance, so a device clock pulling it
+  ahead (up to `maxClockDrift`) moved the server's timestamps for every other
+  user: their writes won LWW against newer edits, other users' devices stopped
+  with a remote-ahead drift, all users drew on one 65,535 counter, and every
+  merge waited on the one node row lock. The node, its clock, its counter and
+  its row lock are now the space's. No schema or migration change: spaces
+  already reference their node (`offline_sync_spaces.currentNodeId`).
+  - A database opened without a persistent user (the server) assigns nodes per
+    space. A device, opened with one, keeps one node for the install, shared by
+    its spaces as before. There is no setting:
+    `OfflineSyncDatabaseContext.assignsNodePerSpace` follows from how the
+    database is opened.
+  - A space that still shares its node with another space (a server database
+    written before) gets a new node on its next use. Its clock starts at the
+    later of the shared node's clock and the latest timestamp stored in the
+    space, never at the wall clock, the reverse of the device move onto a
+    shared node. The space records the shared node's changes as held, so
+    devices do not send them back. The last space on the shared node keeps it.
+    Both moves only raise a clock, so servers of the two versions side by side
+    during a deploy stay safe; a session that cached the space before its move
+    stamps with the old node until it ends.
+  - A session over several spaces has one server node per space while the
+    connect frame names one (the user's personal space's). Checkpoints are per
+    space and node, so it stays consistent, and it is not rejected. A
+    remote-ahead drift in one space still stops the whole session.
+  - Residual within one space: a device's pull reaches the other devices of
+    the same space, so between them the rule `C ≥ S + lag` still holds.
+  - Breaking: a follower sync on a database without a persistent user throws
+    `StateError`. A follower is a device: its own checkpoints and unsent row
+    count follow the one node its connect frame names.
+  - Breaking: `OfflineSyncSpaceManager` takes the `context`.
+
 - feat: Unsent row count for a device (unibook#14183). The protocol has no
   acknowledgement, so a device (follower) now keeps what the server confirmed
   in its own node's `offline_sync_space_nodes.lastReceivedHlc` per space. No

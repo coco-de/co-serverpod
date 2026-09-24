@@ -28,10 +28,15 @@ enum OfflineSyncFailureReason {
   /// may only read.
   integrityViolation,
 
-  /// This device rejected a server timestamp too far ahead of its own clock:
-  /// this device's clock is behind. Same meaning as co_sync's
-  /// `clock_drift_behind`. It can also mean another device pulled the shared
-  /// server clock ahead; the device cannot tell the two apart.
+  /// This device rejected a server timestamp too far ahead of its own clock.
+  /// Same meaning as co_sync's `clock_drift_behind`. The device cannot tell the
+  /// causes apart:
+  ///
+  /// * this device's clock is behind;
+  /// * another device of the same account (the same space) is ahead and pulled
+  ///   the server clock of that space ahead: the server gives each space its
+  ///   own clock, so devices of other accounts cannot;
+  /// * rarely, server instances whose wall clocks differ.
   clockDriftBehind,
 
   /// This device could not issue a local timestamp because its wall clock

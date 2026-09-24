@@ -193,7 +193,10 @@ class OfflineSyncEngine {
     DatabaseSession session, {
     required UuidValue spaceId,
   }) async {
-    final space = await OfflineSyncSpaceManager(session).getOrCreate(spaceId);
+    final space = await OfflineSyncSpaceManager(
+      session,
+      context: _databaseContext,
+    ).getOrCreate(spaceId);
     final localNodeId = space.currentNode!.uuidNodeId;
 
     final spaceNodes = await OfflineSyncSpaceNode.db.find(
@@ -265,6 +268,18 @@ class OfflineSyncEngine {
     bool once = false,
     OfflineSyncOnMergeSuccess? onMergeSuccess,
   }) async* {
+    // Fork (unibook#14218): a follower is a device, whose spaces share one
+    // node. Its own checkpoints and its unsent row count follow that one node,
+    // the one its connect frame names, so a follower whose spaces each had a
+    // node would silently leave every other space's writes out of them.
+    if (mode == OfflineSyncPeerMode.follower && _databaseContext.assignsNodePerSpace) {
+      throw StateError(
+        'A follower syncs as a device: open its database with a persistent '
+        'user, so that its spaces share one CRDT node. This database gives '
+        'every space its own node, as a server does.',
+      );
+    }
+
     // Idle timeouts are a continuous-only affordance: they let an idle cycle
     // settle into an empty batch without closing the stream. A `once` session
     // is strictly lockstep — every batch ends with a [OfflineSyncEndOfBatch] and
@@ -281,7 +296,17 @@ class OfflineSyncEngine {
 
     var sessionCompleted = false;
     try {
-      final space = await OfflineSyncSpaceManager(session).getOrCreate(userId);
+      final space = await OfflineSyncSpaceManager(
+        session,
+        context: _databaseContext,
+      ).getOrCreate(userId);
+      // Fork (unibook#14218): a server gives each space its own node, so a
+      // session over several spaces has several server nodes, and this frame
+      // names the one of the user's personal space. That stays consistent: a
+      // device only keys its per-space checkpoint of this peer with it
+      // ([_mergeInboundBatch]), every change carries its own node id, and each
+      // space's handshake excludes that space's own node
+      // ([createSyncSinceHlc]).
       final localNodeId = space.currentNode!.uuidNodeId;
       yield OfflineSyncConnect(
         localNodeId: localNodeId,
@@ -293,6 +318,7 @@ class OfflineSyncEngine {
 
       final spaces = OfflineSyncSpaceState(
         session,
+        context: _databaseContext,
         userId: userId,
         mode: mode,
         peerNodeId: peerConnect.localNodeId,

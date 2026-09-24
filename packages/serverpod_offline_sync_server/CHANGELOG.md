@@ -1,5 +1,14 @@
 ## Unreleased (co-serverpod fork)
 
+- docs: `initializeOfflineSync(maxClockDrift:)` describes the server node per
+  space (unibook#14218): one device's pull reaches only its own space, and
+  lowering the limit blocks writes only in the spaces whose node is ahead.
+- test: A space's merge no longer waits for another space's merge holding its
+  node row (PostgreSQL). The PostgreSQL tests share one embedded postmaster per
+  process in a directory of its own: with its data directory right in the
+  system temp directory, it bound the same socket as the postmaster an earlier
+  run left and could not start.
+
 - test: `initializeOfflineSync(continuousSyncInterval:)` reaches the wait
   between continuous rounds, and the default stays 200 ms as upstream
   (unibook#14183). No code change.

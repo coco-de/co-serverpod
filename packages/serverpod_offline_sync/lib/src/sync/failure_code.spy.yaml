@@ -21,8 +21,9 @@ values:
   ### meaning as co_sync's `clock_drift`.
   - clockDrift
   ### The server could not issue its own timestamp because its node clock is
-  ### further ahead of the server wall clock than its maxClockDrift. The shared
-  ### server node was pulled ahead, or the server clock went back. Not the
+  ### further ahead of the server wall clock than its maxClockDrift. The server
+  ### node of the space was pulled ahead (each space has its own node, so only
+  ### by a device of the same space), or the server clock went back. Not this
   ### device's fault.
   - serverClockDrift
   ### The server's timestamp counter overflowed while its node clock stayed

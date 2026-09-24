@@ -61,10 +61,13 @@ class CrdtRecorderContext {
   /// Manages [OfflineSyncSpace] rows and their cache.
   late final OfflineSyncSpaceManager spaceManager = OfflineSyncSpaceManager(
     databaseSession,
+    context: databaseContext,
   );
 
   // A node clock belongs to the active transaction, not a wrapper or a space.
   // Nested wrappers share it; completing or rolling back the scope drops it.
+  // Keyed by node id: on a server each space has its own node (unibook#14218),
+  // so the clock, its row lock and its counter are the space's.
   static final _currentNodes = Expando<Map<int, _CurrentNodeHlc>>();
 
   _CurrentNodeHlc _currentNodeFor(OfflineSyncSpace space, Transaction transaction) =>

@@ -237,10 +237,10 @@ extension CrdtMergeRecorderExtension on CrdtMutationRecorder {
       // drift check when it carried this node's id. A peer can send any node
       // id, so a single change stamped far ahead under this node's id both
       // skipped the check for the other nodes' changes in the batch and moved
-      // this clock arbitrarily far ahead (on the server, the clock every space
-      // shares). Check the other nodes' maximum first, against the clock
-      // before this batch, then bound this node's own returning timestamps by
-      // the same drift limit.
+      // this clock arbitrarily far ahead (on the server, the clock of the
+      // space being merged, see unibook#14218). Check the other nodes' maximum
+      // first, against the clock before this batch, then bound this node's own
+      // returning timestamps by the same drift limit.
       Hlc? maxOwnHlc;
       Hlc? maxOtherHlc;
       for (final operation in operations) {

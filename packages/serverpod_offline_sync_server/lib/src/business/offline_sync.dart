@@ -48,14 +48,16 @@ extension OfflineSyncInitialize on Serverpod {
   /// [OfflineSyncDatabaseContext.maxClockDrift]. A device timestamp further
   /// ahead of the server clock is rejected and reaches the device as an
   /// [OfflineSyncRemoteException] with [OfflineSyncFailureCode.clockDrift]. It
-  /// also bounds how far one device can pull the server node, which every
-  /// space shares, ahead of the server clock. Devices should use a value larger
-  /// than this by at least how far a device clock may lag the server clock.
+  /// also bounds how far one device can pull the server node of its space
+  /// ahead of the server clock. Each space has its own node (unibook#14218), so
+  /// that reaches only the devices of the same space. Those should use a value
+  /// larger than this by at least how far a device clock may lag the server
+  /// clock.
   ///
-  /// Lowering it while the server node is ahead of the server wall clock by
-  /// more than the new value makes every CRDT write the server issues, for all
-  /// users, fail with [ClockDriftException] ([ClockDriftKind.localAhead]) until
-  /// the wall clock catches up; a sync that needs a server timestamp reaches
+  /// Lowering it while a space's node is ahead of the server wall clock by more
+  /// than the new value makes every CRDT write the server issues in that space
+  /// fail with [ClockDriftException] ([ClockDriftKind.localAhead]) until the
+  /// wall clock catches up; a sync that needs a server timestamp there reaches
   /// the device as [OfflineSyncFailureCode.serverClockDrift]. See
   /// [OfflineSyncDatabaseContext.maxClockDrift].
   void initializeOfflineSync({

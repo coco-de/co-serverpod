@@ -104,25 +104,56 @@ class OfflineSyncDatabaseContext {
   ///   local wall clock (the wall clock moved back) throws
   ///   [ClockDriftException] with [ClockDriftKind.localAhead].
   ///
-  /// On a server this is also how far one device's clock can pull the shared
-  /// server node ahead, so a device's value (C) should exceed the server's (S)
-  /// by at least how far a device clock may lag the server clock: C ≥ S + lag.
-  /// A device that is behind the server by any lag rejects server timestamps
-  /// another device pulled a full S ahead, so C = S only holds for devices
-  /// whose clock is not behind the server's.
+  /// On a server this is also how far one device's clock can pull the node of
+  /// the space it syncs ahead. Fork (unibook#14218): the server gives every
+  /// space its own node ([assignsNodePerSpace]), so that pull reaches only the
+  /// devices of the same space. Among them a device's value (C) should exceed
+  /// the server's (S) by at least how far a device clock may lag the server
+  /// clock: C ≥ S + lag. A device of the same space that is behind the server
+  /// by any lag rejects server timestamps a sibling device pulled a full S
+  /// ahead, so C = S only holds for devices whose clock is not behind the
+  /// server's. Devices of other spaces are not affected.
   ///
   /// The node's last timestamp is persisted. Lowering this value while that
   /// timestamp is ahead of the wall clock by more than the new value blocks
   /// every local CRDT write on the node with [ClockDriftKind.localAhead] until
   /// the wall clock catches up, for up to the old value. On a server that is
-  /// every user's synced write. Check how far the current `crdt_nodes.lastHlc`
-  /// is ahead of the wall clock before lowering it, or lower it in steps.
+  /// every synced write in the spaces whose node is ahead. Check how far the
+  /// `crdt_nodes.lastHlc` values are ahead of the wall clock before lowering
+  /// it, or lower it in steps.
   ///
   /// While the node's clock stays ahead of the wall clock, every timestamp it
   /// issues reuses the same instant and only increments the counter, which
   /// overflows after 65,535 timestamps ([OverflowException]); an update takes
   /// one per changed field. A larger value lets the clock stay ahead longer.
   final Duration maxClockDrift;
+
+  /// Whether the databases of this context give every space its own CRDT node.
+  ///
+  /// Fork (unibook#14218): true unless an [OfflineSyncDatabase] opened with a
+  /// persistent user uses this context. That is a device: one node is the
+  /// replica identity of the install and every space on it shares that node,
+  /// as upstream does everywhere. A database without a persistent user holds
+  /// many users (the server), and there one shared node meant that a device
+  /// clock pulling it ahead (up to [maxClockDrift]) moved the timestamps of the
+  /// server's writes for every other user too: those writes won LWW against
+  /// newer edits, other users' devices stopped with a remote-ahead drift, all
+  /// users drew on the one 65,535 counter, and every merge waited on the one
+  /// node row lock. With a node per space, a device can only move the clock of
+  /// its own space.
+  ///
+  /// There is no setting for this. It follows from how the database is opened,
+  /// so a server cannot switch back to the shared node.
+  @internal
+  bool get assignsNodePerSpace => !_hasPersistentUser;
+  var _hasPersistentUser = false;
+
+  /// Marks this context as the one of a device, whose spaces share one node.
+  ///
+  /// Called by [OfflineSyncDatabase] when it is opened with a persistent user.
+  /// It never goes back: a context that served a device stays a device's.
+  @internal
+  void bindPersistentUser() => _hasPersistentUser = true;
 
   final List<TableDefinition> _tableDefinitions;
 

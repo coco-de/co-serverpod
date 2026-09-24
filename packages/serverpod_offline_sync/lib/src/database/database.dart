@@ -85,7 +85,12 @@ class OfflineSyncDatabase implements Database {
          _delegate,
          context: _context,
          persistentUserId: persistentUserId,
-       );
+       ) {
+    // Fork (unibook#14218): a persistent user makes this a device, whose
+    // spaces share the install's node. Every other database gives each space
+    // its own node, see [OfflineSyncDatabaseContext.assignsNodePerSpace].
+    if (persistentUserId != null) _context.bindPersistentUser();
+  }
 
   final Database _delegate;
   final OfflineSyncDatabaseContext _context;
@@ -120,6 +125,10 @@ class OfflineSyncDatabase implements Database {
   String get syncTablesHash => _sync.currentSyncTablesHash;
 
   /// Returns the current node identifier for the effective user.
+  ///
+  /// On a device every space shares this node. On a server each space has its
+  /// own node (unibook#14218), and this is the node of the user's personal
+  /// space.
   Future<UuidValue> currentNodeId({UuidValue? userId}) async {
     await _ensureInitialized();
     final effectiveUserId = await _requireUserId(userId);
