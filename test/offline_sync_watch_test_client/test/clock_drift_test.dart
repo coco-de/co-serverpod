@@ -241,8 +241,8 @@ void main() {
           OfflineSyncFailureReason.clockDrift,
         );
         expect(await Note.db.count(server), 0);
-        // The rejected merge rolled back, so the device did not pull the shared
-        // server node ahead.
+        // The rejected merge rolled back, so the device did not pull the server
+        // node ahead.
         expect(await nodeClockOf(server), serverClock);
 
         await at(t0.add(oneMillisecond), () => peer.syncOnce(device));
@@ -253,8 +253,9 @@ void main() {
 
   // A peer can send a change under any node id. Upstream checked only the
   // batch maximum and adopted it unchecked when it carried the receiver's own
-  // id, so one change sent under the server's node id moved the clock every
-  // space shares and let the rest of the batch skip the drift check.
+  // id, so one change sent under the server's node id moved the server clock
+  // (then shared by every space, now its space's) and let the rest of the
+  // batch skip the drift check.
   group('K2 — given a device batch that claims the server node id,', () {
     test(
       'should_reject_a_change_stamped_past_the_server_limit_without_moving_its_clock',
@@ -284,8 +285,8 @@ void main() {
         );
         expect(await Note.db.count(server), 0);
         expect(await nodeClockOf(server), serverClock);
-        // The shared server clock was not pulled ahead, so the server can still
-        // write at the correct time.
+        // The server clock was not pulled ahead, so the server can still write
+        // at the correct time.
         await at(t0, () => Note.db.insertRow(server, Note(title: 'server')));
         expect(await Note.db.count(server), 1);
       },
@@ -397,7 +398,7 @@ void main() {
           final peer = peerOf(server);
 
           // A device 50 minutes ahead is within S, so the server accepts its
-          // row and the shared server node moves 50 minutes ahead.
+          // row and the server node of their space moves 50 minutes ahead.
           await at(t0.add(const Duration(minutes: 50)), () {
             return Note.db.insertRow(fastDevice, Note(title: 'fast'));
           });

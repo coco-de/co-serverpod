@@ -1,5 +1,21 @@
 ## Unreleased (co-serverpod fork)
 
+- docs: `initializeOfflineSync(maxClockDrift:)` describes the server node per
+  space (unibook#14218): one device's pull reaches only its own space, and
+  lowering the limit blocks writes only in the spaces whose node is ahead.
+- test: A space's merge no longer waits for another space's merge holding its
+  node row, a space leaving a shared node does not wait for a merge that only
+  references it, and spaces leaving at once get one node each while the last
+  keeps the shared one (PostgreSQL). The session databases the interceptor
+  gives out assign a node per space (SQLite).
+- test: Each PostgreSQL test file runs its own embedded postmaster in a
+  directory of its own (`TestPostgres`), stopped and removed when the file
+  ends. `serverpod_test` leaves the postmaster it started running, one per run
+  on a machine that may host CI runners. With its data directory right in the
+  system temp directory, it also bound the socket of the one an earlier run
+  left and could not start. Adds the dev dependency
+  `serverpod_embedded_postgres`.
+
 - test: `initializeOfflineSync(continuousSyncInterval:)` reaches the wait
   between continuous rounds, and the default stays 200 ms as upstream
   (unibook#14183). No code change.

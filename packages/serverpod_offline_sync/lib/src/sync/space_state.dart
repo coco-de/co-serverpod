@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 
 import '../crdt/extensions.dart';
 import '../crdt/merge.dart';
+import '../database/recorder.dart';
 import '../generated/protocol.dart';
 import '../hlc/hlc.dart';
 import '../managers/space.dart';
@@ -62,12 +63,14 @@ class OfflineSyncSpaceState {
   /// handshake before this session is constructed.
   OfflineSyncSpaceState(
     this._session, {
+    required OfflineSyncDatabaseContext context,
     required this._userId,
     required this._mode,
     required this._peerNodeId,
-  });
+  }) : _databaseContext = context;
 
   final DatabaseSession _session;
+  final OfflineSyncDatabaseContext _databaseContext;
   final UuidValue _userId;
   final OfflineSyncPeerMode _mode;
   final UuidValue _peerNodeId;
@@ -75,7 +78,10 @@ class OfflineSyncSpaceState {
   /// Session-lived space manager. Reused across cycles so its in-memory cache
   /// of already-materialized spaces survives, sparing a follower a per-cycle
   /// `getOrCreate` round-trip for spaces it has already created this session.
-  late final OfflineSyncSpaceManager _spaceManager = OfflineSyncSpaceManager(_session);
+  late final OfflineSyncSpaceManager _spaceManager = OfflineSyncSpaceManager(
+    _session,
+    context: _databaseContext,
+  );
 
   /// The grant set this peer last announced (null until the first announcement).
   List<OfflineSyncSpaceGrant>? _announcedGrants;

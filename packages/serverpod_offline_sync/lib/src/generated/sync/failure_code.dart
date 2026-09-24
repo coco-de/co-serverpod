@@ -33,8 +33,9 @@ enum OfflineSyncFailureCode implements _iss.SerializableModel {
   clockDrift,
 
   /// The server could not issue its own timestamp because its node clock is
-  /// further ahead of the server wall clock than its maxClockDrift. The shared
-  /// server node was pulled ahead, or the server clock went back. Not the
+  /// further ahead of the server wall clock than its maxClockDrift. The server
+  /// node of the space was pulled ahead (each space has its own node, so only
+  /// by a device of the same space), or the server clock went back. Not this
   /// device's fault.
   serverClockDrift,
 

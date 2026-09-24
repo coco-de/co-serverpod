@@ -27,6 +27,11 @@ class OfflineSyncDatabaseSession implements DatabaseSession {
     /// The user ID to use for all CRDT operations. This should only be used for
     /// databases operating on the client side, where all data is for the same user.
     /// Otherwise, the user ID must be passed through the transaction.
+    ///
+    /// It makes the database a device, whose spaces share one CRDT node. On a
+    /// `context` that already gives every space its own node, as a server's
+    /// does, it throws [StateError], see
+    /// [OfflineSyncDatabaseContext.assignsNodePerSpace].
     UuidValue? persistentUserId,
 
     /// The maximum clock drift, see [OfflineSyncDatabaseContext.maxClockDrift].
@@ -65,6 +70,11 @@ class OfflineSyncDatabaseSession implements DatabaseSession {
     /// The user ID to use for all CRDT operations. This should only be used for
     /// databases operating on the client side, where all data is for the same user.
     /// Otherwise, the user ID must be passed through the transaction.
+    ///
+    /// It makes the database a device, whose spaces share one CRDT node. On a
+    /// `context` that already gives every space its own node, as a server's
+    /// does, it throws [StateError], see
+    /// [OfflineSyncDatabaseContext.assignsNodePerSpace].
     UuidValue? persistentUserId,
 
     /// The maximum clock drift, see [OfflineSyncDatabaseContext.maxClockDrift].

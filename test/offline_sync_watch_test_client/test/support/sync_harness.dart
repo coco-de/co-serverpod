@@ -14,8 +14,13 @@ import 'package:test/test.dart';
 ///
 /// [mapServerStream] is called once per opened session with the server stream
 /// the device is about to read, and the device reads what it returns.
+///
+/// [userId] is the user the server syncs with. Leave it out for a [server]
+/// opened with a persistent user; pass it for one opened without, which holds
+/// many users like the Serverpod server does.
 OfflineSyncClient peerOf(
   OfflineSyncDatabaseSession server, {
+  UuidValue? userId,
   bool wire = false,
   List<CrdtMergeChange>? sent,
   CrdtMergeChange Function(CrdtMergeChange change)? rewrite,
@@ -35,6 +40,7 @@ OfflineSyncClient peerOf(
       );
     });
     var stream = server.db.sync(
+      userId: userId,
       inbound: inbound,
       once: once,
       mode: OfflineSyncPeerMode.authoritative,

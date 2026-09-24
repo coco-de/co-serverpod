@@ -176,8 +176,9 @@ class Hlc implements Comparable<Hlc> {
   ///
   /// Fork: upstream adopted such a timestamp without any check. A peer can send
   /// a change under any node id, including this one, so without the bound one
-  /// peer could move this clock arbitrarily far ahead, and on the server every
-  /// space shares that clock.
+  /// peer could move this clock arbitrarily far ahead. On the server that is
+  /// the clock of the space the peer syncs, which every device of that space
+  /// receives timestamps from (a node per space, unibook#14218).
   Hlc adoptOwn(Hlc own, {Duration maxDrift = defaultMaxDrift}) {
     if (own.nodeId != nodeId) {
       throw ArgumentError.value(own, 'own', 'Must carry this node id ($nodeId)');

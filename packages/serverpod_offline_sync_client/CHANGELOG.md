@@ -1,5 +1,10 @@
 ## Unreleased (co-serverpod fork)
 
+- docs: `OfflineSyncFailureReason.clockDriftBehind` lists its causes with a
+  server node per space (unibook#14218): this device is behind, another device
+  of the same account pulled the space's server clock ahead, or rarely server
+  instances whose clocks differ.
+
 - feat: `OfflineSyncStatusTracker` and `OfflineSyncStatus` (unibook#14183),
   the fork's `CoSyncStatus`: `phase` (`syncOnce` running), `unsentRowCount`
   (null is unknown, not zero), `lastSuccessAt`, `lastFailure` classified by

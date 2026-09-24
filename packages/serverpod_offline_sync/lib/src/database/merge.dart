@@ -237,10 +237,10 @@ extension CrdtMergeRecorderExtension on CrdtMutationRecorder {
       // drift check when it carried this node's id. A peer can send any node
       // id, so a single change stamped far ahead under this node's id both
       // skipped the check for the other nodes' changes in the batch and moved
-      // this clock arbitrarily far ahead (on the server, the clock every space
-      // shares). Check the other nodes' maximum first, against the clock
-      // before this batch, then bound this node's own returning timestamps by
-      // the same drift limit.
+      // this clock arbitrarily far ahead (on the server, the clock of the
+      // space being merged, see unibook#14218). Check the other nodes' maximum
+      // first, against the clock before this batch, then bound this node's own
+      // returning timestamps by the same drift limit.
       Hlc? maxOwnHlc;
       Hlc? maxOtherHlc;
       for (final operation in operations) {
@@ -267,8 +267,16 @@ extension CrdtMergeRecorderExtension on CrdtMutationRecorder {
         in maxIncomingHlcByNode.entries) {
       final remoteNode = remoteNodes.spaceNodesByUuid[nodeId];
       if (remoteNode == null) continue;
+      // Fork (unibook#14218): a checkpoint stored under another node's id is
+      // not this node's, so it gives way. Upstream recorded one for the peer's
+      // connect node (see `OfflineSyncEngine._mergeInboundBatch`), and the
+      // handshake then named the other node: this node's changes were sent
+      // again every session. Replacing it stops that after one resend.
+      final stored = remoteNode.lastReceivedHlc;
       final updatedSpaceNode = remoteNode.copyWith(
-        lastReceivedHlc: incomingHlc.maxBetween(remoteNode.lastReceivedHlc),
+        lastReceivedHlc: incomingHlc.maxBetween(
+          stored?.nodeId == nodeId ? stored : null,
+        ),
       );
       if (updatedSpaceNode.lastReceivedHlc == remoteNode.lastReceivedHlc) {
         continue;
