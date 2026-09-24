@@ -41,6 +41,18 @@ cd test/offline_sync_watch_test_client && dart pub get && dart test
 | 서버 모듈 `failure_mapping_test.dart` | `initializeOfflineSync(maxClockDrift:)` 배선, 파사드 매핑과 원본의 세션 로그 기록(통과시킨 실패는 기록 안 함), 생성 endpoint 경유 `integrityViolation`(메시지에 space id 없음) |
 | watch `clock_drift_test.dart` | 고정 시계(`withClock`)로 K1(기기 뒤처짐)·K2(기기 앞섬, 타입 있는 예외, 서버 노드 id 위조)·K3(로컬 역행)·허용치 차이(C < S 면 시계가 정확한 기기도 K1)·실패 회차 재전송(서버가 놓친 경우·병합한 경우 각각)·같은 한도 재래핑·감싸지 않은 DB 에 context 와 다른 한도를 넘기면 생성자 3종 모두 `ArgumentError` |
 
+미전송 건수·동기화 상태와 연속 동기화 간격(unibook#14183)은 네 곳에서 검증합니다.
+
+| 위치 | 검증 |
+|---|---|
+| 엔진 `test/database/unsent_row_count_test.dart` | `watchUnsentRowCount` 파이프라인(`countOnEachTrigger`): 실패한 셈은 오류 이벤트이고 다음 트리거로 계속, 같은 값은 오류를 건너서도 미방출, 셈은 한 번에 하나씩 트리거 순서로 — 실 DB 에서는 워치를 살린 채 셈만 실패시킬 수 없어 여기서 본다 |
+| 클라이언트 `test/sync_status_test.dart` | `OfflineSyncStatus` 의 `isIdle`(건수 `null` 이면 거짓)·`needsAttention`(일시 실패 거짓·열기 거부 참)·`copyWith(clearLastFailure·clearUnsentRowCount)`·값 동등성 |
+| 서버 모듈 `continuous_sync_interval_test.dart` | `initializeOfflineSync(continuousSyncInterval:)` 가 회차 사이 대기로 쓰이고(기본값 아님), 생략하면 200ms — zone `createTimer` 기록 |
+| watch `sync_status_test.dart` | 오프라인 쓰기 행 단위 계수(동기화 전 삭제 포함)·동기화된 행의 오프라인 삭제·성공과 0건을 한 이벤트로·서버 작성 행 제외·재시작 복원(대조군)·K2 거부 시 유지·서버 병합 후 기기 실패 시 유지하고 재전송 없이 0·데이터를 잃은 서버 핸드셰이크로 전량 복귀·백업에서 복원한 서버의 더 낮은(null 아님) 체크포인트로 덮어쓰기·공유 space 까지 회차가 모두 확인·셈 도중 내려간 체크포인트 재검증(훅 `debugOnUnsentRowCheckpointsRead` — null 로 지운 경우·null 아닌 더 낮은 값·세 번 모두 내려가면 자기 행 전부(상한)로 폴백)·회차가 변경을 모으는 도중 커밋된 삽입·갱신이 유실되지 않음(회차 뒤 2건, 다음 회차에 둘 다 전송 — 수집 스냅샷. 첫 청크에서 멈춘 경우와 삽입·갱신 조회 사이에 커밋한 경우(훅 `debugOnPendingRowsRead`) 둘 다)·레지스트리가 바뀐 프로세스의 유휴 회차 재투영 0회(`debugProjectionRebuildCount`)·`watchUnsentRowCount`(구독 시·오프라인 쓰기·같은 값 미방출·회차 뒤 0)·셈 실패는 0 도 직전 값도 아닌 `null`·회차 전에 읽은 셈을 붙잡아도 성공 이벤트는 회차 뒤 셈(`unsentRowCounter`)·발행 순서와 합류 호출 1회 전송·실패 발행·연속 동기화 실패 기록·연속 동기화 정상 종료 시 재계수(워치 끔)·`dispose` |
+| watch `continuous_sync_interval_test.dart` | `OfflineSyncDatabaseSession.wraps(continuousSyncInterval:)` 가 그 복제본의 대기로 쓰임 |
+
+공용 하네스(`peerOf`·`errorOf`·`eventually`)는 `test/offline_sync_watch_test_client/test/support/sync_harness.dart` 에 있습니다.
+
 > **하네스 한계**: `serverpod_test` 는 스트리밍 endpoint 의 오류를 원본 그대로 넘기므로, 실제 소켓에서
 > `SerializableException` 이 아닌 예외가 사라지는 것을 재현하지 못합니다 — 그래서 매퍼가 메서드 스트림
 > 메시지 왕복을 따로 단언합니다. watch 하네스는 두 복제본을 한 프로세스에서 직접 잇기 때문에, 기기
@@ -48,6 +60,11 @@ cd test/offline_sync_watch_test_client && dart pub get && dart test
 > 못하는 것은 이 하네스의 성질이며, WebSocket 에서는 다를 수 있습니다. 그래서 재전송 테스트는 WebSocket 쪽
 > 경우를 `peerOf(holdServerDataUntil:)` 로 따로 강제합니다 — 서버는 back-pressure 없이 달리고, 기기는 서버가
 > 기기 배치를 병합해 체크포인트를 남긴 뒤에야 서버 배치를 받습니다. 관측한 상태로 기대값을 고르지 마세요.
+>
+> 보낼 변경 수집의 스냅샷(unibook#14183)은 SQLite 에서는 쓰기 잠금이, PostgreSQL 에서는 `repeatable read` 가
+> 만듭니다. 수집을 돌리는 테스트는 모두 SQLite 라서 **PostgreSQL 쪽 격리 수준 인자는 검증하지 않습니다** —
+> 그 인자를 지운 변이는 전 테스트를 통과합니다(SQLite 는 `isolationLevel` 을 무시). 동기화 모델이 PostgreSQL
+> 에 올라가는 단계(unibook#14186)에서 서버 수집 테스트로 메우세요.
 
 > **로컬 재실행 주의**: 서버 모듈의 `untracked_update_test.dart`는 Serverpod 내장 PostgreSQL을 띄우는데,
 > 테스트가 끝나도 그 프로세스가 남습니다(업스트림 Serverpod 4.0.0에서도 동일). 남은 프로세스가 있으면

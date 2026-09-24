@@ -27,6 +27,12 @@ extension OfflineSyncInitialize on Serverpod {
   /// Must be called during server startup before any sync requests are made.
   /// Will override any previous initialization for this [Serverpod] instance.
   ///
+  /// The `Serverpod` class that `serverpod generate` writes for a project with
+  /// sync tables already calls this with the defaults. To change a setting,
+  /// call it again after constructing the pod and pass every setting at once:
+  /// each call replaces the engine, so a setting left out goes back to its
+  /// default.
+  ///
   /// The [Serverpod] instance must be constructed with [offlineSyncDatabaseInterceptor]
   /// as its `databaseInterceptor`. Otherwise each session's [Session.db] stays a
   /// plain database and server-side ORM mutations on synced tables are not

@@ -350,7 +350,18 @@ class CrdtMutationRecorder {
     _isInitialized = true;
   }
 
+  /// How many times a recorder in this isolate has re-projected every space on
+  /// initialization, see [ensureInitialized].
+  ///
+  /// Fork (unibook#14183): for tests that pin how often a sync pays for it. It
+  /// happens on the first operation of each new wrapper while the schema
+  /// registry changed in this process (a fresh install, an app update that
+  /// changed the synchronized schema), and costs a pass over every row.
+  @visibleForTesting
+  static int debugProjectionRebuildCount = 0;
+
   Future<void> _rebuildProjectionsForAllSpaces() async {
+    debugProjectionRebuildCount++;
     final spaces = await OfflineSyncSpace.db.find(
       _session,
       include: OfflineSyncSpace.include(currentNode: CrdtNode.include()),
@@ -440,6 +451,38 @@ class CrdtMutationRecorder {
       await OfflineSyncSpaceNode.db.updateRow(
         _session,
         spaceNode.copyWith(lastReceivedHlc: syncedHlc),
+        columns: (t) => [t.lastReceivedHlc],
+        transaction: transaction,
+      );
+    });
+  }
+
+  /// Sets the checkpoint recorded for [nodeId] in [userId]'s space to [hlc],
+  /// even when that moves it back or clears it (null).
+  ///
+  /// Unlike [recordSyncCheckpoint], this does not keep the greater value. It
+  /// records a peer's own report of how far it has [nodeId]'s changes, which
+  /// goes back when the peer lost data. Writes nothing when the value is
+  /// already [hlc].
+  @internal
+  Future<void> replaceSyncCheckpoint(
+    UuidValue userId,
+    UuidValue nodeId,
+    Hlc? hlc,
+  ) async {
+    final space = await _context.spaceManager.getOrCreate(userId);
+    await _db.transaction((transaction) async {
+      final node = await _context.findOrCreateNode(nodeId, transaction);
+      final spaceNode = await _context.findOrCreateSpaceNode(
+        space.id!,
+        node.id!,
+        transaction,
+      );
+      if (spaceNode.lastReceivedHlc == hlc) return;
+
+      await OfflineSyncSpaceNode.db.updateRow(
+        _session,
+        spaceNode.copyWith(lastReceivedHlc: hlc),
         columns: (t) => [t.lastReceivedHlc],
         transaction: transaction,
       );

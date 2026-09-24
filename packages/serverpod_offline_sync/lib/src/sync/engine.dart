@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:clock/clock.dart';
+import 'package:meta/meta.dart' show visibleForTesting;
 import 'package:serverpod_database/serverpod_database.dart';
 import 'package:uuid/uuid.dart';
 
@@ -146,8 +147,9 @@ class OfflineSyncEngine {
   /// scoped by those internal ids. Node ids are stable per replica and may
   /// appear in multiple spaces, so checkpoint filtering must compare both
   /// `spaceId` and `uuidNodeId`. This still runs one query per change kind for
-  /// the whole pass. Per-row ownership and integrity checks resolve against
-  /// each row's own space.
+  /// the whole pass, all three from one snapshot before the first change is
+  /// yielded (fork, unibook#14183: see [_readPendingChanges]). Per-row
+  /// ownership and integrity checks resolve against each row's own space.
   ///
   /// All changes for nodes that are not present in a space's checkpoint list
   /// are collected and emitted. Passing an empty list for a space will collect
@@ -356,6 +358,7 @@ class OfflineSyncEngine {
           batch,
           outboundSpaces,
           onMergeSuccess,
+          localNodeId: localNodeId,
         );
 
         if (once) {
@@ -379,6 +382,9 @@ class OfflineSyncEngine {
           // our own outbound stream closes, which happens after this generator
           // returns.
           unawaited(_drainUntilDone(inboundIterator));
+          if (!spaces.isAuthoritative) {
+            await _recordConfirmedLocalCheckpoints(session, spaces, localNodeId);
+          }
           return;
         }
 
@@ -415,14 +421,28 @@ class OfflineSyncEngine {
     OfflineSyncSpaceState spaces,
     OfflineSyncCycleBatch batch,
     Set<UuidValue> outboundSpaces,
-    OfflineSyncOnMergeSuccess? onMergeSuccess,
-  ) async {
+    OfflineSyncOnMergeSuccess? onMergeSuccess, {
+    required UuidValue localNodeId,
+  }) async {
     if (batch.spaceSet != null) {
       await spaces.adoptPeerGrants(batch.spaceSet!.spaces);
     }
     for (final entry in batch.sinceHlcs.entries) {
       if (spaces.accepts(entry.key)) {
         spaces.recordPeerHandshake(entry.key, entry.value);
+        if (!spaces.isAuthoritative) {
+          // Fork (unibook#14183): the server's handshake says how far it has
+          // this device's changes. Keep that as the confirmed checkpoint the
+          // unsent row count starts from, replacing the recorded one even when
+          // it is lower (the server lost data), since this is the checkpoint
+          // this session sends from.
+          await _replaceOwnCheckpoint(
+            session,
+            spaceId: entry.key,
+            nodeId: localNodeId,
+            hlc: spaces.checkpointOf(entry.key, localNodeId),
+          );
+        }
       }
     }
 
@@ -503,6 +523,217 @@ class OfflineSyncEngine {
     };
   }
 
+  /// Records, per handshaken space, this node's checkpoint as confirmed by the
+  /// peer: everything this node sent in the session.
+  ///
+  /// Fork (unibook#14183): only valid once the peer's [OfflineSyncClose] has
+  /// arrived. The peer merges each batch before it moves on and closes only
+  /// after merging the last one, so by then it holds every change sent. A
+  /// failed session never gets here, so its changes stay unsent.
+  Future<void> _recordConfirmedLocalCheckpoints(
+    DatabaseSession session,
+    OfflineSyncSpaceState spaces,
+    UuidValue localNodeId,
+  ) async {
+    for (final spaceId in spaces.handshakenSpaceIds.toList()) {
+      final confirmed = spaces.checkpointOf(spaceId, localNodeId);
+      if (confirmed == null) continue;
+      await _recordOwnCheckpoint(
+        session,
+        spaceId: spaceId,
+        nodeId: localNodeId,
+        hlc: confirmed,
+      );
+    }
+  }
+
+  /// Advances this device's own checkpoint in [spaceId] to [hlc], see
+  /// [CrdtMutationRecorder.recordSyncCheckpoint].
+  Future<void> _recordOwnCheckpoint(
+    DatabaseSession session, {
+    required UuidValue spaceId,
+    required UuidValue nodeId,
+    required Hlc hlc,
+  }) async {
+    final db = session.db;
+    if (db is OfflineSyncDatabase) {
+      await db.recordSyncCheckpoint(nodeId, hlc, userId: spaceId);
+    } else {
+      await _checkpointRecorder(db).recordSyncCheckpoint(spaceId, nodeId, hlc);
+    }
+  }
+
+  /// Sets this device's own checkpoint in [spaceId] to what the peer reported,
+  /// see [CrdtMutationRecorder.replaceSyncCheckpoint].
+  Future<void> _replaceOwnCheckpoint(
+    DatabaseSession session, {
+    required UuidValue spaceId,
+    required UuidValue nodeId,
+    required Hlc? hlc,
+  }) async {
+    final db = session.db;
+    if (db is OfflineSyncDatabase) {
+      await db.replaceSyncCheckpoint(nodeId, hlc, userId: spaceId);
+    } else {
+      await _checkpointRecorder(db).replaceSyncCheckpoint(spaceId, nodeId, hlc);
+    }
+  }
+
+  /// A recorder over the plain [db] for the device's own checkpoint writes.
+  ///
+  /// Fork (unibook#14183): unlike [_openOfflineSyncDatabase], this opens no
+  /// [OfflineSyncDatabase] wrapper, so it skips the recorder initialization a
+  /// new wrapper runs on its first operation. That initialization re-projects
+  /// every space while the schema registry changed in this process (a fresh
+  /// install, an app update that changed the synchronized schema). The
+  /// checkpoint writes run on every round and touch only
+  /// `offline_sync_space_nodes`; through a wrapper they made each idle round
+  /// pay that pass over the data once per handshaken space plus one. They need
+  /// no initialization: the sync that makes them already initialized the
+  /// shared context.
+  CrdtMutationRecorder _checkpointRecorder(Database db) => CrdtMutationRecorder(
+    db,
+    context: _databaseContext,
+    persistentUserId: null,
+  );
+
+  /// Counts the rows of the synchronized tables holding a change authored by
+  /// [localNodeId] after the checkpoint recorded for it in the row's space, see
+  /// [OfflineSyncDatabase.unsentRowCount].
+  ///
+  /// Uses the same per-space checkpoint filters as the pending-change
+  /// collection, restricted to [localNodeId], so it counts the rows whose
+  /// changes a sync from the recorded checkpoints would send. A space without a
+  /// recorded checkpoint counts all of the node's rows in it.
+  Future<int> countUnsentRows(
+    DatabaseSession session, {
+    required UuidValue localNodeId,
+  }) async {
+    final tableNames = _syncTablesByName.keys.toSet();
+    if (tableNames.isEmpty) return 0;
+
+    // Read the checkpoints before the rows and again after them. One that
+    // advanced meanwhile leaves the count high. One that went back (the
+    // handshake of a server that lost data replaces it) would leave it low, so
+    // the count runs again from the checkpoints read after.
+    var confirmed = await _ownCheckpoints(session, localNodeId);
+    for (var attempt = 1; ; attempt++) {
+      await debugOnUnsentRowCheckpointsRead?.call();
+      final count = await _countOwnRowsAfter(
+        session,
+        localNodeId: localNodeId,
+        tableNames: tableNames,
+        confirmedBySpaceId: confirmed,
+      );
+      final current = await _ownCheckpoints(session, localNodeId);
+      if (!_anyCheckpointWentBack(confirmed, current)) return count;
+      if (attempt == _unsentRowCountAttempts) {
+        // They keep going back: every row of this node is an upper bound.
+        return _countOwnRowsAfter(
+          session,
+          localNodeId: localNodeId,
+          tableNames: tableNames,
+          confirmedBySpaceId: const {},
+        );
+      }
+      confirmed = current;
+    }
+  }
+
+  /// How many times [countUnsentRows] counts before it falls back to counting
+  /// every row of the node.
+  static const _unsentRowCountAttempts = 3;
+
+  /// Called by [countUnsentRows] after it reads the checkpoints and before it
+  /// reads the rows, in every attempt.
+  ///
+  /// Fork (unibook#14183): lets a test commit a checkpoint change in between.
+  @visibleForTesting
+  static Future<void> Function()? debugOnUnsentRowCheckpointsRead;
+
+  /// The checkpoint recorded for [localNodeId] per space id, with the node id
+  /// normalized to [localNodeId]. A space without one is absent.
+  Future<Map<int, Hlc>> _ownCheckpoints(
+    DatabaseSession session,
+    UuidValue localNodeId,
+  ) async {
+    final ownSpaceNodes = await OfflineSyncSpaceNode.db.find(
+      session,
+      where: (t) => t.node.uuidNodeId.equals(localNodeId),
+    );
+    return {
+      for (final spaceNode in ownSpaceNodes)
+        if (spaceNode.lastReceivedHlc case final confirmed?)
+          spaceNode.spaceId: Hlc(
+            confirmed.datetime,
+            confirmed.counter,
+            localNodeId,
+          ),
+    };
+  }
+
+  /// Whether a checkpoint in [before] is lower or missing in [after].
+  static bool _anyCheckpointWentBack(
+    Map<int, Hlc> before,
+    Map<int, Hlc> after,
+  ) {
+    for (final MapEntry(key: spaceId, value: checkpoint) in before.entries) {
+      final now = after[spaceId];
+      if (now == null || now < checkpoint) return true;
+    }
+    return false;
+  }
+
+  /// Counts the rows holding a change of [localNodeId] after its checkpoint in
+  /// [confirmedBySpaceId], every row of the node in a space without one.
+  Future<int> _countOwnRowsAfter(
+    DatabaseSession session, {
+    required UuidValue localNodeId,
+    required Set<String> tableNames,
+    required Map<int, Hlc> confirmedBySpaceId,
+  }) async {
+    final spaces = await OfflineSyncSpace.db.find(session);
+    final checkpointsBySpaceId = {
+      for (final space in spaces) space.id!: [?confirmedBySpaceId[space.id!]],
+    };
+    if (checkpointsBySpaceId.isEmpty) return 0;
+
+    final rows = await CrdtDataRow.db.find(
+      session,
+      where: (t) =>
+          _rowHlcAfterFilter(t, checkpointsBySpaceId) &
+          t.node.uuidNodeId.equals(localNodeId) &
+          t.tbl.name.inSet(tableNames),
+    );
+    final fields = await CrdtDataField.db.find(
+      session,
+      where: (t) =>
+          _fieldHlcAfterFilter(t, checkpointsBySpaceId) &
+          t.node.uuidNodeId.equals(localNodeId) &
+          t.row.tbl.name.inSet(tableNames),
+    );
+    final tombstones = await CrdtDataDeleted.db.find(
+      session,
+      where: (t) =>
+          _tombstoneHlcAfterFilter(t, checkpointsBySpaceId) &
+          t.node.uuidNodeId.equals(localNodeId) &
+          t.row.tbl.name.inSet(tableNames) &
+          t.reason.inSet(_syncedDeletedReasons),
+    );
+
+    return {
+      for (final row in rows) row.id!,
+      for (final field in fields) field.rowId,
+      for (final tombstone in tombstones) tombstone.rowId,
+    }.length;
+  }
+
+  /// The tombstone reasons the pending-change collection sends.
+  static final Set<CrdtDataDeletedReason> _syncedDeletedReasons = {
+    for (final reason in CrdtDataDeletedReason.values)
+      if (reason.isSynced) reason,
+  };
+
   /// Reports a successful merge for [spaceId] to [onMergeSuccess], combining the
   /// space's checkpoint high-water mark with the [receivedHlc] just merged.
   Future<void> _reportMerge(
@@ -556,29 +787,94 @@ class OfflineSyncEngine {
     Map<int, UuidValue> spaceUuidById,
     Map<int, List<Hlc>> checkpointsBySpaceId,
   ) async* {
+    final pending = await _readPendingChanges(session, checkpointsBySpaceId);
     // Domain ownership is immutable while a collection runs, so read each
     // row's owner at most once across all three streams.
     final ownerCache = DomainRowOwnerCache();
-    yield* _streamInserts(session, spaceUuidById, checkpointsBySpaceId, ownerCache);
-    yield* _streamUpdates(session, spaceUuidById, checkpointsBySpaceId, ownerCache);
-    yield* _streamDeletes(session, spaceUuidById, checkpointsBySpaceId, ownerCache);
+    yield* _streamInserts(session, spaceUuidById, pending.rows, ownerCache);
+    yield* _streamUpdates(session, spaceUuidById, pending.fields, ownerCache);
+    yield* _streamDeletes(session, spaceUuidById, pending.tombstones, ownerCache);
   }
+
+  /// Reads the pending inserts, updates and deletes after
+  /// [checkpointsBySpaceId] from one snapshot of the database.
+  ///
+  /// Fork (unibook#14183): upstream ran each kind's query when its stream
+  /// started, so a write committed between two of them was seen by the later
+  /// one only. An update read after a missed insert then advanced the node's
+  /// checkpoint past the insert, and no later session sent it. A node's writes
+  /// commit in HLC order (each locks the node before stamping), so what one
+  /// snapshot holds of a node is everything up to some HLC: advancing past the
+  /// highest change sent skips none. A write committed after the snapshot is
+  /// above it and waits for the next collection.
+  ///
+  /// A transaction takes the snapshot: repeatable read on PostgreSQL, the
+  /// write lock on SQLite. It holds only these three queries; domain values
+  /// are read afterwards, as each change is yielded.
+  Future<
+    ({
+      List<CrdtDataRow> rows,
+      List<CrdtDataField> fields,
+      List<CrdtDataDeleted> tombstones,
+    })
+  >
+  _readPendingChanges(
+    DatabaseSession session,
+    Map<int, List<Hlc>> checkpointsBySpaceId,
+  ) => session.db.transaction(
+    (transaction) async {
+      final rows = await CrdtDataRow.db.find(
+        session,
+        where: (t) => _rowHlcAfterFilter(t, checkpointsBySpaceId),
+        include: CrdtDataRow.include(
+          tbl: CrdtSchemaTable.include(),
+          node: CrdtNode.include(),
+        ),
+        transaction: transaction,
+      );
+      await debugOnPendingRowsRead?.call(session);
+      final fields = await CrdtDataField.db.find(
+        session,
+        where: (t) => _fieldHlcAfterFilter(t, checkpointsBySpaceId),
+        include: CrdtDataField.include(
+          row: CrdtDataRow.include(tbl: CrdtSchemaTable.include()),
+          column: CrdtSchemaColumn.include(),
+          node: CrdtNode.include(),
+          attemptedValue: CrdtDataAttemptedValue.include(),
+        ),
+        transaction: transaction,
+      );
+      final tombstones = await CrdtDataDeleted.db.find(
+        session,
+        where: (t) => _tombstoneHlcAfterFilter(t, checkpointsBySpaceId),
+        include: CrdtDataDeleted.include(
+          row: CrdtDataRow.include(tbl: CrdtSchemaTable.include()),
+          node: CrdtNode.include(),
+        ),
+        transaction: transaction,
+      );
+      return (rows: rows, fields: fields, tombstones: tombstones);
+    },
+    settings: const TransactionSettings(
+      isolationLevel: IsolationLevel.repeatableRead,
+    ),
+  );
+
+  /// Called by the pending-change collection with its session, inside its
+  /// snapshot, after it reads the pending inserts and before it reads the
+  /// updates.
+  ///
+  /// Fork (unibook#14183): lets a test commit a write in between, which the
+  /// snapshot must keep out of the collection.
+  @visibleForTesting
+  static Future<void> Function(DatabaseSession session)? debugOnPendingRowsRead;
 
   Stream<CrdtMergeInsert> _streamInserts(
     DatabaseSession session,
     Map<int, UuidValue> spaceUuidById,
-    Map<int, List<Hlc>> checkpointsBySpaceId,
+    List<CrdtDataRow> rows,
     DomainRowOwnerCache ownerCache,
   ) async* {
-    final rows = await CrdtDataRow.db.find(
-      session,
-      where: (t) => _rowHlcAfterFilter(t, checkpointsBySpaceId),
-      include: CrdtDataRow.include(
-        tbl: CrdtSchemaTable.include(),
-        node: CrdtNode.include(),
-      ),
-    );
-
     final attemptedValueFieldsByRowId = await _loadAttemptedValueFields(
       session,
       rows,
@@ -647,20 +943,9 @@ class OfflineSyncEngine {
   Stream<CrdtMergeUpdate> _streamUpdates(
     DatabaseSession session,
     Map<int, UuidValue> spaceUuidById,
-    Map<int, List<Hlc>> checkpointsBySpaceId,
+    List<CrdtDataField> fields,
     DomainRowOwnerCache ownerCache,
   ) async* {
-    final fields = await CrdtDataField.db.find(
-      session,
-      where: (t) => _fieldHlcAfterFilter(t, checkpointsBySpaceId),
-      include: CrdtDataField.include(
-        row: CrdtDataRow.include(tbl: CrdtSchemaTable.include()),
-        column: CrdtSchemaColumn.include(),
-        node: CrdtNode.include(),
-        attemptedValue: CrdtDataAttemptedValue.include(),
-      ),
-    );
-
     for (final field in fields) {
       final tableName = field.row!.tbl!.name;
       if (!_syncTablesByName.containsKey(tableName)) continue;
@@ -725,18 +1010,9 @@ class OfflineSyncEngine {
   Stream<CrdtMergeDelete> _streamDeletes(
     DatabaseSession session,
     Map<int, UuidValue> spaceUuidById,
-    Map<int, List<Hlc>> checkpointsBySpaceId,
+    List<CrdtDataDeleted> tombstones,
     DomainRowOwnerCache ownerCache,
   ) async* {
-    final tombstones = await CrdtDataDeleted.db.find(
-      session,
-      where: (t) => _tombstoneHlcAfterFilter(t, checkpointsBySpaceId),
-      include: CrdtDataDeleted.include(
-        row: CrdtDataRow.include(tbl: CrdtSchemaTable.include()),
-        node: CrdtNode.include(),
-      ),
-    );
-
     for (final tombstone in tombstones) {
       if (!tombstone.reason.isSynced) continue;
 
