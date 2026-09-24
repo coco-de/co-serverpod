@@ -51,15 +51,28 @@ class OfflineSyncClient {
   /// [OfflineSyncSubscription.cancel] or the remote stream closes.
   ///
   /// The [session] must be wrapped in a [OfflineSyncDatabaseSession].
+  ///
+  /// [continuousSyncInterval] asks both peers to wait longer between rounds
+  /// (fork, unibook#14207). Each peer bounds it by its own settings, so it can
+  /// only slow a peer down, never below the interval that peer is configured
+  /// with. Without it, each peer waits its configured interval. A server built
+  /// before the request existed ignores it.
   OfflineSyncSubscription syncContinuously(
     DatabaseSession session, {
     OfflineSyncOnMergeSuccess? onMergeSuccess,
-  }) => _startSyncSession(session, once: false, onMergeSuccess: onMergeSuccess);
+    Duration? continuousSyncInterval,
+  }) => _startSyncSession(
+    session,
+    once: false,
+    onMergeSuccess: onMergeSuccess,
+    continuousSyncInterval: continuousSyncInterval,
+  );
 
   OfflineSyncSubscription _startSyncSession(
     DatabaseSession session, {
     required bool once,
     OfflineSyncOnMergeSuccess? onMergeSuccess,
+    Duration? continuousSyncInterval,
   }) {
     // The stream will be closed using [outboundChanges.closeOrSkip].
     // ignore: close_sinks
@@ -79,6 +92,7 @@ class OfflineSyncClient {
             once: once,
             onMergeSuccess: onMergeSuccess,
             mode: OfflineSyncPeerMode.follower,
+            continuousSyncInterval: continuousSyncInterval,
           )
           .listen(
             (event) {

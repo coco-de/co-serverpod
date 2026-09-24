@@ -33,3 +33,5 @@ sealed class OfflineSyncStreamEvent
   @_iss.useResult
   OfflineSyncStreamEvent copyWith();
 }
+
+class _Undefined {}

@@ -12,3 +12,12 @@ fields:
 
   ### The hash of the synchronized schema configured on this peer.
   syncTablesHash: String
+
+  ### The wait between continuous sync rounds this peer asks for in this
+  ### session (fork, unibook#14207).
+  ###
+  ### Each peer bounds the slower of the two requests by its own settings:
+  ### never below its configured interval, never above its maximum. Null when
+  ### the peer asks for nothing, in a `once` session, and from a peer built
+  ### before the field existed, whose generated `fromJson` also ignores it.
+  continuousSyncInterval: Duration?

@@ -49,8 +49,16 @@ class OfflineSyncEngine {
     /// Maximum number of merge changes sent in one sync stream message.
     int syncBatchSize = defaultSyncBatchSize,
 
-    /// Delay between continuous sync rounds.
+    /// Delay between continuous sync rounds. It is also the shortest delay a
+    /// session can ask for, see [resolveContinuousSyncInterval].
     this._continuousSyncInterval = defaultContinuousSyncInterval,
+
+    /// The longest delay between continuous sync rounds a session can ask
+    /// for, see [resolveContinuousSyncInterval] (fork, unibook#14207).
+    /// Defaults to [defaultMaxContinuousSyncInterval], or to
+    /// `continuousSyncInterval` when that is longer. A value below
+    /// `continuousSyncInterval` throws [ArgumentError].
+    Duration? maxContinuousSyncInterval,
 
     /// The maximum clock drift, see [OfflineSyncDatabaseContext.maxClockDrift].
     /// Configures the new context when `databaseContext` is null. When
@@ -64,7 +72,11 @@ class OfflineSyncEngine {
          serializationManager: serializationManager,
          maxClockDrift: maxClockDrift,
        ),
-       _syncBatchSize = syncBatchSize {
+       _syncBatchSize = syncBatchSize,
+       _maxContinuousSyncInterval = resolveMaxContinuousSyncInterval(
+         _continuousSyncInterval,
+         maxContinuousSyncInterval,
+       ) {
     if (syncBatchSize < 1) {
       throw ArgumentError.value(syncBatchSize, 'syncBatchSize', 'Must be >= 1');
     }
@@ -76,6 +88,42 @@ class OfflineSyncEngine {
   /// Default delay between continuous sync rounds.
   static const defaultContinuousSyncInterval = Duration(milliseconds: 200);
 
+  /// Default longest delay between continuous sync rounds a session can ask
+  /// for (fork, unibook#14207).
+  ///
+  /// While it waits, a peer does not read the other side, so a session whose
+  /// device left ends only after up to this long. A session that needs updates
+  /// less often than this should not run continuously.
+  static const defaultMaxContinuousSyncInterval = Duration(seconds: 30);
+
+  /// The longest delay between continuous sync rounds a session can ask for,
+  /// given [continuousSyncInterval] and the configured maximum (fork,
+  /// unibook#14207).
+  ///
+  /// Without [maxContinuousSyncInterval] it is
+  /// [defaultMaxContinuousSyncInterval], or [continuousSyncInterval] when that
+  /// is longer, so an interval configured before the maximum existed keeps
+  /// working. A [maxContinuousSyncInterval] below [continuousSyncInterval]
+  /// throws [ArgumentError] rather than being raised silently.
+  static Duration resolveMaxContinuousSyncInterval(
+    Duration continuousSyncInterval,
+    Duration? maxContinuousSyncInterval,
+  ) {
+    if (maxContinuousSyncInterval == null) {
+      return continuousSyncInterval > defaultMaxContinuousSyncInterval
+          ? continuousSyncInterval
+          : defaultMaxContinuousSyncInterval;
+    }
+    if (maxContinuousSyncInterval < continuousSyncInterval) {
+      throw ArgumentError.value(
+        maxContinuousSyncInterval,
+        'maxContinuousSyncInterval',
+        'Must be >= continuousSyncInterval ($continuousSyncInterval)',
+      );
+    }
+    return maxContinuousSyncInterval;
+  }
+
   final List<Table> _syncTables;
   final DatabaseSerializationManager _serializationManager;
   final OfflineSyncDatabaseContext _databaseContext;
@@ -85,6 +133,35 @@ class OfflineSyncEngine {
   Duration get maxClockDrift => _databaseContext.maxClockDrift;
   final int _syncBatchSize;
   final Duration _continuousSyncInterval;
+  final Duration _maxContinuousSyncInterval;
+
+  /// The configured delay between continuous sync rounds, the shortest a
+  /// session can ask for.
+  Duration get continuousSyncInterval => _continuousSyncInterval;
+
+  /// The longest delay between continuous sync rounds a session can ask for.
+  Duration get maxContinuousSyncInterval => _maxContinuousSyncInterval;
+
+  /// The delay between this session's continuous rounds (fork,
+  /// unibook#14207).
+  ///
+  /// [local] is what this peer asks for, [peer] what the other peer asked for
+  /// in its [OfflineSyncConnect.continuousSyncInterval]. The slower request
+  /// wins, so neither peer can make the other one faster. It is then bounded
+  /// by this engine's settings: never below [continuousSyncInterval], so a
+  /// request cannot make this peer run more often than configured, and never
+  /// above [maxContinuousSyncInterval]. Without either request it is
+  /// [continuousSyncInterval], as before sessions could ask.
+  @visibleForTesting
+  Duration resolveContinuousSyncInterval({Duration? local, Duration? peer}) {
+    final floor = _continuousSyncInterval;
+    final requested = local ?? floor;
+    final peerRequested = peer ?? floor;
+    final wanted = requested > peerRequested ? requested : peerRequested;
+    if (wanted < floor) return floor;
+    if (wanted > _maxContinuousSyncInterval) return _maxContinuousSyncInterval;
+    return wanted;
+  }
 
   /// Wraps [database] in a CRDT-aware database using this sync context.
   OfflineSyncDatabase wrapDatabase(Database database, {UuidValue? persistentUserId}) {
@@ -94,6 +171,7 @@ class OfflineSyncEngine {
       syncTables: _syncTables,
       syncBatchSize: _syncBatchSize,
       continuousSyncInterval: _continuousSyncInterval,
+      maxContinuousSyncInterval: _maxContinuousSyncInterval,
       persistentUserId: persistentUserId,
       context: _databaseContext,
     );
@@ -274,6 +352,13 @@ class OfflineSyncEngine {
   /// When [once] is true the loop may run an extra cycle after handshakes
   /// complete so merge data can flow; then it closes symmetrically. Continuous
   /// mode loops with [_continuousSyncInterval] between idle cycles.
+  ///
+  /// [continuousSyncInterval] asks for a longer delay between this continuous
+  /// session's rounds (fork, unibook#14207). It travels to the other peer in
+  /// [OfflineSyncConnect.continuousSyncInterval], and each peer waits
+  /// [resolveContinuousSyncInterval] of both requests under its own settings.
+  /// A `once` session has no rounds to space: it sends no request and ignores
+  /// the peer's.
   Stream<OfflineSyncStreamEvent> sync(
     DatabaseSession session, {
     required UuidValue userId,
@@ -281,6 +366,7 @@ class OfflineSyncEngine {
     required OfflineSyncPeerMode mode,
     bool once = false,
     OfflineSyncOnMergeSuccess? onMergeSuccess,
+    Duration? continuousSyncInterval,
   }) async* {
     // Fork (unibook#14218): a follower is a device, whose spaces share one
     // node. Its own checkpoints and its unsent row count follow that one node,
@@ -325,10 +411,17 @@ class OfflineSyncEngine {
       yield OfflineSyncConnect(
         localNodeId: localNodeId,
         syncTablesHash: currentSyncTablesHash,
+        continuousSyncInterval: once ? null : continuousSyncInterval,
       );
 
       final peerConnect = await inboundIterator.moveAndThrowIfNot<OfflineSyncConnect>();
       _validateSyncTablesHash(peerConnect.syncTablesHash);
+      // Fork (unibook#14207): fixed for the session. Only the continuous loop
+      // below waits it; a `once` session returns before that.
+      final roundInterval = resolveContinuousSyncInterval(
+        local: continuousSyncInterval,
+        peer: peerConnect.continuousSyncInterval,
+      );
 
       final spaces = OfflineSyncSpaceState(
         session,
@@ -428,8 +521,8 @@ class OfflineSyncEngine {
           return;
         }
 
-        // Wait for the configured interval before checking for local changes again.
-        await Future<void>.delayed(_continuousSyncInterval);
+        // Wait for the session's interval before checking for local changes again.
+        await Future<void>.delayed(roundInterval);
       }
     } on OfflineSyncStreamClosedException {
       // A continuous session ending is normal: the peer closed its outbound

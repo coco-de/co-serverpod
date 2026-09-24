@@ -43,6 +43,17 @@ extension OfflineSyncInitialize on Serverpod {
   ///
   /// [continuousSyncInterval] controls how long a continuous sync session waits
   /// after completing one sync round before checking for local changes again.
+  /// It is also the shortest wait a session can ask for: a device or
+  /// [OfflineSyncSession.sync] can ask a session to wait longer, never shorter
+  /// (unibook#14207). A session that asks for nothing waits exactly this, so
+  /// it is the rate every such session runs at.
+  ///
+  /// [maxContinuousSyncInterval] is the longest wait a session can ask for; a
+  /// longer request waits this. While it waits, the server does not read the
+  /// device, so a session whose device left ends up to this long later.
+  /// Defaults to [OfflineSyncEngine.defaultMaxContinuousSyncInterval], or to
+  /// [continuousSyncInterval] when that is longer. A value below
+  /// [continuousSyncInterval] throws [ArgumentError].
   ///
   /// [maxClockDrift] is the largest clock drift the server accepts, see
   /// [OfflineSyncDatabaseContext.maxClockDrift]. A device timestamp further
@@ -64,6 +75,7 @@ extension OfflineSyncInitialize on Serverpod {
     required List<Table> syncTables,
     int syncBatchSize = OfflineSyncEngine.defaultSyncBatchSize,
     Duration continuousSyncInterval = OfflineSyncEngine.defaultContinuousSyncInterval,
+    Duration? maxContinuousSyncInterval,
     Duration maxClockDrift = Hlc.defaultMaxDrift,
   }) {
     _offlineSyncByServerpod[this] = OfflineSyncEngine(
@@ -71,6 +83,7 @@ extension OfflineSyncInitialize on Serverpod {
       serializationManager: serializationManager,
       syncBatchSize: syncBatchSize,
       continuousSyncInterval: continuousSyncInterval,
+      maxContinuousSyncInterval: maxContinuousSyncInterval,
       maxClockDrift: maxClockDrift,
     );
   }
@@ -104,12 +117,19 @@ class OfflineSyncSession {
   /// Serverpod logs when the stream ends, get only the replacement. An app
   /// endpoint should call this method rather than the engine directly to keep
   /// that mapping.
+  ///
+  /// [continuousSyncInterval] asks this continuous session to wait longer
+  /// between rounds, on top of what the device asks for: the slower request
+  /// wins, bounded by
+  /// [OfflineSyncInitialize.initializeOfflineSync]'s interval and maximum
+  /// (unibook#14207). It can slow a session down, never speed it up.
   Stream<OfflineSyncStreamEvent> sync({
     required UuidValue userId,
     required Stream<OfflineSyncStreamEvent> inbound,
     required OfflineSyncPeerMode mode,
     bool once = false,
     OfflineSyncOnMergeSuccess? onMergeSuccess,
+    Duration? continuousSyncInterval,
   }) {
     return _sync
         .sync(
@@ -119,6 +139,7 @@ class OfflineSyncSession {
           once: once,
           mode: mode,
           onMergeSuccess: onMergeSuccess,
+          continuousSyncInterval: continuousSyncInterval,
         )
         .transform(offlineSyncWireErrors(onMapped: _logMappedFailure));
   }

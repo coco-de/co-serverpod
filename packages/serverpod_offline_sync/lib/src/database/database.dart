@@ -51,6 +51,10 @@ class OfflineSyncDatabase implements Database {
     /// Delay between continuous sync rounds.
     Duration continuousSyncInterval = OfflineSyncEngine.defaultContinuousSyncInterval,
 
+    /// The longest delay between continuous sync rounds a session can ask for,
+    /// see [OfflineSyncEngine.resolveMaxContinuousSyncInterval].
+    Duration? maxContinuousSyncInterval,
+
     /// The user ID to use for all CRDT operations. This should only be used for
     /// databases operating on the client side, where all data is for the same user.
     /// Otherwise, the user ID must be passed through the transaction.
@@ -76,6 +80,10 @@ class OfflineSyncDatabase implements Database {
          syncTables: syncTables,
          syncBatchSize: syncBatchSize,
          continuousSyncInterval: continuousSyncInterval,
+         maxContinuousSyncInterval: OfflineSyncEngine.resolveMaxContinuousSyncInterval(
+           continuousSyncInterval,
+           maxContinuousSyncInterval,
+         ),
          persistentUserId: persistentUserId,
        );
 
@@ -85,6 +93,7 @@ class OfflineSyncDatabase implements Database {
     required this._syncTables,
     required this._syncBatchSize,
     required this._continuousSyncInterval,
+    required this._maxContinuousSyncInterval,
     required UuidValue? persistentUserId,
   }) : _recorder = CrdtMutationRecorder(
          _delegate,
@@ -104,6 +113,7 @@ class OfflineSyncDatabase implements Database {
   final List<Table> _syncTables;
   final int _syncBatchSize;
   final Duration _continuousSyncInterval;
+  final Duration _maxContinuousSyncInterval;
 
   final CrdtMutationRecorder _recorder;
 
@@ -112,6 +122,7 @@ class OfflineSyncDatabase implements Database {
     serializationManager: serializationManager,
     syncBatchSize: _syncBatchSize,
     continuousSyncInterval: _continuousSyncInterval,
+    maxContinuousSyncInterval: _maxContinuousSyncInterval,
     databaseContext: _context,
   );
 
@@ -144,12 +155,16 @@ class OfflineSyncDatabase implements Database {
   }
 
   /// Runs a symmetric CRDT sync session over a bidirectional event stream.
+  ///
+  /// [continuousSyncInterval] asks for a longer delay between continuous
+  /// rounds, see [OfflineSyncEngine.sync].
   Stream<OfflineSyncStreamEvent> sync({
     required Stream<OfflineSyncStreamEvent> inbound,
     required OfflineSyncPeerMode mode,
     UuidValue? userId,
     bool once = false,
     OfflineSyncOnMergeSuccess? onMergeSuccess,
+    Duration? continuousSyncInterval,
   }) async* {
     await _ensureInitialized();
     final effectiveUserId = await _requireUserId(userId);
@@ -160,6 +175,7 @@ class OfflineSyncDatabase implements Database {
       once: once,
       onMergeSuccess: onMergeSuccess,
       mode: mode,
+      continuousSyncInterval: continuousSyncInterval,
     );
   }
 

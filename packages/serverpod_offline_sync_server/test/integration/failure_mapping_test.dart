@@ -279,6 +279,7 @@ class _FailingEngine implements OfflineSyncEngine {
     required OfflineSyncPeerMode mode,
     bool once = false,
     OfflineSyncOnMergeSuccess? onMergeSuccess,
+    Duration? continuousSyncInterval,
   }) async* {
     yield OfflineSyncEndOfBatch();
     yield* Stream<OfflineSyncStreamEvent>.error(_error);
