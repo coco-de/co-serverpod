@@ -18,7 +18,7 @@ import '../hlc/hlc.dart';
 ///   before, gets a new node. Its clock starts at the later of the shared
 ///   node's clock and the latest timestamp stored in the space: the reverse of
 ///   the device move, so neither move lets a node issue a timestamp at or below
-///   one the space already holds.
+///   one the space already holds. Of the spaces on one node, the last keeps it.
 class OfflineSyncSpaceManager {
   /// Creates a [OfflineSyncSpaceManager] bound to a database session.
   ///
@@ -55,11 +55,19 @@ class OfflineSyncSpaceManager {
   ///
   /// Will create a new [OfflineSyncSpace] if no space is found.
   Future<OfflineSyncSpace> getOrCreate(UuidValue uuidSpaceId) async {
-    return _instances[uuidSpaceId] ??= await _session.db.transaction(
-      (transaction) => _databaseContext.assignsNodePerSpace
-          ? _getOrCreateWithOwnNode(uuidSpaceId, transaction)
-          : _getOrCreateOnSharedNode(uuidSpaceId, transaction),
+    final cached = _instances[uuidSpaceId];
+    if (cached != null) return cached;
+    if (!_databaseContext.assignsNodePerSpace) {
+      return _instances[uuidSpaceId] = await _session.db.transaction(
+        (transaction) => _getOrCreateOnSharedNode(uuidSpaceId, transaction),
+      );
+    }
+    final space = await _session.db.transaction(
+      (transaction) => _getOrCreateWithOwnNode(uuidSpaceId, transaction),
     );
+    // Committed, so the space holds its node alone from now on.
+    _databaseContext.rememberSpaceOwnsNode(space.id!, space.currentNodeId!);
+    return _instances[uuidSpaceId] = space;
   }
 
   Future<OfflineSyncSpace?> _findSpace(
@@ -123,50 +131,76 @@ class OfflineSyncSpaceManager {
         OfflineSyncSpace(uuidSpaceId: uuidSpaceId),
         transaction: transaction,
       );
-      return _attachOwnNode(space, null, transaction);
+      return _attachOwnNode(space, const Uuid().v7obj(), null, null, transaction);
     }
-    if (await _ownsItsNode(space, transaction)) {
+    if (await _ownsItsNode(space, transaction, known: true)) {
       await _ensureSpaceNode(space.id!, space.currentNodeId!, transaction);
       return space;
     }
 
-    // Two sessions can get here for the same space at once. Lock its row and
-    // look again, so the later one keeps the node the earlier one attached
-    // instead of attaching a second one.
+    // Lock the space's row so no other session moves the space meanwhile.
+    // FOR NO KEY UPDATE, not FOR UPDATE: inserting a row that references the
+    // space takes FOR KEY SHARE on it, and a merge into the space doing so
+    // while it holds the shared node (a server of the version before, during a
+    // deploy) would otherwise wait on this lock while this one waits on the
+    // node.
     final spaceId = space.id!;
     await OfflineSyncSpace.db.lockRows(
       _session,
       where: (t) => t.id.equals(spaceId),
-      lockMode: LockMode.forUpdate,
+      lockMode: LockMode.forNoKeyUpdate,
       transaction: transaction,
     );
     space = (await _findSpace(uuidSpaceId, transaction))!;
-    if (await _ownsItsNode(space, transaction)) {
-      await _ensureSpaceNode(spaceId, space.currentNodeId!, transaction);
-      return space;
+
+    // Read before locking the node, so the scan does not hold up the merges
+    // of the other spaces on it. Nothing lands unseen in between: every write
+    // that stamps the space under the node holds the node's row lock and
+    // leaves the node's clock at or above its stamps, and the clock is read
+    // under the lock below.
+    final uuidNodeId = const Uuid().v7obj();
+    final storedHlc = await _latestStoredHlc(spaceId, uuidNodeId, transaction);
+    final currentNodeId = space.currentNodeId;
+    if (currentNodeId == null) {
+      return _attachOwnNode(space, uuidNodeId, storedHlc, null, transaction);
     }
 
-    final currentNodeId = space.currentNodeId;
-    // Lock the node the space leaves as well: an in-flight write on it may
-    // still stamp this space, and the new clock has to start after it.
-    final sharedNode = currentNodeId == null
-        ? null
-        : await CrdtNode.db.findById(
-            _session,
-            currentNodeId,
-            transaction: transaction,
-            lockMode: LockMode.forUpdate,
-          );
-    return _attachOwnNode(space, sharedNode, transaction);
+    // Lock the node the space would leave as well: an in-flight write on it
+    // may still stamp this space, and a new clock has to start after it.
+    final node = await CrdtNode.db.findById(
+      _session,
+      currentNodeId,
+      transaction: transaction,
+      lockMode: LockMode.forUpdate,
+    );
+    if (node == null) throw StateError('CRDT node $currentNodeId is missing.');
+    space = space.copyWith(currentNode: node);
+
+    // Look again under the node's lock. Another session may have attached a
+    // node of its own to this space meanwhile, or moved the other spaces off
+    // this node: then the node stays with this space, and no two sessions give
+    // one space two nodes or leave a node without a space.
+    if (await _ownsItsNode(space, transaction)) {
+      await _ensureSpaceNode(spaceId, currentNodeId, transaction);
+      return space;
+    }
+    return _attachOwnNode(space, uuidNodeId, storedHlc, node, transaction);
   }
 
   /// Whether [space] has a node and no other space points at that node.
+  ///
+  /// With [known], a pair [OfflineSyncDatabaseContext.knowsSpaceOwnsNode]
+  /// holds skips the query, which scans `offline_sync_spaces`.
   Future<bool> _ownsItsNode(
     OfflineSyncSpace space,
-    Transaction transaction,
-  ) async {
+    Transaction transaction, {
+    bool known = false,
+  }) async {
     final nodeId = space.currentNodeId;
     if (nodeId == null || space.currentNode == null) return false;
+    if (known && _databaseContext.knowsSpaceOwnsNode(space.id!, nodeId)) {
+      return true;
+    }
     final sharing = await OfflineSyncSpace.db.findFirstRow(
       _session,
       where: (t) => t.currentNodeId.equals(nodeId) & t.id.notEquals(space.id),
@@ -175,29 +209,30 @@ class OfflineSyncSpaceManager {
     return sharing == null;
   }
 
-  /// Attaches a new node to [space], replacing [sharedNode] when given.
+  /// Attaches a new node [uuidNodeId] to [space], replacing [sharedNode] when
+  /// given.
   ///
-  /// The new clock starts at the later of [sharedNode]'s clock and the latest
-  /// timestamp stored in the space, never at the wall clock. A device of this
-  /// space may have pushed a timestamp ahead of the wall clock that the shared
-  /// clock took in. Starting lower would let the next server write in the
-  /// space take a smaller timestamp and lose LWW to it, although it came
-  /// later. This mirrors [_preserveLatestCurrentNodeHlc], which moves a
+  /// The new clock starts at the later of [sharedNode]'s clock and [storedHlc],
+  /// the latest timestamp stored in the space, never at the wall clock. A
+  /// device of this space may have pushed a timestamp ahead of the wall clock
+  /// that the shared clock took in. Starting lower would let the next server
+  /// write in the space take a smaller timestamp and lose LWW to it, although
+  /// it came later. This mirrors [_preserveLatestCurrentNodeHlc], which moves a
   /// device's space the other way, onto the shared node.
   Future<OfflineSyncSpace> _attachOwnNode(
     OfflineSyncSpace space,
+    UuidValue uuidNodeId,
+    Hlc? storedHlc,
     CrdtNode? sharedNode,
     Transaction transaction,
   ) async {
-    final uuidNodeId = const Uuid().v7obj();
-    final storedHlc = await _latestStoredHlc(space.id!, uuidNodeId, transaction);
-    final initialHlc = sharedNode?.lastHlc
-        ?.copyWith(nodeId: uuidNodeId)
-        .maxBetween(storedHlc);
-
+    final sharedHlc = sharedNode?.lastHlc?.copyWith(nodeId: uuidNodeId);
     final node = await CrdtNode.db.insertRow(
       _session,
-      CrdtNode(uuidNodeId: uuidNodeId, lastHlc: initialHlc ?? storedHlc),
+      CrdtNode(
+        uuidNodeId: uuidNodeId,
+        lastHlc: sharedHlc?.maxBetween(storedHlc) ?? storedHlc,
+      ),
       transaction: transaction,
     );
     await OfflineSyncSpace.db.attachRow.currentNode(

@@ -23,13 +23,17 @@ import 'support/sync_harness.dart';
 /// | Case | Expected |
 /// |---|---|
 /// | Server and device | A node per server space · one node on the device |
+/// | A persistent user on a server's context | `StateError` |
+/// | A database without a persistent user on a device's context | The device's one node |
 /// | A follower sync without a persistent user | `StateError` |
 /// | A space A device pushes a stamp 59 minutes ahead | A server write for space B stays within a minute of the wall clock |
 /// | A space B device five minutes behind | Syncs without `clockDriftBehind` |
 /// | A sibling device of space A five minutes behind | `clockDriftBehind` (the residual, C = S) |
 /// | Space A exhausts its counter | Server writes for space B still succeed |
-/// | A space leaves a shared node | Its clock starts at max(shared clock, stored stamps) |
+/// | A space leaves a shared node | Its clock starts at max(shared clock, stored stamps), field and tombstone stamps included · no echo, no resend |
 /// | One session over two spaces | Two server nodes, no echo, no resend |
+/// | The same over a database written with one node (upstream) | No echo, no resend, whichever space leaves the node |
+/// | A checkpoint stored under another node's id (upstream) | Replaced after one resend |
 void main() {
   late Directory tempDir;
   final client = Client('http://localhost:1/');
@@ -42,6 +46,7 @@ void main() {
   const fiveMinutes = Duration(minutes: 5);
   const thirtyMinutes = Duration(minutes: 30);
   const fiftyNineMinutes = Duration(minutes: 59);
+  const oneHour = Duration(hours: 1);
 
   setUpAll(() async {
     tempDir = await Directory.systemTemp.createTemp('offline_sync_space_node_');
@@ -112,6 +117,53 @@ void main() {
     return space!;
   }
 
+  /// Syncs [device] once with [server] as [userId], and returns the changes
+  /// the device sent and the ones it received.
+  Future<({List<CrdtMergeChange> sent, List<CrdtMergeChange> received})>
+  syncRecorded(
+    OfflineSyncDatabaseSession server,
+    UuidValue userId,
+    OfflineSyncDatabaseSession device,
+  ) async {
+    final sent = <CrdtMergeChange>[];
+    final received = <CrdtMergeChange>[];
+    await peerOf(
+      server,
+      userId: userId,
+      sent: sent,
+      mapServerStream: (stream) => stream.map((event) {
+        if (event is OfflineSyncMergeChunk) received.addAll(event.changes);
+        return event;
+      }),
+    ).syncOnce(device);
+    return (sent: sent, received: received);
+  }
+
+  /// Points the spaces [spaceIds] of [server] at one new node whose clock is
+  /// at [sharedAt], as a server database written before unibook#14218 has
+  /// them, and drops the cached spaces, as a restart onto it would.
+  Future<CrdtNode> shareOneNode(
+    OfflineSyncDatabaseSession server,
+    List<UuidValue> spaceIds,
+    DateTime sharedAt,
+  ) async {
+    final sharedUuid = const Uuid().v7obj();
+    final shared = await CrdtNode.db.insertRow(
+      server,
+      CrdtNode(uuidNodeId: sharedUuid, lastHlc: Hlc(sharedAt, 0, sharedUuid)),
+    );
+    for (final spaceId in spaceIds) {
+      final space = await spaceOf(server, spaceId);
+      await OfflineSyncSpace.db.updateRow(
+        server,
+        space.copyWith(currentNodeId: shared.id),
+        columns: (t) => [t.currentNodeId],
+      );
+    }
+    await server.db.initialize();
+    return shared;
+  }
+
   group('Given a server and a device,', () {
     test(
       'should_give_each_server_space_its_own_node_and_keep_one_node_on_the_device',
@@ -136,6 +188,76 @@ void main() {
         expect(serverNodes, hasLength(2));
         expect(await CrdtNode.db.count(server), 2);
         expect(sharedNode, personalNode);
+      },
+    );
+
+    // The first database to use a context decides how it gives out nodes, for
+    // good. A server's context refuses a device database instead of quietly
+    // moving every space of the server back onto one node.
+    test(
+      'should_refuse_a_persistent_user_on_a_context_that_gave_its_spaces_a_node_each',
+      () async {
+        final plain = await client.createSession(newPath());
+        addTearDown(plain.close);
+        final context = OfflineSyncDatabaseContext(
+          syncTables: syncTables,
+          serializationManager: plain.db.serializationManager,
+        );
+        final server = OfflineSyncDatabaseSession(
+          plain.db,
+          syncTables: syncTables,
+          context: context,
+        );
+        await server.db.initialize();
+        final userA = const Uuid().v7obj();
+        final nodeA = await server.db.currentNodeId(userId: userA);
+
+        expect(
+          () => OfflineSyncDatabaseSession(
+            plain.db,
+            syncTables: syncTables,
+            context: context,
+            persistentUserId: userA,
+          ),
+          throwsStateError,
+        );
+        expect(
+          await server.db.currentNodeId(userId: const Uuid().v7obj()),
+          isNot(nodeA),
+          reason: 'the server still gives every space its own node',
+        );
+      },
+    );
+
+    // A device's own merges run on databases without a persistent user that
+    // share its context. They keep the install's one node.
+    test(
+      'should_keep_the_device_node_for_a_database_without_a_persistent_user_on_its_context',
+      () async {
+        final plain = await client.createSession(newPath());
+        addTearDown(plain.close);
+        final context = OfflineSyncDatabaseContext(
+          syncTables: syncTables,
+          serializationManager: plain.db.serializationManager,
+        );
+        final userId = const Uuid().v7obj();
+        final device = OfflineSyncDatabaseSession(
+          plain.db,
+          syncTables: syncTables,
+          context: context,
+          persistentUserId: userId,
+        );
+        await device.db.initialize();
+        final wrapper = OfflineSyncDatabaseSession(
+          plain.db,
+          syncTables: syncTables,
+          context: context,
+        );
+
+        expect(
+          await wrapper.db.currentNodeId(userId: const Uuid().v7obj()),
+          await device.db.currentNodeId(),
+        );
       },
     );
 
@@ -313,25 +435,11 @@ void main() {
         await at(t0, () => peerOf(server, userId: userA).syncOnce(deviceA));
         await at(t0, () => serverWrite(server, userB, 'b'));
         await at(t0, () => serverWrite(server, userC, 'c'));
-
-        final sharedUuid = const Uuid().v7obj();
-        final shared = await CrdtNode.db.insertRow(
-          server,
-          CrdtNode(
-            uuidNodeId: sharedUuid,
-            lastHlc: Hlc(t0.add(thirtyMinutes), 0, sharedUuid),
-          ),
-        );
-        for (final userId in [userA, userB, userC]) {
-          final space = await spaceOf(server, userId);
-          await OfflineSyncSpace.db.updateRow(
-            server,
-            space.copyWith(currentNodeId: shared.id),
-            columns: (t) => [t.currentNodeId],
-          );
-        }
-        // Drop the cached spaces, as a restart onto this database would.
-        await server.db.initialize();
+        final shared = await shareOneNode(server, [
+          userA,
+          userB,
+          userC,
+        ], t0.add(thirtyMinutes));
 
         // Space A: its stored stamp (59 minutes) is later than the shared
         // clock (30 minutes).
@@ -349,11 +457,33 @@ void main() {
         final spaceA = await spaceOf(server, userA);
         expect(spaceA.currentNodeId, isNot(shared.id));
         expect(spaceA.currentNode!.lastHlc!.datetime, t0.add(fiftyNineMinutes));
-        await at(t0, () => peerOf(server, userId: userA).syncOnce(deviceA));
+        // The device sends nothing back and receives only the server's edit,
+        // under the space's new node. These syncs run once the wall clock has
+        // passed every stamp: until then each peer's handshake reports its own
+        // changes up to the wall clock only, and changes stamped ahead of it
+        // go back and forth whether or not a space moved.
+        final afterSplit = await at(
+          t0.add(oneHour),
+          () => syncRecorded(server, userA, deviceA),
+        );
         expect(
           (await Note.db.findById(deviceA, deviceNote.id!))!.title,
           'server',
           reason: 'the later server edit wins LWW on the device',
+        );
+        expect(afterSplit.sent, isEmpty);
+        expect(afterSplit.received.map((change) => change.uuidNodeId), [
+          spaceA.currentNode!.uuidNodeId,
+        ]);
+        final settled = await at(
+          t0.add(oneHour),
+          () => syncRecorded(server, userA, deviceA),
+        );
+        expect(settled.sent, isEmpty);
+        expect(
+          settled.received,
+          isEmpty,
+          reason: 'the server resends nothing it already sent',
         );
 
         // Space C: the shared clock (30 minutes) is later than its stored
@@ -377,11 +507,98 @@ void main() {
             where: (t) =>
                 t.spaceId.equals(space.id) & t.nodeId.equals(shared.id),
           );
-          expect(
-            retired?.lastReceivedHlc,
-            Hlc(t0.add(thirtyMinutes), 0, sharedUuid),
-          );
+          expect(retired?.lastReceivedHlc, shared.lastHlc);
         }
+      },
+    );
+
+    // A row's stamp is its insert's. An update stores a field stamp and a
+    // delete a tombstone stamp, each on its own, so a space whose latest
+    // stamp is one of those has it only there.
+    test(
+      'should_start_a_leaving_space_after_its_latest_field_and_tombstone_stamps',
+      () async {
+        final updater = const Uuid().v7obj();
+        final deleter = const Uuid().v7obj();
+        final keeper = const Uuid().v7obj();
+        final server = await openServer();
+        final updaterDevice = await openDevice(updater);
+        final deleterDevice = await openDevice(deleter);
+        // Both notes are inserted at the wall clock, then updated and deleted
+        // 59 minutes ahead of it.
+        final updated = await at(t0, () {
+          return Note.db.insertRow(updaterDevice, Note(title: 'device'));
+        });
+        final deleted = await at(t0, () {
+          return Note.db.insertRow(deleterDevice, Note(title: 'device'));
+        });
+        await at(
+          t0,
+          () => peerOf(server, userId: updater).syncOnce(updaterDevice),
+        );
+        await at(
+          t0,
+          () => peerOf(server, userId: deleter).syncOnce(deleterDevice),
+        );
+        await at(t0.add(fiftyNineMinutes), () {
+          return Note.db.updateRow(
+            updaterDevice,
+            updated.copyWith(title: 'device edit'),
+          );
+        });
+        await at(t0.add(fiftyNineMinutes), () {
+          return Note.db.deleteRow(deleterDevice, deleted);
+        });
+        await at(
+          t0,
+          () => peerOf(server, userId: updater).syncOnce(updaterDevice),
+        );
+        await at(
+          t0,
+          () => peerOf(server, userId: deleter).syncOnce(deleterDevice),
+        );
+        await at(t0, () => serverWrite(server, keeper, 'keeper'));
+        await shareOneNode(server, [
+          updater,
+          deleter,
+          keeper,
+        ], t0.add(thirtyMinutes));
+
+        // The update's field stamp (59 minutes) is the latest in its space.
+        await at(t0, () {
+          return server.db.transactionForUser(
+            updater,
+            (transaction) => Note.db.updateById(
+              server,
+              updated.id!,
+              columnValues: (t) => [t.title('server')],
+              transaction: transaction,
+            ),
+          );
+        });
+        expect(
+          (await spaceOf(server, updater)).currentNode!.lastHlc!.datetime,
+          t0.add(fiftyNineMinutes),
+        );
+        await at(
+          t0,
+          () => peerOf(server, userId: updater).syncOnce(updaterDevice),
+        );
+        expect(
+          (await Note.db.findById(updaterDevice, updated.id!))!.title,
+          'server',
+          reason: 'the later server edit wins LWW on the device',
+        );
+
+        // The delete's tombstone stamp (59 minutes) is the latest in its
+        // space.
+        final inDeleter = await at(t0, () {
+          return serverWrite(server, deleter, 'server');
+        });
+        expect(
+          (await insertStampOf(server, inDeleter)).datetime,
+          t0.add(fiftyNineMinutes),
+        );
       },
     );
   });
@@ -499,6 +716,190 @@ void main() {
             ),
             isTrue,
           );
+        },
+      );
+    },
+  );
+
+  // A server database written before unibook#14218 ran a user's personal and
+  // shared space on one node. After the split one of them keeps that node and
+  // the other gets a new one, so the connect frame can name the node that also
+  // wrote the other space's history. Every checkpoint is kept per space and
+  // node, so either way no change goes back and none is sent twice.
+  group(
+    'Given a server database written with one node for every space (upstream),',
+    () {
+      for (final sharedLeavesFirst in [true, false]) {
+        final leaving = sharedLeavesFirst ? 'shared' : 'personal';
+        test(
+          'should_sync_a_personal_and_a_shared_space_without_echo_or_resend_when_the_${leaving}_space_leaves_the_node_first',
+          () async {
+            final userId = const Uuid().v7obj();
+            final sharedSpaceId = const Uuid().v7obj();
+            final path = newPath();
+            // A database opened with a persistent user gives out nodes as
+            // upstream did everywhere: one for every space.
+            final upstream = OfflineSyncDatabaseSession.wraps(
+              await client.createSession(path),
+              syncTables: syncTables,
+              persistentUserId: userId,
+            );
+            await upstream.db.initialize();
+            final sharedSpace = await OfflineSyncSpace.db.insertRow(
+              upstream,
+              OfflineSyncSpace(uuidSpaceId: sharedSpaceId),
+            );
+            await OfflineSyncSpaceMember.db.insertRow(
+              upstream,
+              OfflineSyncSpaceMember(
+                spaceId: sharedSpace.id!,
+                userUuid: userId,
+                role: OfflineSyncSpaceRole.readWrite,
+              ),
+            );
+            await Note.db.insertRow(
+              upstream,
+              Note(title: 'personal, upstream'),
+            );
+            await upstream.db.transactionForUser(
+              userId,
+              (transaction) => Note.db.insertRow(
+                upstream,
+                Note(title: 'shared, upstream'),
+                transaction: transaction,
+              ),
+              spaceId: sharedSpaceId,
+            );
+            final upstreamNode = await upstream.db.currentNodeId();
+            await upstream.close();
+
+            final server = OfflineSyncDatabaseSession.wraps(
+              await client.createSession(path),
+              syncTables: syncTables,
+            );
+            addTearDown(server.close);
+            await server.db.initialize();
+            Future<void> writeShared(String title) =>
+                server.db.transactionForUser(
+                  userId,
+                  (transaction) => Note.db.insertRow(
+                    server,
+                    Note(title: title),
+                    transaction: transaction,
+                  ),
+                  spaceId: sharedSpaceId,
+                );
+            if (sharedLeavesFirst) {
+              await writeShared('shared, server');
+            } else {
+              await serverWrite(server, userId, 'personal, server');
+            }
+            final device = await openDevice(userId);
+            final deviceNodeId = await device.db.currentNodeId();
+
+            final first = await syncRecorded(server, userId, device);
+
+            final personalNode = (await spaceOf(
+              server,
+              userId,
+            )).currentNode!.uuidNodeId;
+            final sharedNode = (await spaceOf(
+              server,
+              sharedSpaceId,
+            )).currentNode!.uuidNodeId;
+            expect(
+              sharedLeavesFirst ? personalNode : sharedNode,
+              upstreamNode,
+              reason: 'the space that stays keeps the upstream node',
+            );
+            expect(
+              sharedLeavesFirst ? sharedNode : personalNode,
+              isNot(upstreamNode),
+            );
+            expect(await Note.db.count(device), 3);
+            expect(first.sent, isEmpty);
+
+            await Note.db.insertRow(device, Note(title: 'personal, device'));
+            await device.db.transactionForUser(
+              userId,
+              (transaction) => Note.db.insertRow(
+                device,
+                Note(title: 'shared, device'),
+                transaction: transaction,
+              ),
+              spaceId: sharedSpaceId,
+            );
+            final second = await syncRecorded(server, userId, device);
+
+            expect(second.sent.map((change) => change.uuidNodeId), [
+              deviceNodeId,
+              deviceNodeId,
+            ], reason: 'the device sends no server change back');
+            expect(second.received, isEmpty);
+            expect(await Note.db.count(server), 5);
+
+            await serverWrite(server, userId, 'personal, server again');
+            await writeShared('shared, server again');
+            final third = await syncRecorded(server, userId, device);
+
+            expect(third.sent, isEmpty);
+            expect(third.received.map((change) => change.uuidNodeId).toSet(), {
+              personalNode,
+              sharedNode,
+            });
+            expect(third.received, hasLength(2));
+            expect(await Note.db.count(device), 7);
+
+            final fourth = await syncRecorded(server, userId, device);
+
+            expect(fourth.sent, isEmpty);
+            expect(fourth.received, isEmpty);
+          },
+        );
+      }
+
+      // Upstream recorded the batch maximum as the checkpoint of the peer's
+      // connect node, under the id of whichever node authored it. The
+      // handshake then named that node, and the connect node's changes went
+      // out again every session. Such a checkpoint gives way on the next
+      // resend.
+      test(
+        'should_replace_a_checkpoint_stored_under_another_nodes_id_after_one_resend',
+        () async {
+          final userId = const Uuid().v7obj();
+          final server = await openServer();
+          final device = await openDevice(userId);
+          await serverWrite(server, userId, 'from the server');
+          await peerOf(server, userId: userId).syncOnce(device);
+          final serverNodeId = (await spaceOf(
+            server,
+            userId,
+          )).currentNode!.uuidNodeId;
+          final checkpoint = (await OfflineSyncSpaceNode.db.findFirstRow(
+            device,
+            where: (t) => t.node.uuidNodeId.equals(serverNodeId),
+          ))!;
+          final received = checkpoint.lastReceivedHlc!;
+          await OfflineSyncSpaceNode.db.updateRow(
+            device,
+            checkpoint.copyWith(
+              lastReceivedHlc: Hlc(
+                received.datetime.add(const Duration(seconds: 1)),
+                0,
+                const Uuid().v7obj(),
+              ),
+            ),
+            columns: (t) => [t.lastReceivedHlc],
+          );
+
+          final resent = await syncRecorded(server, userId, device);
+          final settled = await syncRecorded(server, userId, device);
+
+          expect(resent.received.map((change) => change.uuidNodeId), [
+            serverNodeId,
+          ], reason: 'the handshake named the other node');
+          expect(settled.received, isEmpty);
+          expect(settled.sent, isEmpty);
         },
       );
     },

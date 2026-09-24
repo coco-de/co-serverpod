@@ -11,18 +11,32 @@
   already reference their node (`offline_sync_spaces.currentNodeId`).
   - A database opened without a persistent user (the server) assigns nodes per
     space. A device, opened with one, keeps one node for the install, shared by
-    its spaces as before. There is no setting:
-    `OfflineSyncDatabaseContext.assignsNodePerSpace` follows from how the
-    database is opened.
+    its spaces as before. There is no setting: the first database to use an
+    `OfflineSyncDatabaseContext` decides it for good
+    (`assignsNodePerSpace`), and a context that gave its spaces a node each
+    refuses a persistent user with `StateError` instead of moving every space
+    of the server back onto one node.
   - A space that still shares its node with another space (a server database
     written before) gets a new node on its next use. Its clock starts at the
     later of the shared node's clock and the latest timestamp stored in the
-    space, never at the wall clock, the reverse of the device move onto a
-    shared node. The space records the shared node's changes as held, so
-    devices do not send them back. The last space on the shared node keeps it.
-    Both moves only raise a clock, so servers of the two versions side by side
-    during a deploy stay safe; a session that cached the space before its move
-    stamps with the old node until it ends.
+    space (row, field and tombstone stamps), never at the wall clock, the
+    reverse of the device move onto a shared node. The space records the
+    shared node's changes as held, so devices do not send them back. The move
+    locks the space's row `FOR NO KEY UPDATE`, which a merge that only
+    references the space does not wait on, reads the stored stamps, then locks
+    the node and checks again: two sessions never give one space two nodes,
+    and of the spaces moving off a node at once the last keeps it.
+  - A server remembers, per context, the spaces it found holding their node
+    alone (at most 100,000, oldest out first). Checking scans
+    `offline_sync_spaces`, whose `currentNodeId` has no index, and a sync
+    session gets its spaces several times; now a process checks a space once.
+    An index would need a migration.
+  - Deploys: a server of the version before still moves spaces onto one node
+    (the first space's), and the two versions move spaces back and forth while
+    both run. Clocks only rise, so LWW stays correct, but for that window a
+    device can again pull the clock of other users' spaces. Do not run the two
+    versions side by side against one database. A session that cached a space
+    before its move also stamps with the old node until it ends.
   - A session over several spaces has one server node per space while the
     connect frame names one (the user's personal space's). Checkpoints are per
     space and node, so it stays consistent, and it is not rejected. A
@@ -32,7 +46,20 @@
   - Breaking: a follower sync on a database without a persistent user throws
     `StateError`. A follower is a device: its own checkpoints and unsent row
     count follow the one node its connect frame names.
+  - Breaking: a persistent user on a context that already gave its spaces a
+    node each throws `StateError`.
   - Breaking: `OfflineSyncSpaceManager` takes the `context`.
+
+- fix: The checkpoint a peer records for the other side's connect node holds
+  only that node's own changes (unibook#14218). Upstream recorded the batch
+  maximum, whichever node authored it, and the stored timestamp kept that
+  node's id: the next handshake named that node and left the connect node
+  without a checkpoint, so its changes in the space went out again every
+  session until it wrote a later one. With a server node per space, the node a
+  connect frame names can hold history in a space it no longer writes in (a
+  space that left a shared node), where that never happens. A checkpoint
+  stored under another node's id now gives way to the node's own changes, so
+  one already stored that way stops the resend after one more.
 
 - feat: Unsent row count for a device (unibook#14183). The protocol has no
   acknowledgement, so a device (follower) now keeps what the server confirmed

@@ -25,6 +25,16 @@ part 'merge.dart';
 
 typedef _CrdtSchema = Map<String, (int, Map<String, CrdtSchemaColumn>)>;
 
+/// How an [OfflineSyncDatabaseContext] gives out CRDT nodes, see
+/// [OfflineSyncDatabaseContext.assignsNodePerSpace].
+enum _NodeAssignment {
+  /// A device: one node for the install, shared by its spaces.
+  perInstall,
+
+  /// A server: a node for every space.
+  perSpace,
+}
+
 /// Process-level CRDT database metadata shared by ephemeral database wrappers.
 ///
 /// A single context is created per `OfflineSyncEngine` (i.e. once per Serverpod
@@ -130,30 +140,77 @@ class OfflineSyncDatabaseContext {
 
   /// Whether the databases of this context give every space its own CRDT node.
   ///
-  /// Fork (unibook#14218): true unless an [OfflineSyncDatabase] opened with a
-  /// persistent user uses this context. That is a device: one node is the
-  /// replica identity of the install and every space on it shares that node,
-  /// as upstream does everywhere. A database without a persistent user holds
-  /// many users (the server), and there one shared node meant that a device
-  /// clock pulling it ahead (up to [maxClockDrift]) moved the timestamps of the
-  /// server's writes for every other user too: those writes won LWW against
-  /// newer edits, other users' devices stopped with a remote-ahead drift, all
-  /// users drew on the one 65,535 counter, and every merge waited on the one
-  /// node row lock. With a node per space, a device can only move the clock of
-  /// its own space.
+  /// Fork (unibook#14218): a database opened with a persistent user is a
+  /// device. One node is the replica identity of the install and every space on
+  /// it shares that node, as upstream does everywhere. A database without a
+  /// persistent user holds many users (the server), and there one shared node
+  /// meant that a device clock pulling it ahead (up to [maxClockDrift]) moved
+  /// the timestamps of the server's writes for every other user too: those
+  /// writes won LWW against newer edits, other users' devices stopped with a
+  /// remote-ahead drift, all users drew on the one 65,535 counter, and every
+  /// merge waited on the one node row lock. With a node per space, a device can
+  /// only move the clock of its own space.
   ///
-  /// There is no setting for this. It follows from how the database is opened,
-  /// so a server cannot switch back to the shared node.
+  /// The first database to use this context decides it, for good. Opening one
+  /// with a persistent user ([bindPersistentUser]) makes it a device's, and
+  /// reading this before that makes it a server's, which gives every space its
+  /// own node from then on. A server's context refuses a persistent user: an
+  /// [OfflineSyncDatabase] opened with one on it throws [StateError] instead of
+  /// quietly moving every space of the server back onto one node. There is no
+  /// setting for this.
   @internal
-  bool get assignsNodePerSpace => !_hasPersistentUser;
-  var _hasPersistentUser = false;
+  bool get assignsNodePerSpace =>
+      (_nodeAssignment ??= _NodeAssignment.perSpace) == _NodeAssignment.perSpace;
+  _NodeAssignment? _nodeAssignment;
 
-  /// Marks this context as the one of a device, whose spaces share one node.
+  /// Makes this the context of a device, whose spaces share one node.
   ///
   /// Called by [OfflineSyncDatabase] when it is opened with a persistent user.
-  /// It never goes back: a context that served a device stays a device's.
+  /// Throws [StateError] when this context already gave its spaces a node each,
+  /// see [assignsNodePerSpace].
   @internal
-  void bindPersistentUser() => _hasPersistentUser = true;
+  void bindPersistentUser() {
+    if (_nodeAssignment == _NodeAssignment.perSpace) {
+      throw StateError(
+        'This context gives every space its own CRDT node, as a server does. '
+        'A database opened with a persistent user is a device, whose spaces '
+        'share one node: open it with a context of its own.',
+      );
+    }
+    _nodeAssignment = _NodeAssignment.perInstall;
+  }
+
+  /// Spaces known to hold their node alone, as (space id, node id).
+  ///
+  /// Only a server uses it (unibook#14218). Whether another space points at a
+  /// space's node is a scan of `offline_sync_spaces`, whose `currentNodeId` has
+  /// no index, and a sync session gets its spaces several times. A pair is
+  /// recorded once the transaction that confirmed it has committed, and stays
+  /// true: this fork never attaches a node that has a space to another space,
+  /// so only a space whose node changed needs a check again, and its pair no
+  /// longer matches. (A server of the version before, running side by side
+  /// during a deploy, can move another space onto a known node. That space
+  /// leaves again on its next use here, and the known space keeps the node, as
+  /// the last space on a shared node does.) Oldest out first beyond
+  /// [_maxSpacesOwningTheirNode].
+  final _spacesOwningTheirNode = <(int, int)>{};
+  static const _maxSpacesOwningTheirNode = 100000;
+
+  /// Whether the space [spaceId] is known to hold the node [nodeId] alone.
+  @internal
+  bool knowsSpaceOwnsNode(int spaceId, int nodeId) =>
+      _spacesOwningTheirNode.contains((spaceId, nodeId));
+
+  /// Records that the space [spaceId] holds the node [nodeId] alone.
+  ///
+  /// Call only after the transaction that established it has committed.
+  @internal
+  void rememberSpaceOwnsNode(int spaceId, int nodeId) {
+    if (!_spacesOwningTheirNode.add((spaceId, nodeId))) return;
+    if (_spacesOwningTheirNode.length > _maxSpacesOwningTheirNode) {
+      _spacesOwningTheirNode.remove(_spacesOwningTheirNode.first);
+    }
+  }
 
   final List<TableDefinition> _tableDefinitions;
 

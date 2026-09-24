@@ -54,6 +54,11 @@ class OfflineSyncDatabase implements Database {
     /// The user ID to use for all CRDT operations. This should only be used for
     /// databases operating on the client side, where all data is for the same user.
     /// Otherwise, the user ID must be passed through the transaction.
+    ///
+    /// It makes the database a device, whose spaces share one CRDT node. On a
+    /// `context` that already gives every space its own node, as a server's
+    /// does, it throws [StateError], see
+    /// [OfflineSyncDatabaseContext.assignsNodePerSpace].
     UuidValue? persistentUserId,
 
     /// The maximum clock drift, see [OfflineSyncDatabaseContext.maxClockDrift].
@@ -88,7 +93,9 @@ class OfflineSyncDatabase implements Database {
        ) {
     // Fork (unibook#14218): a persistent user makes this a device, whose
     // spaces share the install's node. Every other database gives each space
-    // its own node, see [OfflineSyncDatabaseContext.assignsNodePerSpace].
+    // its own node, see [OfflineSyncDatabaseContext.assignsNodePerSpace]. A
+    // context that already did so throws here rather than turn into a
+    // device's.
     if (persistentUserId != null) _context.bindPersistentUser();
   }
 

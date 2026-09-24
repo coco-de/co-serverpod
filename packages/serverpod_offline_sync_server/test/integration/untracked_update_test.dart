@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:serverpod/serverpod.dart';
 import 'package:serverpod_offline_sync_server/serverpod_offline_sync_server.dart';
 import 'package:test/test.dart';
@@ -8,16 +6,9 @@ import 'test_tools/embedded_postgres.dart';
 import 'test_tools/serverpod_test_tools.dart';
 
 void main() {
-  final serverDirectory = Directory(
-    '${Directory.systemTemp.path}/offline_sync_updates_${const Uuid().v4()}',
-  );
-  setUpAll(() async {
-    await preparePostgresMigrations(serverDirectory);
-  });
-
-  tearDownAll(() async {
-    if (serverDirectory.existsSync()) await serverDirectory.delete(recursive: true);
-  });
+  final postgres = TestPostgres('updates');
+  setUpAll(postgres.prepare);
+  tearDownAll(postgres.dispose);
 
   withServerpod(
     'PostgreSQL untracked updates with the database interceptor',
@@ -62,7 +53,7 @@ void main() {
       });
     },
     databaseInterceptor: offlineSyncDatabaseInterceptor,
-    serverDirectory: serverDirectory,
+    serverDirectory: postgres.serverDirectory,
     configOverride: (config) => config.copyWith(
       apiServer: ServerConfig(
         port: 0,
@@ -70,7 +61,7 @@ void main() {
         publicPort: 0,
         publicScheme: 'http',
       ),
-      database: embeddedPostgresConfig(),
+      database: postgres.config(),
     ),
   );
 }

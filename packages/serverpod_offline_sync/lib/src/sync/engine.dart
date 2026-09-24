@@ -217,7 +217,8 @@ class OfflineSyncEngine {
     );
   }
 
-  /// Merges a remote [mergeSet] and records the sync checkpoint for [otherNodeId].
+  /// Merges a remote [mergeSet] and records the sync checkpoint for [otherNodeId]
+  /// from its own changes in the set.
   ///
   /// Inbound merge applies each remote change, then materializes foreign-key
   /// projection into domain tables via [OfflineSyncDatabase.mergeChanges].
@@ -237,10 +238,23 @@ class OfflineSyncEngine {
     final maxSyncedHlc = mergeSet.maxHlc;
     final offlineSyncDb = _openOfflineSyncDatabase(session);
     await offlineSyncDb.mergeChanges(mergeSet, spaceId: spaceId);
-    if (maxSyncedHlc != null) {
+    // Fork (unibook#14218): the checkpoint of [otherNodeId] takes only its own
+    // changes. Upstream recorded the batch maximum whichever node authored it,
+    // and the stored timestamp kept that node's id, so the next handshake
+    // named that node and left [otherNodeId] without a checkpoint: all its
+    // changes in the space went out again every session until it wrote a
+    // later one. With a server node per space, the node a connect frame names
+    // can hold history in a space it no longer writes in (a space that left a
+    // shared node), where that never happens.
+    Hlc? maxOwnHlc;
+    for (final change in mergeSet) {
+      if (change.uuidNodeId != otherNodeId) continue;
+      maxOwnHlc = change.hlc.maxBetween(maxOwnHlc);
+    }
+    if (maxOwnHlc != null) {
       await offlineSyncDb.recordSyncCheckpoint(
         otherNodeId,
-        maxSyncedHlc,
+        maxOwnHlc,
         userId: spaceId,
       );
     }
