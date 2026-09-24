@@ -53,13 +53,19 @@ class OfflineSyncDatabase implements Database {
     /// databases operating on the client side, where all data is for the same user.
     /// Otherwise, the user ID must be passed through the transaction.
     UuidValue? persistentUserId,
+
+    /// The maximum clock drift, see [OfflineSyncDatabaseContext.maxClockDrift].
+    /// Configures the new context when `context` is null. When `context` is
+    /// given, a different value throws [ArgumentError].
+    Duration? maxClockDrift,
   }) : this._(
          delegate,
-         context ??
-             OfflineSyncDatabaseContext(
-               syncTables: syncTables,
-               serializationManager: delegate.serializationManager,
-             ),
+         OfflineSyncDatabaseContext.resolve(
+           context,
+           syncTables: syncTables,
+           serializationManager: delegate.serializationManager,
+           maxClockDrift: maxClockDrift,
+         ),
          syncTables: syncTables,
          syncBatchSize: syncBatchSize,
          continuousSyncInterval: continuousSyncInterval,
@@ -94,6 +100,10 @@ class OfflineSyncDatabase implements Database {
     continuousSyncInterval: _continuousSyncInterval,
     databaseContext: _context,
   );
+
+  /// The maximum clock drift this database accepts, see
+  /// [OfflineSyncDatabaseContext.maxClockDrift].
+  Duration get maxClockDrift => _context.maxClockDrift;
 
   /// Initializes the CRDT database.
   Future<void> initialize() async {

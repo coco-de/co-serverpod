@@ -4,9 +4,14 @@
 /// make an HLC test depend on when it runs.
 ///
 /// `Hlc.increment` and `Hlc.merge` compare against `clock.now()` and reject a
-/// timestamp that drifts more than a minute from it, so a fixture built from
-/// `DateTime.now()` only passes while the run is close to the moment the
-/// fixture was created. On a runner that re-executes tests in the same process
+/// timestamp that drifts more than their `maxDrift` from it (one hour by
+/// default, one minute upstream), so a fixture built from `DateTime.now()` only
+/// passes while the run is close to the moment the fixture was created.
+///
+/// [hlcTime] is aligned to a whole millisecond on purpose. `Hlc.increment`
+/// truncates the wall clock to milliseconds while `Hlc.merge` compares at
+/// microsecond precision, so a wall time with microseconds would blur the
+/// exact drift edges the tests pin. On a runner that re-executes tests in the same process
 /// that stops being true, since a top-level `final` is initialized once per
 /// isolate and can outlive the values derived from it.
 ///

@@ -1,3 +1,51 @@
+## Unreleased (co-serverpod fork)
+
+- feat: Configurable clock drift allowance (unibook#14182). Upstream hard-coded
+  one minute; the fork defaults to one hour (`Hlc.defaultMaxDrift`).
+  - `Hlc.increment` and `Hlc.merge` take `maxDrift`. The one-minute literal in
+    `increment` is gone, so both checks share one limit and a timestamp `merge`
+    accepts no longer blocks the next local write. The local clock rollback
+    check in `increment` stays as upstream.
+  - `OfflineSyncDatabaseContext.maxClockDrift` (must be positive) holds the
+    value; `OfflineSyncEngine`, `OfflineSyncDatabase` and
+    `OfflineSyncDatabaseSession` (+ `.wraps`) take `maxClockDrift` and throw
+    `ArgumentError` when it conflicts with a shared context or an already
+    wrapped database. `HlcManager.forSpace(maxDrift:)` applies it.
+  - BREAKING: `ClockDriftException` requires `kind` (`ClockDriftKind.remoteAhead`
+    from `merge`, `localAhead` from `increment`) and carries `remoteNodeId`. Its
+    `toString` no longer prints "ms" after a `Duration`, and keeps a
+    sub-millisecond part (`3600000.600 ms`) instead of truncating it to the
+    limit.
+- fix: A merge bounds this node's own returning timestamps by the drift limit
+  (`Hlc.adoptOwn`, `HlcManager.adoptOwn`). Upstream checked only the batch
+  maximum and adopted it unchecked when it carried the receiver's node id, so a
+  peer sending one change under the server's node id moved the clock every
+  space shares arbitrarily far ahead and let the rest of the batch skip the
+  check. The other nodes' maximum is now merged (and checked) first.
+- feat: Typed sync failures on the wire. Serverpod forwards only
+  `SerializableException`s from a streaming endpoint, so a server-side
+  `ClockDriftException` reached the device as a plain connection error.
+  - New models `OfflineSyncRemoteException` (`code`, `message`, `driftMs`,
+    `maxDriftMs`) and `OfflineSyncFailureCode` (`clockDrift`,
+    `serverClockDrift`, `hlcOverflow`, `duplicateNode`, `integrityViolation`,
+    `unknown`). The enum decodes a code it does not know as `unknown`
+    (`default: unknown`): throwing instead would make Serverpod's client close
+    the whole WebSocket connection when a newer server adds a code.
+  - `driftMs` is rounded up and `maxDriftMs` truncated, so a rejected drift
+    always has `driftMs > maxDriftMs` (`merge` compares at microseconds).
+  - `toOfflineSyncWireError` and the `offlineSyncWireErrors()` stream
+    transformer map server-side failures and pass anything else through. A
+    schema hash mismatch is not mapped.
+  - An integrity violation reaches the device as a fixed message without
+    identifiers. The server message names the space that owns the row, which
+    for a personal space is another user's id, and the persisted violation id.
+    `offlineSyncWireErrors(onMapped:)` hands the original to the caller, after
+    the replacement is emitted, so the server can log it.
+  - A build that predates `OfflineSyncRemoteException` cannot decode it, and
+    Serverpod's client then closes the whole WebSocket connection: `unknown`
+    covers new codes, not new classes. Ship apps that know a new wire class
+    before the server sends it.
+
 ## 0.0.8+co.1 (co-serverpod fork)
 
 Forked from upstream

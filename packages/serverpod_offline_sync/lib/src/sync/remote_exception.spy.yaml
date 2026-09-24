@@ -1,0 +1,25 @@
+### A sync failure the server sends to the device in place of an exception
+### whose type Serverpod would drop on the wire.
+###
+### Serverpod forwards only `SerializableException`s thrown by a streaming
+### endpoint. Any other exception closes the stream and reaches the device as a
+### plain connection error, indistinguishable from a network failure. The
+### server facade `OfflineSyncSession.sync` maps known sync failures to this
+### exception, see `toOfflineSyncWireError`.
+exception: OfflineSyncRemoteException
+fields:
+  ### Why the round failed.
+  code: OfflineSyncFailureCode
+
+  ### The server-side exception message, for logs and diagnostics. For
+  ### `integrityViolation` it is a fixed text without identifiers: the original
+  ### names the space that owns the row, which can be another user's. The server
+  ### log keeps the original.
+  message: String
+
+  ### How far the rejected clock was ahead of the server wall clock, in
+  ### milliseconds. Set for the clock drift codes.
+  driftMs: int?
+
+  ### The server's maxClockDrift in milliseconds. Set for the clock drift codes.
+  maxDriftMs: int?

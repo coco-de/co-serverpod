@@ -6,6 +6,7 @@ import 'package:serverpod_serialization/serverpod_serialization.dart';
 import '../crdt/extensions.dart';
 import '../crdt/merge.dart';
 import '../generated/protocol.dart';
+import '../hlc/exceptions.dart';
 import '../hlc/hlc.dart';
 import '../managers/hlc.dart';
 import '../sync/engine.dart';
@@ -38,13 +39,90 @@ typedef _CrdtSchema = Map<String, (int, Map<String, CrdtSchemaColumn>)>;
 /// must be created.
 class OfflineSyncDatabaseContext {
   /// Creates a [OfflineSyncDatabaseContext] for the configured synchronized tables.
+  ///
+  /// Throws [ArgumentError] when [maxClockDrift] is not greater than zero.
   OfflineSyncDatabaseContext({
     required this.syncTables,
     required DatabaseSerializationManager serializationManager,
-  }) : _tableDefinitions = serializationManager.getTargetTableDefinitions();
+    this.maxClockDrift = Hlc.defaultMaxDrift,
+  }) : _tableDefinitions = serializationManager.getTargetTableDefinitions() {
+    if (maxClockDrift <= Duration.zero) {
+      throw ArgumentError.value(
+        maxClockDrift,
+        'maxClockDrift',
+        'Must be greater than zero',
+      );
+    }
+  }
+
+  /// Returns [context], or a new context for [syncTables] when it is null.
+  ///
+  /// [maxClockDrift] configures the new context. When [context] is given, a
+  /// [maxClockDrift] that differs from [OfflineSyncDatabaseContext.maxClockDrift]
+  /// throws [ArgumentError] instead of being silently ignored.
+  @internal
+  static OfflineSyncDatabaseContext resolve(
+    OfflineSyncDatabaseContext? context, {
+    required List<Table> syncTables,
+    required DatabaseSerializationManager serializationManager,
+    Duration? maxClockDrift,
+  }) {
+    if (context == null) {
+      return OfflineSyncDatabaseContext(
+        syncTables: syncTables,
+        serializationManager: serializationManager,
+        maxClockDrift: maxClockDrift ?? Hlc.defaultMaxDrift,
+      );
+    }
+    checkMaxClockDrift(context.maxClockDrift, maxClockDrift);
+    return context;
+  }
+
+  /// Throws [ArgumentError] when [requested] is set and differs from [actual].
+  @internal
+  static void checkMaxClockDrift(Duration actual, Duration? requested) {
+    if (requested != null && requested != actual) {
+      throw ArgumentError.value(
+        requested,
+        'maxClockDrift',
+        'Conflicts with the maxClockDrift of the shared context ($actual)',
+      );
+    }
+  }
 
   /// The list of tables to sync with CRDT.
   final List<Table> syncTables;
+
+  /// The maximum clock drift this database accepts, defaulting to
+  /// [Hlc.defaultMaxDrift].
+  ///
+  /// Every CRDT timestamp this database issues or merges is checked against it:
+  ///
+  /// * A merged remote timestamp more than this far ahead of the local wall
+  ///   clock throws [ClockDriftException] with [ClockDriftKind.remoteAhead].
+  /// * A local write whose timestamp would be more than this far ahead of the
+  ///   local wall clock (the wall clock moved back) throws
+  ///   [ClockDriftException] with [ClockDriftKind.localAhead].
+  ///
+  /// On a server this is also how far one device's clock can pull the shared
+  /// server node ahead, so a device's value (C) should exceed the server's (S)
+  /// by at least how far a device clock may lag the server clock: C ≥ S + lag.
+  /// A device that is behind the server by any lag rejects server timestamps
+  /// another device pulled a full S ahead, so C = S only holds for devices
+  /// whose clock is not behind the server's.
+  ///
+  /// The node's last timestamp is persisted. Lowering this value while that
+  /// timestamp is ahead of the wall clock by more than the new value blocks
+  /// every local CRDT write on the node with [ClockDriftKind.localAhead] until
+  /// the wall clock catches up, for up to the old value. On a server that is
+  /// every user's synced write. Check how far the current `crdt_nodes.lastHlc`
+  /// is ahead of the wall clock before lowering it, or lower it in steps.
+  ///
+  /// While the node's clock stays ahead of the wall clock, every timestamp it
+  /// issues reuses the same instant and only increments the counter, which
+  /// overflows after 65,535 timestamps ([OverflowException]); an update takes
+  /// one per changed field. A larger value lets the clock stay ahead longer.
+  final Duration maxClockDrift;
 
   final List<TableDefinition> _tableDefinitions;
 

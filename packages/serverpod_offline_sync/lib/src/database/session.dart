@@ -28,8 +28,14 @@ class OfflineSyncDatabaseSession implements DatabaseSession {
     /// databases operating on the client side, where all data is for the same user.
     /// Otherwise, the user ID must be passed through the transaction.
     UuidValue? persistentUserId,
+
+    /// The maximum clock drift, see [OfflineSyncDatabaseContext.maxClockDrift].
+    /// Configures the new context when `context` is null. A value that differs
+    /// from the one of `context`, or of an already wrapped `db`, throws
+    /// [ArgumentError].
+    Duration? maxClockDrift,
   }) : _db = db is OfflineSyncDatabase
-           ? db
+           ? _checkWrappedMaxClockDrift(db, maxClockDrift)
            : OfflineSyncDatabase(
                db,
                syncTables: syncTables,
@@ -37,6 +43,7 @@ class OfflineSyncDatabaseSession implements DatabaseSession {
                syncBatchSize: syncBatchSize,
                continuousSyncInterval: continuousSyncInterval,
                persistentUserId: persistentUserId,
+               maxClockDrift: maxClockDrift,
              );
 
   /// Creates a [OfflineSyncDatabaseSession] instance that wraps a [DatabaseSession].
@@ -59,6 +66,13 @@ class OfflineSyncDatabaseSession implements DatabaseSession {
     /// databases operating on the client side, where all data is for the same user.
     /// Otherwise, the user ID must be passed through the transaction.
     UuidValue? persistentUserId,
+
+    /// The maximum clock drift, see [OfflineSyncDatabaseContext.maxClockDrift].
+    ///
+    /// The generated `createSyncSession` does not forward this argument. To
+    /// change it on a client, open the session with this factory instead and
+    /// call `session.db.initialize()` afterwards.
+    Duration? maxClockDrift,
   }) => OfflineSyncDatabaseSession(
     session.db,
     syncTables: syncTables,
@@ -66,7 +80,16 @@ class OfflineSyncDatabaseSession implements DatabaseSession {
     syncBatchSize: syncBatchSize,
     continuousSyncInterval: continuousSyncInterval,
     persistentUserId: persistentUserId,
+    maxClockDrift: maxClockDrift,
   ).._wrappedSession = session;
+
+  static OfflineSyncDatabase _checkWrappedMaxClockDrift(
+    OfflineSyncDatabase db,
+    Duration? maxClockDrift,
+  ) {
+    OfflineSyncDatabaseContext.checkMaxClockDrift(db.maxClockDrift, maxClockDrift);
+    return db;
+  }
 
   final OfflineSyncDatabase _db;
   DatabaseSession? _wrappedSession;

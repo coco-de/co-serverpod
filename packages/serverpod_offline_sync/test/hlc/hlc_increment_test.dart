@@ -54,13 +54,50 @@ void main() {
     });
   });
 
-  group('Given an HLC with canonical time more than one minute ahead of wall time', () {
-    final hlc = Hlc(hlcTime.add(const Duration(minutes: 1, seconds: 5)), 0, hlcNodeId);
+  // Upstream rejected this HLC: its limit was one minute. The fork defaults to
+  // Hlc.defaultMaxDrift (one hour), so the upstream case now succeeds and the
+  // rejection moves to the one-hour edge below.
+  group(
+    'Given an HLC with canonical time one minute and five seconds ahead of wall time',
+    () {
+      final hlc = Hlc(
+        hlcTime.add(const Duration(minutes: 1, seconds: 5)),
+        0,
+        hlcNodeId,
+      );
+      final wallTime = hlcTime;
+
+      test(
+        'when incrementing with the default drift then the counter increments '
+        '(upstream threw ClockDriftException).',
+        () {
+          atWallTime(wallTime, () {
+            final sendHlc = hlc.increment();
+
+            expect(sendHlc.datetime, hlc.datetime);
+            expect(sendHlc.counter, 1);
+          });
+        },
+      );
+    },
+  );
+
+  group('Given an HLC with canonical time more than one hour ahead of wall time', () {
+    final hlc = Hlc(hlcTime.add(Hlc.defaultMaxDrift).advance(), 0, hlcNodeId);
     final wallTime = hlcTime;
 
     test('when incrementing then ClockDriftException is thrown.', () {
       atWallTime(wallTime, () {
-        expect(hlc.increment, throwsA(isA<ClockDriftException>()));
+        expect(
+          hlc.increment,
+          throwsA(
+            isA<ClockDriftException>().having(
+              (e) => e.kind,
+              'kind',
+              ClockDriftKind.localAhead,
+            ),
+          ),
+        );
       });
     });
   });

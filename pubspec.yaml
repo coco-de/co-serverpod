@@ -31,8 +31,8 @@ melos:
       description: serverpod_offline_sync 포크와 watch fixture 분석 (각 패키지 pub get 선행)
 
     serverpod-offline-sync:test:
-      run: cd packages/serverpod_offline_sync && dart test && cd ../serverpod_offline_sync_server && dart test --concurrency=1 && cd ../../test/offline_sync_watch_test_client && dart test
-      description: 포크 엔진 단위·모듈 통합(SQLite)·Model.db.watch 테스트
+      run: cd packages/serverpod_offline_sync && dart test && cd ../serverpod_offline_sync_client && dart test && cd ../serverpod_offline_sync_server && dart test --concurrency=1 && cd ../../test/offline_sync_watch_test_client && dart test
+      description: 포크 엔진 단위·클라이언트 실패 분류·모듈 통합(SQLite)·Model.db.watch 테스트
 
     serverpod-offline-sync:generate:
       run: cd packages/serverpod_offline_sync_server && dart run serverpod_cli generate && cd ../../test/offline_sync_watch_test_server && dart run serverpod_cli generate

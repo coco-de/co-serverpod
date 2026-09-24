@@ -229,21 +229,29 @@ extension CrdtMergeRecorderExtension on CrdtMutationRecorder {
     MergeNodes remoteNodes,
     Transaction transaction,
   ) async {
-    final maxIncomingHlc = operations.fold<Hlc?>(
-      null,
-      (current, change) => change.hlc.maxBetween(current),
-    );
     final spaceNodesToUpdate = <OfflineSyncSpaceNode>[];
 
-    if (maxIncomingHlc != null) {
+    if (operations.isNotEmpty) {
       final hlcManager = _context.hlcManagerFor(transaction);
-      if (maxIncomingHlc.nodeId == hlcManager.uuidNodeId) {
-        if (maxIncomingHlc > hlcManager.lastHlc) {
-          hlcManager.lastHlc = maxIncomingHlc;
+      // Fork: upstream checked only the batch maximum and adopted it without a
+      // drift check when it carried this node's id. A peer can send any node
+      // id, so a single change stamped far ahead under this node's id both
+      // skipped the check for the other nodes' changes in the batch and moved
+      // this clock arbitrarily far ahead (on the server, the clock every space
+      // shares). Check the other nodes' maximum first, against the clock
+      // before this batch, then bound this node's own returning timestamps by
+      // the same drift limit.
+      Hlc? maxOwnHlc;
+      Hlc? maxOtherHlc;
+      for (final operation in operations) {
+        if (operation.hlc.nodeId == hlcManager.uuidNodeId) {
+          maxOwnHlc = operation.hlc.maxBetween(maxOwnHlc);
+        } else {
+          maxOtherHlc = operation.hlc.maxBetween(maxOtherHlc);
         }
-      } else {
-        hlcManager.merge(maxIncomingHlc);
       }
+      if (maxOtherHlc != null) hlcManager.merge(maxOtherHlc);
+      if (maxOwnHlc != null) hlcManager.adoptOwn(maxOwnHlc);
 
       await _context.persistCurrentNodeHlc(hlcManager, transaction);
     }

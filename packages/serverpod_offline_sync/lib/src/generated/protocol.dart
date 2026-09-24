@@ -31,6 +31,8 @@ import 'node/space_node.dart' as _it7grqg6;
 import 'node/space_role.dart' as _ivdq6jvj;
 import 'schema/column.dart' as _iy534gq7;
 import 'schema/table.dart' as _ik8xyqdv;
+import 'sync/failure_code.dart' as _ii6q32sp;
+import 'sync/remote_exception.dart' as _i30hqdck;
 import 'sync/space_grant.dart' as _ijw89gb9;
 import 'sync/stream_event.dart' as _iimdylh8;
 import 'sync/violation.dart' as _iucor0s6;
@@ -52,6 +54,8 @@ export 'node/space_node.dart';
 export 'node/space_role.dart';
 export 'schema/column.dart';
 export 'schema/table.dart';
+export 'sync/failure_code.dart';
+export 'sync/remote_exception.dart';
 export 'sync/space_grant.dart';
 export 'sync/stream_event.dart';
 export 'sync/violation.dart';
@@ -1018,8 +1022,14 @@ class Protocol extends _isd.DatabaseSerializationManager {
     if (t == _iimdylh8.OfflineSyncEndOfBatch) {
       return _iimdylh8.OfflineSyncEndOfBatch.fromJson(data) as T;
     }
+    if (t == _ii6q32sp.OfflineSyncFailureCode) {
+      return _ii6q32sp.OfflineSyncFailureCode.fromJson(data) as T;
+    }
     if (t == _iimdylh8.OfflineSyncMergeChunk) {
       return _iimdylh8.OfflineSyncMergeChunk.fromJson(data) as T;
+    }
+    if (t == _i30hqdck.OfflineSyncRemoteException) {
+      return _i30hqdck.OfflineSyncRemoteException.fromJson(data) as T;
     }
     if (t == _iimdylh8.OfflineSyncSinceHlc) {
       return _iimdylh8.OfflineSyncSinceHlc.fromJson(data) as T;
@@ -1139,9 +1149,21 @@ class Protocol extends _isd.DatabaseSerializationManager {
               : null)
           as T;
     }
+    if (t == _iss.getType<_ii6q32sp.OfflineSyncFailureCode?>()) {
+      return (data != null
+              ? _ii6q32sp.OfflineSyncFailureCode.fromJson(data)
+              : null)
+          as T;
+    }
     if (t == _iss.getType<_iimdylh8.OfflineSyncMergeChunk?>()) {
       return (data != null
               ? _iimdylh8.OfflineSyncMergeChunk.fromJson(data)
+              : null)
+          as T;
+    }
+    if (t == _iss.getType<_i30hqdck.OfflineSyncRemoteException?>()) {
+      return (data != null
+              ? _i30hqdck.OfflineSyncRemoteException.fromJson(data)
               : null)
           as T;
     }
@@ -1266,7 +1288,9 @@ class Protocol extends _isd.DatabaseSerializationManager {
       _iimdylh8.OfflineSyncClose => 'OfflineSyncClose',
       _iimdylh8.OfflineSyncConnect => 'OfflineSyncConnect',
       _iimdylh8.OfflineSyncEndOfBatch => 'OfflineSyncEndOfBatch',
+      _ii6q32sp.OfflineSyncFailureCode => 'OfflineSyncFailureCode',
       _iimdylh8.OfflineSyncMergeChunk => 'OfflineSyncMergeChunk',
+      _i30hqdck.OfflineSyncRemoteException => 'OfflineSyncRemoteException',
       _iimdylh8.OfflineSyncSinceHlc => 'OfflineSyncSinceHlc',
       _ijw89gb9.OfflineSyncSpaceGrant => 'OfflineSyncSpaceGrant',
       _iimdylh8.OfflineSyncSpaceSet => 'OfflineSyncSpaceSet',
@@ -1335,8 +1359,12 @@ class Protocol extends _isd.DatabaseSerializationManager {
         return 'OfflineSyncConnect';
       case _iimdylh8.OfflineSyncEndOfBatch():
         return 'OfflineSyncEndOfBatch';
+      case _ii6q32sp.OfflineSyncFailureCode():
+        return 'OfflineSyncFailureCode';
       case _iimdylh8.OfflineSyncMergeChunk():
         return 'OfflineSyncMergeChunk';
+      case _i30hqdck.OfflineSyncRemoteException():
+        return 'OfflineSyncRemoteException';
       case _iimdylh8.OfflineSyncSinceHlc():
         return 'OfflineSyncSinceHlc';
       case _ijw89gb9.OfflineSyncSpaceGrant():
@@ -1424,8 +1452,14 @@ class Protocol extends _isd.DatabaseSerializationManager {
     if (dataClassName == 'OfflineSyncEndOfBatch') {
       return deserialize<_iimdylh8.OfflineSyncEndOfBatch>(data['data']);
     }
+    if (dataClassName == 'OfflineSyncFailureCode') {
+      return deserialize<_ii6q32sp.OfflineSyncFailureCode>(data['data']);
+    }
     if (dataClassName == 'OfflineSyncMergeChunk') {
       return deserialize<_iimdylh8.OfflineSyncMergeChunk>(data['data']);
+    }
+    if (dataClassName == 'OfflineSyncRemoteException') {
+      return deserialize<_i30hqdck.OfflineSyncRemoteException>(data['data']);
     }
     if (dataClassName == 'OfflineSyncSinceHlc') {
       return deserialize<_iimdylh8.OfflineSyncSinceHlc>(data['data']);

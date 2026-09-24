@@ -98,17 +98,33 @@ class Hlc implements Comparable<Hlc> {
   /// The Unix timestamp of the HLC.
   int get unixTimestamp => datetime.millisecondsSinceEpoch;
 
-  static const _maxDrift = Duration(minutes: 1);
+  /// The default maximum clock drift accepted by [increment] and [merge].
+  ///
+  /// Upstream hard-coded one minute. The fork defaults to one hour, the same
+  /// allowance as `co_offline_sync`, and lets each database choose its own
+  /// value through `OfflineSyncDatabaseContext.maxClockDrift`.
+  static const defaultMaxDrift = Duration(hours: 1);
   static const _maxCounter = 0xFFFF;
 
   /// Increments the current timestamp for transmission to another system.
-  Hlc increment() {
+  ///
+  /// Throws [ClockDriftException] with [ClockDriftKind.localAhead] when the
+  /// resulting timestamp is more than [maxDrift] ahead of the local wall clock,
+  /// which happens when the wall clock moved back behind this clock. Use the
+  /// same [maxDrift] as [merge], or a timestamp [merge] just accepted can make
+  /// the next local write fail.
+  Hlc increment({Duration maxDrift = defaultMaxDrift}) {
     final localWallTime = clock.now().toUtcMillisecond();
     final datetimeNew = localWallTime.isAfter(datetime) ? localWallTime : datetime;
     final counterNew = datetimeNew == datetime ? counter + 1 : 0;
 
-    if (datetimeNew.difference(localWallTime) > const Duration(minutes: 1)) {
-      throw ClockDriftException(datetimeNew, localWallTime, _maxDrift);
+    if (datetimeNew.difference(localWallTime) > maxDrift) {
+      throw ClockDriftException(
+        datetimeNew,
+        localWallTime,
+        maxDrift,
+        kind: ClockDriftKind.localAhead,
+      );
     }
     if (counterNew > _maxCounter) {
       throw OverflowException(counterNew);
@@ -119,7 +135,11 @@ class Hlc implements Comparable<Hlc> {
 
   /// Compares and validates a timestamp from a remote system with the local
   /// timestamp to preserve monotonicity.
-  Hlc merge(Hlc remote) {
+  ///
+  /// Throws [ClockDriftException] with [ClockDriftKind.remoteAhead] when
+  /// [remote] is newer than this clock and more than [maxDrift] ahead of the
+  /// local wall clock. A drift of exactly [maxDrift] is accepted.
+  Hlc merge(Hlc remote, {Duration maxDrift = defaultMaxDrift}) {
     if (remote.datetime.isBefore(datetime) ||
         (remote.datetime.isAtSameMomentAs(datetime) && remote.counter <= counter)) {
       return this;
@@ -130,11 +150,51 @@ class Hlc implements Comparable<Hlc> {
     }
 
     final localWallTime = clock.now().toUtc();
-    if (remote.datetime.difference(localWallTime) > _maxDrift) {
-      throw ClockDriftException(remote.datetime, localWallTime, _maxDrift);
+    if (remote.datetime.difference(localWallTime) > maxDrift) {
+      throw ClockDriftException(
+        remote.datetime,
+        localWallTime,
+        maxDrift,
+        kind: ClockDriftKind.remoteAhead,
+        remoteNodeId: remote.nodeId,
+      );
     }
 
     return remote.copyWith(nodeId: nodeId);
+  }
+
+  /// Adopts [own], a timestamp of this node that came back from a peer, when
+  /// it is newer than this clock.
+  ///
+  /// [merge] refuses this node's own id ([DuplicateNodeException]), so a merge
+  /// takes this node's returning timestamps here instead. Throws
+  /// [ClockDriftException] with [ClockDriftKind.remoteAhead] and
+  /// [ClockDriftException.remoteNodeId] set to this node when [own] is newer
+  /// than this clock and more than [maxDrift] ahead of the local wall clock,
+  /// the same bound [merge] applies to other nodes. A drift of exactly
+  /// [maxDrift] is accepted.
+  ///
+  /// Fork: upstream adopted such a timestamp without any check. A peer can send
+  /// a change under any node id, including this one, so without the bound one
+  /// peer could move this clock arbitrarily far ahead, and on the server every
+  /// space shares that clock.
+  Hlc adoptOwn(Hlc own, {Duration maxDrift = defaultMaxDrift}) {
+    if (own.nodeId != nodeId) {
+      throw ArgumentError.value(own, 'own', 'Must carry this node id ($nodeId)');
+    }
+    if (own <= this) return this;
+
+    final localWallTime = clock.now().toUtc();
+    if (own.datetime.difference(localWallTime) > maxDrift) {
+      throw ClockDriftException(
+        own.datetime,
+        localWallTime,
+        maxDrift,
+        kind: ClockDriftKind.remoteAhead,
+        remoteNodeId: own.nodeId,
+      );
+    }
+    return own;
   }
 
   /// Create a copy of this object replacing the optional properties.
