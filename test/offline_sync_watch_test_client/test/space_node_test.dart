@@ -34,6 +34,7 @@ import 'support/sync_harness.dart';
 /// | One session over two spaces | Two server nodes, no echo, no resend |
 /// | The same over a database written with one node (upstream) | No echo, no resend, whichever space leaves the node |
 /// | A checkpoint stored under another node's id (upstream) | Replaced after one resend |
+/// | Another space moved onto a node a space is known to hold | The known space keeps it, the other leaves |
 void main() {
   late Directory tempDir;
   final client = Client('http://localhost:1/');
@@ -509,6 +510,38 @@ void main() {
           );
           expect(retired?.lastReceivedHlc, shared.lastHlc);
         }
+      },
+    );
+
+    // A server checks once that a space holds its node alone, as that check
+    // scans every space. A server of the version before, running alongside
+    // during a deploy, can still point another space at that node: the known
+    // space keeps it, and the other leaves on its next use here, as the last
+    // space on a shared node would.
+    test(
+      'should_keep_a_space_known_to_hold_its_node_when_another_space_is_moved_onto_it',
+      () async {
+        final known = const Uuid().v7obj();
+        final moved = const Uuid().v7obj();
+        final server = await openServer();
+        await serverWrite(server, known, 'known');
+        await serverWrite(server, moved, 'moved');
+        final knownNodeId = (await spaceOf(server, known)).currentNodeId;
+        await OfflineSyncSpace.db.updateRow(
+          server,
+          (await spaceOf(server, moved)).copyWith(currentNodeId: knownNodeId),
+          columns: (t) => [t.currentNodeId],
+        );
+        await server.db.initialize();
+
+        await serverWrite(server, known, 'known again');
+        await serverWrite(server, moved, 'moved again');
+
+        expect((await spaceOf(server, known)).currentNodeId, knownNodeId);
+        expect(
+          (await spaceOf(server, moved)).currentNodeId,
+          isNot(knownNodeId),
+        );
       },
     );
 
