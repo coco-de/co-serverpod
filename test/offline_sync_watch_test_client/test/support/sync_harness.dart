@@ -15,6 +15,9 @@ import 'package:test/test.dart';
 /// [mapServerStream] is called once per opened session with the server stream
 /// the device is about to read, and the device reads what it returns.
 ///
+/// [mapDeviceEvent] is called with every event the device sends, before
+/// [sent] and [rewrite], and the server reads what it returns.
+///
 /// [userId] is the user the server syncs with. Leave it out for a [server]
 /// opened with a persistent user; pass it for one opened without, which holds
 /// many users like the Serverpod server does.
@@ -29,9 +32,13 @@ OfflineSyncClient peerOf(
     Stream<OfflineSyncStreamEvent> stream,
   )?
   mapServerStream,
+  OfflineSyncStreamEvent Function(OfflineSyncStreamEvent event)? mapDeviceEvent,
 }) {
   return OfflineSyncClient(({required changes, required once}) {
-    final inbound = changes.map((event) {
+    final inbound = changes.map((deviceEvent) {
+      final event = mapDeviceEvent == null
+          ? deviceEvent
+          : mapDeviceEvent(deviceEvent);
       if (event is! OfflineSyncMergeChunk) return event;
       sent?.addAll(event.changes);
       if (rewrite == null) return event;
