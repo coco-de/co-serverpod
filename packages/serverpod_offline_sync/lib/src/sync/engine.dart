@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show min;
 
 import 'package:clock/clock.dart';
 import 'package:meta/meta.dart' show visibleForTesting;
@@ -10,6 +11,7 @@ import '../crdt/extensions.dart';
 import '../crdt/merge.dart';
 import '../database/database.dart';
 import '../database/merge_utils/database_helpers.dart';
+import '../database/merge_utils/foreign_key_graph.dart';
 import '../database/recorder.dart';
 import '../database/unique_index_utils.dart';
 import '../generated/protocol.dart';
@@ -300,8 +302,10 @@ class OfflineSyncEngine {
   /// when it alone exceeds the budget, so every batch makes progress.
   ///
   /// The change limit decides before anything is resolved which units the
-  /// batch can take ([takeUnitsWithinChangeLimit]); the attempted values of
-  /// their inserts are read at once, and nothing of the units after them.
+  /// batch can take ([takeUnitsWithinChangeLimit]); the foreign keys of their
+  /// changes that may name a later insert are read to keep those together
+  /// ([_planOutboundUnits]), then the attempted values of their inserts at
+  /// once, and nothing of the units after them.
   /// Changes are resolved (their domain values read) one unit at a time, so a
   /// unit that ends up not fitting the payload limit was read for nothing; the
   /// next round reads it again.
@@ -380,10 +384,9 @@ class OfflineSyncEngine {
       }
       if (planned.isEmpty) return;
 
-      final units = planOutboundUnits([for (final change in planned) change.ref]);
       // The change limit needs no reads, so it bounds the units this batch can
       // take before any is resolved, and only theirs are read.
-      final candidates = takeUnitsWithinChangeLimit(units, _batchBudget);
+      final (:units, :candidates) = await _planOutboundUnits(session, planned);
       if (candidates.length < units.length) outbound.hasMore = true;
       final attemptedValueFieldsByRowId = await _loadAttemptedValueFields(session, [
         for (final unit in candidates)
@@ -494,6 +497,231 @@ class OfflineSyncEngine {
       await _recordAndThrowIntegrityViolation(session, violation);
     }
   }
+
+  /// Plans [planned] with [planOutboundUnits] and takes the units an empty
+  /// batch can take under the change limit ([takeUnitsWithinChangeLimit]),
+  /// keeping each change that writes a foreign key with the pending insert of
+  /// the parent it names (fork, unibook#14251).
+  ///
+  /// A parent's insert sorts after a change that names it when the parent was
+  /// deleted and inserted again with its id after that change was written: the
+  /// restore stamps the insert anew. The change is a child's insert, or an
+  /// update of a child's foreign key column. A batch that ended between them
+  /// would fail at the receiver's commit, and every retry would build the same
+  /// batch. So each such pair is an [OutboundDependency], which the planner
+  /// keeps in one part with everything between.
+  ///
+  /// Only such changes whose table has a foreign key to a table with a
+  /// pending insert sorted after them can depend on one, and only those this
+  /// batch can take matter: their foreign keys are read, then the plan is made
+  /// again with what was found, until the units this batch can take hold no
+  /// such change not yet read. A dependency can take a parent's insert into
+  /// this batch, and its own foreign keys are read in the next pass, so a
+  /// parent whose own parent was inserted again after it brings that one too.
+  ///
+  /// Without a limit every change goes in one batch, whose foreign keys the
+  /// receiver checks at commit whatever the order: nothing is read.
+  Future<({List<OutboundUnit> units, List<OutboundUnit> candidates})>
+  _planOutboundUnits(
+    DatabaseSession session,
+    List<_PlannedChange> planned,
+  ) async {
+    final refs = [for (final change in planned) change.ref];
+    var units = planOutboundUnits(refs);
+    var candidates = takeUnitsWithinChangeLimit(units, _batchBudget);
+    if (_batchBudget.isUnlimited) return (units: units, candidates: candidates);
+
+    final suspects = _foreignKeySuspects(planned);
+    if (suspects.isEmpty) return (units: units, candidates: candidates);
+    final insertIndexByRow = <(String, UuidValue), int>{
+      for (var index = 0; index < planned.length; index++)
+        if (planned[index].ref.kind == OutboundChangeKind.insert)
+          (planned[index].ref.tableName, planned[index].ref.rowId): index,
+    };
+    final read = <int>{};
+    final dependencies = <OutboundDependency>[];
+    while (true) {
+      final toRead = <int>[];
+      for (final unit in candidates) {
+        for (final index in unit.indices) {
+          if (suspects.containsKey(index) && read.add(index)) toRead.add(index);
+        }
+      }
+      if (toRead.isEmpty) break;
+      debugOnForeignKeysRead?.call(toRead.length);
+      final found = await _readForeignKeyDependencies(
+        session,
+        planned,
+        {for (final index in toRead) index: suspects[index]!},
+        insertIndexByRow,
+      );
+      if (found.isEmpty) continue;
+      dependencies.addAll(found);
+      units = planOutboundUnits(refs, dependencies: dependencies);
+      candidates = takeUnitsWithinChangeLimit(units, _batchBudget);
+    }
+    return (units: units, candidates: candidates);
+  }
+
+  /// The changes of [planned] that may depend on a pending insert sorted after
+  /// them, by index, with the foreign keys that may name it: an insert with a
+  /// foreign key, or an update of a foreign key column, to a table with a
+  /// pending insert sorted after the change. Needs no reads.
+  ///
+  /// Only keys to a parent's `id` are followed, the only kind a Serverpod
+  /// relation declares.
+  Map<int, List<ForeignKeyEdge>> _foreignKeySuspects(
+    List<_PlannedChange> planned,
+  ) {
+    final lastInsertHlcByTable = <String, Hlc>{};
+    for (final change in planned) {
+      if (change.ref.kind != OutboundChangeKind.insert) continue;
+      final last = lastInsertHlcByTable[change.ref.tableName];
+      if (last == null || last < change.ref.hlc) {
+        lastInsertHlcByTable[change.ref.tableName] = change.ref.hlc;
+      }
+    }
+    final edgesByChildTable = _databaseContext.foreignKeys.edgesByChildTable;
+    final suspects = <int, List<ForeignKeyEdge>>{};
+    for (var index = 0; index < planned.length; index++) {
+      final ref = planned[index].ref;
+      if (ref.kind == OutboundChangeKind.delete) continue;
+      final edges = [
+        for (final edge in edgesByChildTable[ref.tableName] ?? const <ForeignKeyEdge>[])
+          if (edge.parentColumn == 'id' &&
+              (ref.kind == OutboundChangeKind.insert ||
+                  edge.childColumn == ref.columnName) &&
+              (lastInsertHlcByTable[edge.parentTableName]?.compareTo(ref.hlc) ?? -1) >
+                  0)
+            edge,
+      ];
+      if (edges.isNotEmpty) suspects[index] = edges;
+    }
+    return suspects;
+  }
+
+  /// Reads the foreign keys [edgesByIndex] names for each change of [planned]
+  /// and returns a dependency on each pending insert of [insertIndexByRow] one
+  /// of them names.
+  ///
+  /// The value a peer sends is the authored one: a column with an attempted
+  /// value sends that, not the projected domain value. One query per table
+  /// reads the domain columns, one more the attempted values of those columns.
+  Future<List<OutboundDependency>> _readForeignKeyDependencies(
+    DatabaseSession session,
+    List<_PlannedChange> planned,
+    Map<int, List<ForeignKeyEdge>> edgesByIndex,
+    Map<(String, UuidValue), int> insertIndexByRow,
+  ) async {
+    final indicesByTable = <String, List<int>>{};
+    for (final index in edgesByIndex.keys) {
+      indicesByTable.putIfAbsent(planned[index].ref.tableName, () => []).add(index);
+    }
+    final dependencies = <OutboundDependency>[];
+    for (final MapEntry(key: tableName, value: indices) in indicesByTable.entries) {
+      final rowsById = <int, CrdtDataRow>{
+        for (final index in indices)
+          if (planned[index].row ?? planned[index].field!.row! case final row)
+            row.id!: row,
+      };
+      final valuesByRowId = await _readForeignKeyValues(
+        session,
+        tableName,
+        rowsById.values.toList(),
+        {
+          for (final index in indices)
+            for (final edge in edgesByIndex[index]!) edge.childColumn,
+        },
+      );
+      for (final index in indices) {
+        final values = valuesByRowId[planned[index].ref.rowId];
+        if (values == null) continue;
+        for (final edge in edgesByIndex[index]!) {
+          final parentId = values[edge.childColumn];
+          if (parentId == null) continue;
+          final parentIndex = insertIndexByRow[(edge.parentTableName, parentId)];
+          if (parentIndex == null || parentIndex == index) continue;
+          dependencies.add((dependent: index, prerequisite: parentIndex));
+        }
+      }
+    }
+    return dependencies;
+  }
+
+  /// The [columnNames] of the domain [rows] of [tableName], by row id, with
+  /// each attempted value in place of the projected domain value.
+  Future<Map<UuidValue, Map<String, UuidValue?>>> _readForeignKeyValues(
+    DatabaseSession session,
+    String tableName,
+    List<CrdtDataRow> rows,
+    Set<String> columnNames,
+  ) async {
+    final table = _syncTablesByName[tableName]!;
+    final columns = [
+      for (final column in table.columns)
+        if (columnNames.contains(column.columnName)) column,
+    ];
+    final escapedTableName = tableName.escapeIdentifier();
+    final selected = [
+      '"id"',
+      for (final column in columns)
+        '${_outboundColumnExpression(session, column)} AS "${column.columnName.escapeIdentifier()}"',
+    ].join(', ');
+    final valuesByRowId = <UuidValue, Map<String, UuidValue?>>{};
+    const chunkSize = 500;
+    for (var start = 0; start < rows.length; start += chunkSize) {
+      final chunk = rows.sublist(start, min(start + chunkSize, rows.length));
+      final result = await session.db.unsafeQuery(
+        'SELECT $selected FROM "$escapedTableName" '
+        'WHERE "id" IN (${[for (final row in chunk) row.uuidRowId].sqlLiteralList()})',
+      );
+      for (final resultRow in result) {
+        final columnMap = resultRow.toColumnMap();
+        final rowId = (columnMap['id'] as Object?).toUuidValue();
+        if (rowId == null) continue;
+        valuesByRowId[rowId] = {
+          for (final column in columns)
+            column.columnName:
+                (_decodeStructuredValue(
+                          session,
+                          column,
+                          columnMap[column.columnName],
+                        )
+                        as Object?)
+                    .toUuidValue(),
+        };
+      }
+    }
+
+    final rowIdByCrdtRowId = {for (final row in rows) row.id!: row.uuidRowId};
+    final attempted = await CrdtDataField.db.find(
+      session,
+      where: (t) =>
+          t.rowId.inSet(rowIdByCrdtRowId.keys.toSet()) &
+          t.attemptedValue.id.notEquals(null) &
+          t.column.name.inSet(columnNames),
+      include: CrdtDataField.include(
+        column: CrdtSchemaColumn.include(),
+        attemptedValue: CrdtDataAttemptedValue.include(),
+      ),
+    );
+    for (final field in attempted) {
+      final rowId = rowIdByCrdtRowId[field.rowId];
+      final values = rowId == null ? null : valuesByRowId[rowId];
+      if (values == null) continue;
+      values[field.column!.name] = (field.attemptedValue?.value as Object?)
+          .toUuidValue();
+    }
+    return valuesByRowId;
+  }
+
+  /// Called with the number of pending changes whose foreign keys a planned
+  /// collection reads, each time it reads some (fork, unibook#14251).
+  ///
+  /// Lets a test see that a planned batch reads the foreign keys of the
+  /// changes it can take only, and again for the parents a dependency brings.
+  @visibleForTesting
+  static void Function(int changeCount)? debugOnForeignKeysRead;
 
   /// Creates the [OfflineSyncSinceHlc] checkpoint for a space handshake.
   ///

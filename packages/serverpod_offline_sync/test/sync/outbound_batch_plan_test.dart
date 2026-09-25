@@ -461,6 +461,153 @@ void main() {
     );
   });
 
+  group('Given a change that names a row inserted in a later change,', () {
+    // The engine reads the foreign keys and passes each pair: a batch that
+    // ended between them would fail the receiver's commit, every time.
+    List<List<List<int>>> shapeWith(
+      List<OutboundChangeRef> changes,
+      List<OutboundDependency> dependencies,
+    ) => [
+      for (final unit in planOutboundUnits(changes, dependencies: dependencies))
+        unit.parts,
+    ];
+
+    test(
+      'when the prerequisite sorts after the dependent, then they and every '
+      'change between them are one part',
+      () {
+        // A child's insert, an unrelated update, then the insert of the parent
+        // the child names, restored after the child was written.
+        final changes = [
+          insert(hlc(0, device, 3), 3),
+          update(hlc(0, device, 2), 2),
+          insert(hlc(0, device, 1), 1, table: 'attachment'),
+          insert(hlc(0, device, 4), 4),
+        ];
+
+        expect(shapeWith(changes, [(dependent: 2, prerequisite: 0)]), [
+          [
+            [2, 1, 0],
+          ],
+          [
+            [3],
+          ],
+        ]);
+        expect(shape(changes), [
+          [
+            [2],
+          ],
+          [
+            [1],
+          ],
+          [
+            [0],
+          ],
+          [
+            [3],
+          ],
+        ]);
+      },
+    );
+
+    test(
+      'when the prerequisite sorts before the dependent, then nothing changes',
+      () {
+        final changes = [
+          insert(hlc(0, device, 1), 1),
+          insert(hlc(0, device, 2), 2, table: 'attachment'),
+        ];
+
+        expect(shapeWith(changes, [(dependent: 1, prerequisite: 0)]), [
+          [
+            [0],
+          ],
+          [
+            [1],
+          ],
+        ]);
+      },
+    );
+
+    test(
+      'when the prerequisite names a row inserted after it in turn, then the '
+      'overlapping ranges make one part',
+      () {
+        // Attachment 1 names note 2, restored after it; note 2 names folder
+        // 3, restored after note 2. Other nodes' changes sit between.
+        final changes = [
+          insert(hlc(0, device, 1), 1, table: 'attachment'),
+          update(hlc(0, other, 2), 9),
+          insert(hlc(0, device, 3), 2),
+          update(hlc(0, other, 4), 8),
+          insert(hlc(0, device, 5), 3, table: 'folder'),
+          update(hlc(0, other, 6), 7),
+        ];
+
+        expect(
+          shapeWith(changes, [
+            (dependent: 0, prerequisite: 2),
+            (dependent: 2, prerequisite: 4),
+          ]),
+          [
+            [
+              [0, 1, 2, 3, 4],
+            ],
+            [
+              [5],
+            ],
+          ],
+        );
+        // Without the second pair the folder may go in a later batch.
+        expect(shapeWith(changes, [(dependent: 0, prerequisite: 2)]), [
+          [
+            [0, 1, 2],
+          ],
+          [
+            [3],
+          ],
+          [
+            [4],
+          ],
+          [
+            [5],
+          ],
+        ]);
+      },
+    );
+
+    test(
+      'when the part exceeds the change limit, then an empty batch still takes '
+      'it whole',
+      () {
+        final changes = [
+          insert(hlc(0, device, 1), 1, table: 'attachment'),
+          update(hlc(0, device, 2), 9),
+          insert(hlc(0, device, 3), 2),
+          insert(hlc(0, device, 4), 5),
+        ];
+        final units = planOutboundUnits(
+          changes,
+          dependencies: [(dependent: 0, prerequisite: 2)],
+        );
+
+        final taken = takeUnitsWithinChangeLimit(
+          units,
+          OfflineSyncBatchBudget(maxChanges: 1),
+        );
+
+        expect(
+          [for (final unit in taken) unit.parts],
+          [
+            [
+              [0, 1, 2],
+            ],
+          ],
+        );
+      },
+    );
+  });
+
   test('Given no pending change, when planned, then there is no unit', () {
     expect(planOutboundUnits(const []), isEmpty);
   });

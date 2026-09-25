@@ -30,10 +30,14 @@ typedef OfflineSyncChangePayloadMeasure = int Function(CrdtMergeChange change);
 /// the peer may resume from its checkpoints without skipping a change: never
 /// between changes with the same HLC, and never between a row's insert and a
 /// change of that row stamped before it (a receiver that does not have the row
-/// drops such a change). It also avoids cutting a delete from the cascade
-/// deletes it caused, and one write's changes of a row from each other (the
-/// receiver would show the row half written until the next batch), unless
-/// that group alone exceeds the budget.
+/// drops such a change). Never either between a change that writes a foreign
+/// key and the pending insert of the parent it names when that insert is
+/// stamped after it, as a restore stamps it (the receiver checks foreign keys
+/// when it commits a batch, and would fail the same batch every session). It
+/// also avoids cutting a delete from the cascade deletes it caused, and one
+/// write's changes of a row from each other (the receiver would show the row
+/// half written until the next batch), unless that group alone exceeds the
+/// budget.
 ///
 /// A change that alone exceeds the budget is sent in a batch of its own: the
 /// receiver decides, the sender does not stop. Limits are inclusive: a batch
@@ -176,6 +180,17 @@ typedef OutboundChangeRef = ({
   CrdtDataDeletedReason? deleteReason,
 });
 
+/// Two changes the receiver must get in one batch when `prerequisite` sorts
+/// after `dependent`: `dependent` names the row `prerequisite` creates. Both
+/// are indices into the planned list.
+///
+/// The engine gives one for each foreign key of a pending insert that names a
+/// row whose insert is pending too: a receiver merges one batch with deferred
+/// foreign keys, so a child whose parent is neither in that batch nor already
+/// in its database fails the whole batch.
+@internal
+typedef OutboundDependency = ({int dependent, int prerequisite});
+
 /// Changes that travel together when the budget allows it: the batch never
 /// ends inside a unit that fits.
 @internal
@@ -216,6 +231,16 @@ final class OutboundUnit {
 ///   that does not have the row drops an update or delete that arrives before
 ///   the insert (it defers a delete only within one batch), and a delete of a
 ///   later generation can carry an older HLC than a concurrent re-insertion.
+
+/// * each change of [dependencies] with its prerequisite sorted after it, and
+///   every change in between. The receiver merges a batch in one transaction
+///   whose foreign keys it checks at commit: a child's insert whose parent's
+///   insert comes in a later batch fails that commit, and every retry builds
+///   the same batch. A parent's insert sorts after its child's when the parent
+///   was deleted and inserted again with its id after the child was written:
+///   the restore stamps the insert anew. Each dependency adds one range; ranges
+///   that overlap make one part, so a parent that names a grandparent inserted
+///   after it joins the grandparent's part through its own dependency.
 ///
 /// A unit also keeps together what one local write stamped, which the
 /// recorder stamps as consecutive changes of one node: each HLC it issues is
@@ -244,7 +269,10 @@ final class OutboundUnit {
 /// batch. A chain the wall clock broke leaves some parents out of the tail;
 /// then they may go one batch before their cascade, as any part may.
 @internal
-List<OutboundUnit> planOutboundUnits(List<OutboundChangeRef> changes) {
+List<OutboundUnit> planOutboundUnits(
+  List<OutboundChangeRef> changes, {
+  Iterable<OutboundDependency> dependencies = const [],
+}) {
   final order = List<int>.generate(changes.length, (index) => index)
     ..sort((left, right) => _compareOutbound(changes[left], changes[right]));
   final count = order.length;
@@ -282,6 +310,17 @@ List<OutboundUnit> planOutboundUnits(List<OutboundChangeRef> changes) {
   }
   for (final MapEntry(key: row, value: insertPosition) in insertPositionByRow.entries) {
     forbid(hard, firstPositionByRow[row]!, insertPosition);
+  }
+
+  // A dependent change with its prerequisite sorted after it.
+  if (dependencies.isNotEmpty) {
+    final positionOf = List<int>.filled(count, 0);
+    for (var position = 0; position < count; position++) {
+      positionOf[order[position]] = position;
+    }
+    for (final (:dependent, :prerequisite) in dependencies) {
+      forbid(hard, positionOf[dependent], positionOf[prerequisite]);
+    }
   }
 
   final positionsByNode = <UuidValue, List<int>>{};
