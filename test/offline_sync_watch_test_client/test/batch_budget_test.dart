@@ -29,6 +29,7 @@ import 'support/sync_harness.dart';
 /// | An update stamped between two inserts | Sent: HLC order, not inserts first |
 /// | Either limit ends between a delete and its cascade | Both in the next batch |
 /// | An earlier delete fills the batch before a delete and its cascade | The earlier delete, then both in the next batch |
+/// | The payload limit ends a non-empty batch before a delete run that fits an empty one | The run whole in the next batch, not its first group in this one |
 /// | The budget ends inside one write's changes of a row | All of them in the next batch |
 /// | A delete stamped before its row's insert, new device | Sent with the insert: the device ends without the row |
 /// | An insert whose foreign key the server projected away, in a later batch | Sent with the attempted value, not the projected one |
@@ -437,6 +438,74 @@ void main() {
         );
         expect(await titlesOf(server), isEmpty);
         expect(await Attachment.db.count(server), 0);
+      },
+    );
+
+    test(
+      'should_send_a_delete_run_whole_in_the_next_batch_when_the_payload_limit_ends_the_batch_before_it',
+      () async {
+        // The earlier delete, the parent and its cascade are one unit, which
+        // does not fit after the update but fits an empty batch. The batch
+        // ends before the unit instead of taking its first group: only a unit
+        // that alone exceeds the budget goes group by group. Only the payload
+        // limit reaches this stop; the change limit leaves such a unit out of
+        // the batch before anything is read.
+        final userId = const Uuid().v7obj();
+        final server = await openReplica(userId);
+        final device = await openReplica(
+          userId,
+          batchBudget: OfflineSyncBatchBudget(
+            maxPayloadChars: 3,
+            measurePayload: (_) => 1,
+          ),
+        );
+        final other = await Note.db.insertRow(device, Note(title: 'x'));
+        final earlier = await Note.db.insertRow(device, Note(title: 'e'));
+        final parent = await Note.db.insertRow(device, Note(title: 'p'));
+        final attachment = await Attachment.db.insertRow(
+          device,
+          Attachment(name: 'a', noteId: parent.id!),
+        );
+        await peerOf(server).syncOnce(device).timeout(sessionTimeout);
+        await Note.db.updateRow(
+          device,
+          other.copyWith(title: 'x2'),
+          columns: (t) => [t.title],
+        );
+        await Note.db.deleteRow(device, earlier);
+        await inOneMillisecond(() => Note.db.deleteRow(device, parent));
+        final deviceFrames = BatchRecorder();
+
+        await peerOf(
+          server,
+          mapDeviceEvent: deviceFrames.record,
+        ).syncOnce(device).timeout(sessionTimeout);
+
+        expect(deviceFrames.dataSizes, [1, 3]);
+        expect(
+          [
+            for (final batch in deviceFrames.dataBatches)
+              [for (final change in batch) change.uuidRowId],
+          ],
+          [
+            [other.id],
+            [earlier.id, parent.id, attachment.id],
+          ],
+        );
+        expect(
+          [
+            for (final change in deviceFrames.dataBatches.last)
+              (change as CrdtMergeDelete).reason,
+          ],
+          [
+            CrdtDataDeletedReason.userDelete,
+            CrdtDataDeletedReason.userDelete,
+            CrdtDataDeletedReason.userCascadeDelete,
+          ],
+        );
+        expect(await titlesOf(server), ['x2']);
+        expect(await Attachment.db.count(server), 0);
+        expect(await device.db.unsentRowCount(), 0);
       },
     );
 
