@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:clock/clock.dart';
 import 'package:meta/meta.dart';
 import 'package:serverpod_database/serverpod_database.dart';
@@ -211,6 +213,19 @@ class OfflineSyncDatabaseContext {
       _spacesOwningTheirNode.remove(_spacesOwningTheirNode.first);
     }
   }
+
+  /// Emits when [OfflineSyncDatabase.unsentRowCount] may have changed without
+  /// a commit to the tables its watch triggers on (fork, unibook#14251): a
+  /// session confirmed released rows, which the implementation of
+  /// `OfflineSyncRowIsolation` removes from its sets outside the database.
+  @internal
+  Stream<void> get unsentRowCountInputsChanged => _unsentRowCountInputsChanged.stream;
+  final _unsentRowCountInputsChanged = StreamController<void>.broadcast();
+
+  /// Makes every [OfflineSyncDatabase.watchUnsentRowCount] of this context
+  /// count again, see [unsentRowCountInputsChanged].
+  @internal
+  void notifyUnsentRowCountInputsChanged() => _unsentRowCountInputsChanged.add(null);
 
   final List<TableDefinition> _tableDefinitions;
 

@@ -88,4 +88,67 @@ void main() {
       },
     );
   });
+
+  group('Given mergeTriggers (fork, unibook#14251),', () {
+    test(
+      'when either stream emits, then it emits; when the source ends, then it '
+      'ends and stops listening to the other.',
+      () async {
+        final source = StreamController<void>();
+        final extra = StreamController<void>.broadcast();
+        addTearDown(extra.close);
+        var events = 0;
+        final done = Completer<void>();
+        mergeTriggers(source.stream, extra.stream).listen(
+          (_) => events++,
+          onDone: done.complete,
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        source.add(null);
+        extra.add(null);
+        await Future<void>.delayed(Duration.zero);
+        expect(events, 2);
+
+        await source.close();
+        await done.future;
+        expect(extra.hasListener, isFalse);
+      },
+    );
+
+    test(
+      'when a count runs, then an extra trigger waits for it: counts still run '
+      'one at a time.',
+      () async {
+        final source = StreamController<void>();
+        final extra = StreamController<void>.broadcast();
+        addTearDown(source.close);
+        addTearDown(extra.close);
+        var running = 0;
+        var mostRunning = 0;
+        final counts = <int>[];
+        final subscription = countOnEachTrigger(
+          mergeTriggers(source.stream, extra.stream),
+          () async {
+            running++;
+            if (running > mostRunning) mostRunning = running;
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+            running--;
+            return counts.length;
+          },
+        ).listen(counts.add);
+        addTearDown(subscription.cancel);
+        await Future<void>.delayed(Duration.zero);
+
+        source.add(null);
+        extra
+          ..add(null)
+          ..add(null);
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+
+        expect(mostRunning, 1);
+        expect(counts, [0, 1, 2]);
+      },
+    );
+  });
 }

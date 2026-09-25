@@ -37,6 +37,7 @@ import 'support/sync_harness.dart';
 /// | Row that leaves isolation without release | Never sent again (the contract) |
 /// | Released row | Sent in full with its latest values, confirmed, then not counted |
 /// | Released row deleted while isolated | Its insert and delete arrive |
+/// | Released row confirmed slowly, watched count | Counted again after the confirmation: 0 |
 /// | Released row, continuous session | Sent once per session, never confirmed, still counted unsent |
 /// | Released row, session closed with more to send | Not confirmed, still counted unsent; the next session sends the rest |
 /// | Held row of another node, checkpoint going back | Counted in the every-row fallback too |
@@ -721,6 +722,43 @@ void main() {
       },
     );
 
+    test(
+      'should_count_the_watched_unsent_rows_again_when_the_release_is_confirmed_after_the_session_commits',
+      () async {
+        // The session records its confirmed checkpoint, a commit the watch
+        // counts again on, before it confirms the released rows, and an
+        // implementation that keeps the sets durable takes a while to
+        // confirm. Without a count after the confirmation, the watch would
+        // keep the one that still held the released row.
+        final userId = const Uuid().v7obj();
+        final isolation = TestRowIsolation(
+          confirmDelay: const Duration(milliseconds: 500),
+        );
+        final server = await openReplica(userId);
+        final device = await openReplica(userId, rowIsolation: isolation);
+        await Note.db.insertRow(device, Note(title: 'a'));
+        final b = await Note.db.insertRow(device, Note(title: 'b'));
+        await Note.db.insertRow(device, Note(title: 'c'));
+        isolation.isolatedRows.add(noteKey(b));
+        await peerOf(server).syncOnce(device).timeout(sessionTimeout);
+        isolation
+          ..isolatedRows.clear()
+          ..releasedRows.add(noteKey(b));
+        final counts = <int>[];
+        final watch = device.db
+            .watchUnsentRowCount(throttle: const Duration(milliseconds: 50))
+            .listen(counts.add);
+        addTearDown(watch.cancel);
+        await eventually(() async => counts.isNotEmpty);
+        expect(counts.last, 1);
+
+        await peerOf(server).syncOnce(device).timeout(sessionTimeout);
+
+        expect(isolation.releasedRows, isEmpty);
+        await eventually(() async => counts.last == 0);
+      },
+    );
+
     test('should_not_send_a_row_that_is_both_isolated_and_released', () async {
       final userId = const Uuid().v7obj();
       final isolation = TestRowIsolation();
@@ -956,6 +994,13 @@ OfflineSyncRowKey noteKey(Note note) =>
 /// An in-memory [OfflineSyncRowIsolation] that removes confirmed rows. An app
 /// keeps both sets durable.
 final class TestRowIsolation implements OfflineSyncRowIsolation {
+  /// With [confirmDelay], a confirmation takes that long before it removes the
+  /// rows, as writing durable sets does.
+  TestRowIsolation({this.confirmDelay});
+
+  /// How long a confirmation takes, or null for no wait.
+  final Duration? confirmDelay;
+
   @override
   final Set<OfflineSyncRowKey> isolatedRows = {};
 
@@ -966,7 +1011,8 @@ final class TestRowIsolation implements OfflineSyncRowIsolation {
   final List<Set<OfflineSyncRowKey>> confirmed = [];
 
   @override
-  void onReleasedRowsConfirmed(Set<OfflineSyncRowKey> rows) {
+  Future<void> onReleasedRowsConfirmed(Set<OfflineSyncRowKey> rows) async {
+    if (confirmDelay case final delay?) await Future<void>.delayed(delay);
     confirmed.add(rows);
     releasedRows.removeAll(rows);
   }

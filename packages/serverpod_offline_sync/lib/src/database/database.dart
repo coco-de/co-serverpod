@@ -284,18 +284,27 @@ class OfflineSyncDatabase implements Database {
   /// the count changed. Use it to recount yourself; [watchUnsentRowCount]
   /// does the counting.
   ///
+  /// Fork (unibook#14251): it also emits, unthrottled, after a sync session
+  /// of this database's context confirmed released rows
+  /// ([OfflineSyncRowIsolation.onReleasedRowsConfirmed] returned). The
+  /// implementation changes its sets outside the database, after the commits
+  /// of the session, so without it the last count could still hold them.
+  ///
   /// Only supported on SQLite. The delegate throws [UnsupportedError]
   /// otherwise.
   Stream<void> watchUnsentRowCountTriggers({
     Duration? throttle = const Duration(milliseconds: 250),
   }) {
-    return _delegate
-        .unsafeWatch(
-          'SELECT 1',
-          triggerOnTables: _unsentRowCountTables,
-          throttle: throttle,
-        )
-        .map((_) {});
+    return mergeTriggers(
+      _delegate
+          .unsafeWatch(
+            'SELECT 1',
+            triggerOnTables: _unsentRowCountTables,
+            throttle: throttle,
+          )
+          .map((_) {}),
+      _context.unsentRowCountInputsChanged,
+    );
   }
 
   /// Emits [unsentRowCount] on listen and again whenever it changes, including

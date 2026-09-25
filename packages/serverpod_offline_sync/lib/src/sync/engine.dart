@@ -771,6 +771,11 @@ class OfflineSyncEngine {
             await _rowIsolation?.onReleasedRowsConfirmed(
               Set.unmodifiable(released.rows),
             );
+            // The sets changed after the commits the unsent row count watch
+            // triggers on, and a count those commits started may have read
+            // them before. Only now: the confirmed checkpoint is recorded
+            // first, so a failure to record it leaves the sets as they were.
+            _databaseContext.notifyUnsentRowCountInputsChanged();
           }
           return;
         }
