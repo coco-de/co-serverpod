@@ -122,6 +122,11 @@ typedef OfflineSyncRowKey = ({String tableName, UuidValue rowId});
 /// (`OfflineSyncDatabase.unsentRowCount`) counts every row of both sets that
 /// exists locally, so a sign-out check does not drop them; it recounts on
 /// commits only, so refresh it after changing the sets.
+///
+/// Deleting an isolated row does not clear what the receiver rejected: a
+/// delete only writes a tombstone and keeps the hidden domain row, whose
+/// values a released row's insert carries. Rewrite the rejected column within
+/// the receiver's limits first, then delete, then release.
 abstract interface class OfflineSyncRowIsolation {
   /// The rows this peer does not send.
   Set<OfflineSyncRowKey> get isolatedRows;

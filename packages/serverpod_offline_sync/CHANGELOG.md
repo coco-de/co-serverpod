@@ -1,5 +1,68 @@
 ## Unreleased (co-serverpod fork)
 
+- feat: A batch budget splits a round into several batches (unibook#14251).
+  Upstream sends every pending change of a round in one batch, closed by one
+  `OfflineSyncEndOfBatch`, and the receiver holds a batch in memory until it
+  ends. A device back after a long time offline, or a server sending a new
+  device everything, could exceed what the receiver accepts, and the same
+  batch was built again every session. `OfflineSyncBatchBudget` (`maxChanges`,
+  `maxPayloadChars` with `measurePayload`) ends the batch before the next
+  change would exceed a limit; the rest goes in the next rounds. Limits are
+  inclusive. `OfflineSyncEngine`, `OfflineSyncDatabase`,
+  `OfflineSyncDatabaseSession` and `OfflineSyncDatabaseSession.wraps` take
+  `batchBudget`; `OfflineSyncBatchBudget.unlimited`, the default, keeps the
+  upstream collection and order.
+  - Order and cuts (`planOutboundUnits`, `@internal`): with a budget the
+    changes go in HLC order, so every batch is an HLC prefix and a checkpoint
+    that moves to the last change sent skips none. Cut in the upstream order
+    (inserts first), a batch would move the checkpoint past an update stamped
+    before a later insert, and no round would send it again. A batch never
+    ends between changes with the same HLC, nor between a row's insert and a
+    change of that row stamped before it (a receiver drops an update or delete
+    of a row it does not have, and defers a delete only within one batch). A
+    node's run of delete tombstones that holds a cascade delete stays together
+    from its first tombstone to its last cascade delete, so a parent delete and
+    its cascade go in one batch; a run that alone exceeds the budget falls back
+    to the first two rules. A part that alone exceeds the budget goes in a
+    batch of its own: the receiver decides, the sender never stops.
+  - Wire: one nullable field, `OfflineSyncEndOfBatch.hasMore`, which a peer
+    built with it always sets. A `once` session runs another round when either
+    peer set it, so both peers decide alike (`OfflineSyncCycleBatch
+    .peerHasMore`). A peer built before the field sends none and ignores it; a
+    peer that reads none closes, and the rest goes in its next session (one
+    batch per session, no error). Regenerated
+    `generated/sync/end_of_batch.dart`. A continuous session sends one batch
+    per round and keeps its wait.
+  - The server side is the same loop (authoritative mode); see the server
+    package for `initializeOfflineSync(batchBudget:)`.
+  - Each round reads the pending metadata again (the upstream queries) and
+    sorts it. A unit that did not fit had its domain values read for nothing;
+    the next round reads them again.
+  - Breaking for implementations: a class that implements `OfflineSyncEngine`
+    or `OfflineSyncDatabase` must add the getters `batchBudget` and
+    `rowIsolation`, unless it forwards missing members through `noSuchMethod`.
+- feat: Row isolation (unibook#14251). A receiver that rejects one row stopped
+  the whole account: the batch never merged, and every later session sent the
+  same row first. `OfflineSyncRowIsolation` (`isolatedRows`, `releasedRows`,
+  `onReleasedRowsConfirmed`), passed as `rowIsolation` like `batchBudget`,
+  leaves the isolated rows out of every batch. Once a later change of the same
+  node merges, the receiver's checkpoint is past them, so leaving isolation is
+  not enough to send them again: a released row goes in full, every change of
+  it read from the same snapshot whatever the checkpoints, once per session. A
+  `once` session that ended with the peer's close and nothing left to send
+  reports the released rows it sent to `onReleasedRowsConfirmed`; a continuous
+  session, a failed one, or one closed early by an old peer reports nothing.
+  A row in both sets is isolated. The implementation must keep both sets
+  across restarts: an isolated row whose isolation is lost is silently no
+  longer synced. `unsentRowCount` counts every row of both sets that exists
+  locally, so a sign-out check does not drop them. Deleting a row does not
+  release it (the hidden domain row keeps the rejected value, which the insert
+  carries); rewrite the rejected column, then delete and release.
+  - The three pending-change streams are split into the checks
+    (`_sendsInsert`/`Update`/`Delete`) and the resolvers
+    (`_resolveInsert`/`Update`/`Delete`) that the planned collection shares;
+    the upstream path behaves as before.
+
 - feat: A continuous session can ask for a longer wait between rounds
   (unibook#14207). `OfflineSyncClient.syncContinuously`,
   `OfflineSyncDatabase.sync` and `OfflineSyncEngine.sync` take
