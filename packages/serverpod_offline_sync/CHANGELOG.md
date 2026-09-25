@@ -77,9 +77,11 @@
     parent table has a pending insert sorted after it), reads the foreign keys
     of those in the units the batch can take (one query per table for the
     domain columns, one for their attempted values: the value sent is the
-    attempted one), plans again with what it found, and repeats until the
-    units hold no change not yet read, so a parent a dependency brings in
-    brings its own restored parent too. Only keys to a parent's `id` are
+    attempted one), plans again when a parent's insert it names sorts after
+    it (one sorted before already goes in that batch or an earlier one, and
+    plans nothing again), and repeats until the units hold no change not yet
+    read, so a parent a dependency brings in brings its own restored parent
+    too. Only keys to a parent's `id` are
     followed. Nothing is read without a limit (one batch). A part that alone
     exceeds the budget still goes whole in an empty batch; this one can span
     everything written between the child and the restore. A parent that is

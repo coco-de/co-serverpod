@@ -602,7 +602,14 @@ class OfflineSyncEngine {
 
   /// Reads the foreign keys [edgesByIndex] names for each change of [planned]
   /// and returns a dependency on each pending insert of [insertIndexByRow] one
-  /// of them names.
+  /// of them names that sorts after the change.
+  ///
+  /// A parent's insert sorted before the change already goes in the same batch
+  /// or an earlier one, so it adds nothing, and leaving it out spares a plan:
+  /// a change that is a candidate only because another row of the parent's
+  /// table was inserted after it (a backlog that interleaves writes, of one
+  /// node or several) has its foreign keys read, and the plan is not made
+  /// again.
   ///
   /// The value a peer sends is the authored one: a column with an attempted
   /// value sends that, not the projected domain value. One query per table
@@ -640,7 +647,11 @@ class OfflineSyncEngine {
           final parentId = values[edge.childColumn];
           if (parentId == null) continue;
           final parentIndex = insertIndexByRow[(edge.parentTableName, parentId)];
-          if (parentIndex == null || parentIndex == index) continue;
+          if (parentIndex == null ||
+              parentIndex == index ||
+              !(planned[parentIndex].ref.hlc > planned[index].ref.hlc)) {
+            continue;
+          }
           dependencies.add((dependent: index, prerequisite: parentIndex));
         }
       }

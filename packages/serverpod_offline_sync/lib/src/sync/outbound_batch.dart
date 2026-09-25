@@ -184,10 +184,11 @@ typedef OutboundChangeRef = ({
 /// after `dependent`: `dependent` names the row `prerequisite` creates. Both
 /// are indices into the planned list.
 ///
-/// The engine gives one for each foreign key of a pending insert that names a
-/// row whose insert is pending too: a receiver merges one batch with deferred
-/// foreign keys, so a child whose parent is neither in that batch nor already
-/// in its database fails the whole batch.
+/// The engine gives one for each foreign key a pending change writes (a
+/// child's insert, or an update of its foreign key column) that names a row
+/// whose pending insert sorts after the change: a receiver merges one batch
+/// with deferred foreign keys, so a child whose parent is neither in that
+/// batch nor already in its database fails the whole batch.
 @internal
 typedef OutboundDependency = ({int dependent, int prerequisite});
 
