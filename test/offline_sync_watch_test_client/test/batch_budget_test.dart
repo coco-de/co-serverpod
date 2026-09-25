@@ -20,9 +20,12 @@ import 'support/sync_harness.dart';
 ///
 /// | Case | Pinned |
 /// |---|---|
+/// | No budget, no isolation | Upstream's order (inserts, updates, deletes) in one batch |
 /// | Device budget, `once` | Batches at the limit, every change sent, HLC prefix per batch, checkpoint at the last change, nothing unsent |
 /// | Device budget, continuous | One batch per round, every change sent |
 /// | An update stamped between two inserts | Sent: HLC order, not inserts first |
+/// | Either limit ends between a delete and its cascade | Both in the next batch |
+/// | A delete stamped before its row's insert, new device | Sent with the insert: the device ends without the row |
 /// | Server budget (authoritative) | The device receives batches at the limit and every row |
 /// | Payload limit, a change larger than the budget | Sent alone, the session goes on |
 /// | A peer built before `hasMore` | Each side closes after one batch; the next session sends on |
@@ -31,9 +34,13 @@ import 'support/sync_harness.dart';
 /// | Row that leaves isolation without release | Never sent again (the contract) |
 /// | Released row | Sent in full with its latest values, confirmed, then not counted |
 /// | Released row deleted while isolated | Its insert and delete arrive |
-/// | Released row, continuous session | Sent once per session, never confirmed |
-/// | Released row, session closed with more to send | Not confirmed; the next session sends the rest |
+/// | Released row, continuous session | Sent once per session, never confirmed, still counted unsent |
+/// | Released row, session closed with more to send | Not confirmed, still counted unsent; the next session sends the rest |
+/// | Held row of another node, checkpoint going back | Counted in the every-row fallback too |
 /// | Released rows over the budget, `once` | Sent across batches, the session ends |
+///
+/// SQLite only: the Postgres snapshot of the planned collection is covered by
+/// unibook's integration tests.
 void main() {
   late Directory tempDir;
   final client = Client('http://localhost:1/');
@@ -109,6 +116,67 @@ void main() {
     );
     return row!.hlc;
   }
+
+  /// The tombstone of [rowId] in [session].
+  Future<CrdtDataDeleted> tombstoneOf(
+    OfflineSyncDatabaseSession session,
+    UuidValue rowId,
+  ) async {
+    final tombstone = await CrdtDataDeleted.db.findFirstRow(
+      session,
+      where: (t) => t.row.uuidRowId.equals(rowId),
+      include: CrdtDataDeleted.include(node: CrdtNode.include()),
+    );
+    return tombstone!;
+  }
+
+  /// The kind of each change of [batch], in order.
+  List<String> kindsOf(List<CrdtMergeChange> batch) => [
+    for (final change in batch)
+      switch (change) {
+        CrdtMergeInsert() => 'insert',
+        CrdtMergeUpdate() => 'update',
+        CrdtMergeDelete() => 'delete',
+      },
+  ];
+
+  group('Given a device without a budget or row isolation,', () {
+    test(
+      'should_send_inserts_then_updates_then_deletes_in_one_batch_as_upstream',
+      () async {
+        // The planned collection orders by HLC. The default path must stay
+        // upstream's: its collection order, one batch per round.
+        final userId = const Uuid().v7obj();
+        final server = await openReplica(userId);
+        final device = await openReplica(userId);
+        final a = await Note.db.insertRow(device, Note(title: 'a'));
+        final c = await Note.db.insertRow(device, Note(title: 'c'));
+        await peerOf(server).syncOnce(device).timeout(sessionTimeout);
+        // Stamped update, delete, insert: the reverse of upstream's order.
+        await Note.db.updateRow(
+          device,
+          a.copyWith(title: 'a2'),
+          columns: (t) => [t.title],
+        );
+        await Note.db.deleteRow(device, c);
+        await Note.db.insertRow(device, Note(title: 'b'));
+        final deviceFrames = BatchRecorder();
+
+        await peerOf(
+          server,
+          mapDeviceEvent: deviceFrames.record,
+        ).syncOnce(device).timeout(sessionTimeout);
+
+        expect(kindsOf(deviceFrames.dataBatches.single), [
+          'insert',
+          'update',
+          'delete',
+        ]);
+        expect(deviceFrames.dataHasMore, [false]);
+        expect(await titlesOf(server), ['a2', 'b']);
+      },
+    );
+  });
 
   group('Given a device with a batch budget,', () {
     test(
@@ -231,6 +299,64 @@ void main() {
       },
     );
 
+    // Each limit ends a batch at its own check: the change count before the
+    // unit is read, the payload after.
+    for (final (limit, budget) in [
+      ('change', OfflineSyncBatchBudget(maxChanges: 2)),
+      (
+        'payload',
+        OfflineSyncBatchBudget(maxPayloadChars: 2, measurePayload: (_) => 1),
+      ),
+    ]) {
+      test(
+        'should_send_a_delete_and_its_cascade_in_one_batch_when_the_${limit}_limit_ends_between_them',
+        () async {
+          // The recorder stamps the deleted note, then its cascade-deleted
+          // attachment. A batch that ended between them would leave the
+          // server with the note deleted and its attachment alive until the
+          // next round.
+          final userId = const Uuid().v7obj();
+          final server = await openReplica(userId);
+          final device = await openReplica(userId, batchBudget: budget);
+          final parent = await Note.db.insertRow(device, Note(title: 'p'));
+          final attachment = await Attachment.db.insertRow(
+            device,
+            Attachment(name: 'a', noteId: parent.id!),
+          );
+          final other = await Note.db.insertRow(device, Note(title: 'x'));
+          await peerOf(server).syncOnce(device).timeout(sessionTimeout);
+          await Note.db.updateRow(
+            device,
+            other.copyWith(title: 'x2'),
+            columns: (t) => [t.title],
+          );
+          await Note.db.deleteRow(device, parent);
+          final deviceFrames = BatchRecorder();
+
+          await peerOf(
+            server,
+            mapDeviceEvent: deviceFrames.record,
+          ).syncOnce(device).timeout(sessionTimeout);
+
+          // Two fit: the update, then the delete with its cascade.
+          expect(deviceFrames.dataSizes, [1, 2]);
+          expect(
+            [
+              for (final change in deviceFrames.dataBatches.last)
+                (change.uuidRowId, (change as CrdtMergeDelete).reason),
+            ],
+            [
+              (parent.id, CrdtDataDeletedReason.userDelete),
+              (attachment.id, CrdtDataDeletedReason.userCascadeDelete),
+            ],
+          );
+          expect(await titlesOf(server), ['x2']);
+          expect(await Attachment.db.count(server), 0);
+          expect(await device.db.unsentRowCount(), 0);
+        },
+      );
+    }
+
     test(
       'should_send_a_change_larger_than_the_budget_alone_and_go_on_when_the_payload_limit_is_hit',
       () async {
@@ -326,6 +452,65 @@ void main() {
         expect(await titlesOf(device), await titlesOf(server));
         expect(serverFrames.dataSizes, [4, 4, 2]);
         expect(serverFrames.dataHasMore, [true, true, false]);
+      },
+    );
+
+    test(
+      'should_send_a_delete_stamped_before_its_rows_insert_with_the_insert_when_a_new_device_pulls',
+      () async {
+        // A higher delete generation can carry an older HLC than a concurrent
+        // restore. The phone deletes, restores and deletes r (generation 4)
+        // before the server deletes and restores it (generation 3): the server
+        // keeps the phone's delete, stamped before its own restore, whose
+        // stamp its insert of r carries. A tablet without the row drops a
+        // delete that arrives in an earlier batch than the insert, and keeps r.
+        final userId = const Uuid().v7obj();
+        final server = await openReplica(
+          userId,
+          batchBudget: OfflineSyncBatchBudget(maxChanges: 1),
+        );
+        final phone = await openReplica(userId);
+        final r = await Note.db.insertRow(server, Note(title: 'r'));
+        await peerOf(server).syncOnce(phone).timeout(sessionTimeout);
+        await Note.db.deleteRow(phone, r);
+        await Note.db.insertRow(phone, Note(id: r.id, title: 'r'));
+        await Note.db.deleteRow(phone, r);
+        // The server's restore must be stamped after the phone's delete.
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        await Note.db.deleteRow(server, r);
+        await Note.db.insertRow(server, Note(id: r.id, title: 'r2'));
+        await peerOf(server).syncOnce(phone).timeout(sessionTimeout);
+        expect(await titlesOf(server), isEmpty);
+        expect(await titlesOf(phone), isEmpty);
+        final tombstone = await tombstoneOf(server, r.id!);
+        expect(tombstone.clFlag, 4);
+        expect(tombstone.node!.uuidNodeId, await phone.db.currentNodeId());
+        expect(
+          tombstone.hlc < await insertHlcOf(server, r.id!),
+          isTrue,
+          reason: "the server's delete of r sorts before its insert of r",
+        );
+        final tablet = await openReplica(userId);
+        final serverFrames = BatchRecorder();
+
+        await peerOf(
+          server,
+          mapServerStream: (stream) => stream.map(serverFrames.record),
+        ).syncOnce(tablet).timeout(sessionTimeout);
+
+        expect(await titlesOf(tablet), isEmpty);
+        final batchOfInsert = serverFrames.dataBatches.singleWhere(
+          (batch) => batch.any(
+            (change) => change is CrdtMergeInsert && change.uuidRowId == r.id,
+          ),
+        );
+        expect(
+          [
+            for (final change in batchOfInsert)
+              if (change.uuidRowId == r.id) kindsOf([change]).single,
+          ],
+          ['delete', 'insert'],
+        );
       },
     );
   });
@@ -499,6 +684,9 @@ void main() {
         }
         expect(isolation.confirmed, isEmpty);
         expect(isolation.releasedRows, {noteKey(b), noteKey(d)});
+        // Nothing confirmed them: d is above the recorded checkpoint, b only
+        // counts as released.
+        expect(await device.db.unsentRowCount(), 2);
       },
     );
 
@@ -537,12 +725,15 @@ void main() {
         expect(await titlesOf(server), ['r', 'z']);
         expect(isolation.confirmed, isEmpty);
         expect(isolation.releasedRows, {noteKey(r)});
+        // r is below the recorded checkpoint: only the release counts it.
+        expect(await device.db.unsentRowCount(), 1);
 
         await peerOf(server).syncOnce(device).timeout(sessionTimeout);
         expect(await titlesOf(server), ['z']);
         expect(isolation.confirmed, [
           {noteKey(r)},
         ]);
+        expect(await device.db.unsentRowCount(), 0);
       },
     );
 
@@ -585,7 +776,78 @@ void main() {
         expect(await device.db.unsentRowCount(), 0);
       },
     );
+
+    test(
+      'should_count_a_held_row_of_another_node_when_the_checkpoint_keeps_going_back',
+      () async {
+        // After three counts that each read a lower checkpoint (a server
+        // losing data), the count falls back to every row of this node. A
+        // held row another node wrote is not one of them, and must still
+        // count.
+        final userId = const Uuid().v7obj();
+        final isolation = TestRowIsolation();
+        final server = await openReplica(userId);
+        final device = await openReplica(userId, rowIsolation: isolation);
+        final deviceNode = await device.db.currentNodeId();
+        final s = await Note.db.insertRow(server, Note(title: 's'));
+        final confirmed = <Hlc>[];
+        for (final title in ['a', 'b', 'c', 'd']) {
+          await Note.db.insertRow(device, Note(title: title));
+          await peerOf(server).syncOnce(device).timeout(sessionTimeout);
+          confirmed.add((await ownCheckpointOf(device, deviceNode))!);
+        }
+        expect(await titlesOf(device), ['a', 'b', 'c', 'd', 's']);
+        isolation.isolatedRows.add(noteKey(s));
+        expect(await device.db.unsentRowCount(), 1);
+
+        // Each count reads a checkpoint one row lower than the one before.
+        final lowered = confirmed.reversed.skip(1).toList();
+        var reads = 0;
+        addTearDown(
+          () => OfflineSyncEngine.debugOnUnsentRowCheckpointsRead = null,
+        );
+        OfflineSyncEngine.debugOnUnsentRowCheckpointsRead = () async {
+          final read = reads++;
+          if (read >= lowered.length) return;
+          await setOwnCheckpoint(device, deviceNode, lowered[read]);
+        };
+
+        expect(await device.db.unsentRowCount(), 5);
+        expect(reads, 3, reason: 'three counts, then the fallback');
+      },
+    );
   });
+}
+
+/// The checkpoint [device] recorded for its own node [nodeId].
+Future<Hlc?> ownCheckpointOf(
+  OfflineSyncDatabaseSession device,
+  UuidValue nodeId,
+) async {
+  final own = await OfflineSyncSpaceNode.db.find(
+    device,
+    where: (t) => t.node.uuidNodeId.equals(nodeId),
+  );
+  return own.single.lastReceivedHlc;
+}
+
+/// Replaces the checkpoint [device] recorded for its own node [nodeId].
+Future<void> setOwnCheckpoint(
+  OfflineSyncDatabaseSession device,
+  UuidValue nodeId,
+  Hlc? hlc,
+) async {
+  final own = await OfflineSyncSpaceNode.db.find(
+    device,
+    where: (t) => t.node.uuidNodeId.equals(nodeId),
+  );
+  for (final spaceNode in own) {
+    await OfflineSyncSpaceNode.db.updateRow(
+      device,
+      spaceNode.copyWith(lastReceivedHlc: hlc),
+      columns: (t) => [t.lastReceivedHlc],
+    );
+  }
 }
 
 /// The key of [note] for [OfflineSyncRowIsolation].
