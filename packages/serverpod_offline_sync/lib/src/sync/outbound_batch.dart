@@ -122,8 +122,9 @@ typedef OfflineSyncRowKey = ({String tableName, UuidValue rowId});
 /// The engine reads both sets at the start of every collection and never
 /// changes them. A row in both counts as isolated. The unsent row count
 /// (`OfflineSyncDatabase.unsentRowCount`) counts every row of both sets that
-/// exists locally, so a sign-out check does not drop them; it recounts on
-/// commits only, so refresh it after changing the sets.
+/// exists locally, so a sign-out check does not drop them. Its watch counts
+/// again on commits and after [onReleasedRowsConfirmed] returns; refresh it
+/// after changing the sets any other way.
 ///
 /// Deleting an isolated row does not clear what the receiver rejected: a
 /// delete only writes a tombstone and keeps the hidden domain row, whose

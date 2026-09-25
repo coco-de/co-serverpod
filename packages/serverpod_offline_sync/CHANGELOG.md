@@ -19,12 +19,21 @@
     before a later insert, and no round would send it again. A batch never
     ends between changes with the same HLC, nor between a row's insert and a
     change of that row stamped before it (a receiver drops an update or delete
-    of a row it does not have, and defers a delete only within one batch). A
-    node's run of delete tombstones that holds a cascade delete stays together
-    from its first tombstone to its last cascade delete, so a parent delete and
-    its cascade go in one batch; a run that alone exceeds the budget falls back
-    to the first two rules. A part that alone exceeds the budget goes in a
-    batch of its own: the receiver decides, the sender never stops.
+    of a row it does not have, and defers a delete only within one batch).
+    It also avoids two cuts, falling back to the rules above only when the
+    group alone exceeds the budget. A node's run of delete tombstones that
+    holds a cascade delete stays together from its first tombstone to its last
+    cascade delete, so a parent delete and its cascade go in one batch. A
+    node's consecutive changes of one row, each stamped right after the one
+    before (same datetime, next counter: the shape one write leaves, such as
+    an update of several columns), stay together, so a receiver does not show
+    the row half written until the next batch. A unit that alone exceeds the
+    budget goes group by group: in a delete run, the group starts at the user
+    deletes stamped right before the first cascade delete (its parents), so
+    unrelated deletes made just before may go one batch earlier while the
+    parents and their cascade still go together when they fit. A part that
+    alone exceeds the budget goes in a batch of its own: the receiver decides,
+    the sender never stops.
   - Wire: one nullable field, `OfflineSyncEndOfBatch.hasMore`, which a peer
     built with it always sets. A `once` session runs another round when either
     peer set it, so both peers decide alike (`OfflineSyncCycleBatch
@@ -35,9 +44,24 @@
     per round and keeps its wait.
   - The server side is the same loop (authoritative mode); see the server
     package for `initializeOfflineSync(batchBudget:)`.
-  - Each round reads the pending metadata again (the upstream queries) and
-    sorts it. A unit that did not fit had its domain values read for nothing;
-    the next round reads them again.
+  - Cost: each round reads the pending metadata again (the upstream queries)
+    and sorts it, so a backlog of N changes sent maxChanges at a time costs
+    about N² / maxChanges. The change limit picks the units a batch can take
+    before anything is resolved, and only their inserts' attempted values are
+    read (`OfflineSyncEngine.debugOnAttemptedValuesRead` shows it). A unit that
+    did not fit the payload limit had its domain values read for nothing; the
+    next round reads them again. Measured on the SQLite fixture (a device
+    sends N inserts in one `once` session, mean of two runs): unlimited
+    1.2 s / 1.6 s / 3.3 s and `maxChanges: 100` 1.9 s / 5.3 s / 17.9 s for
+    N = 2,000 / 4,000 / 8,000 (18.3 s before reading only the batch's
+    attempted values). At N = 8,000 the 80 rounds spend about 6.5 s re-reading
+    the sender's pending changes, 6.8 s in the receiving server's own
+    per-round collection scan and 3 s in its per-batch merges. Reading pending
+    changes by HLC keyset would cut the sender's part but must extend each
+    read until every open hard and soft unit closes; it is left until
+    production-scale numbers ask for it (unibook#14192 measures on staging).
+    The default path is pinned by a SQLite test (upstream order, one batch);
+    the PostgreSQL snapshot is covered by unibook's integration tests.
   - Breaking for implementations: a class that implements `OfflineSyncEngine`
     or `OfflineSyncDatabase` must add the getters `batchBudget` and
     `rowIsolation`, unless it forwards missing members through `noSuchMethod`.
@@ -55,7 +79,12 @@
   A row in both sets is isolated. The implementation must keep both sets
   across restarts: an isolated row whose isolation is lost is silently no
   longer synced. `unsentRowCount` counts every row of both sets that exists
-  locally, so a sign-out check does not drop them. Deleting a row does not
+  locally, so a sign-out check does not drop them, also in the every-row
+  fallback of a checkpoint that keeps going back. `watchUnsentRowCount` and
+  `watchUnsentRowCountTriggers` count again once `onReleasedRowsConfirmed`
+  returned: the session's commits come before it, so a count they started
+  could still hold the released rows. Other changes to the sets commit
+  nothing: count again after them. Deleting a row does not
   release it (the hidden domain row keeps the rejected value, which the insert
   carries); rewrite the rejected column, then delete and release.
   - The three pending-change streams are split into the checks

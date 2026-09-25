@@ -69,11 +69,11 @@ drift의 `watch()`처럼 로컬 쓰기와 동기화 병합을 화면에 자동�
 | `lib/src/sync/engine.dart` (세션별 간격) | `sync(continuousSyncInterval:)`: 연속 세션만 자기 요청을 Connect 에 싣고(`once` 는 `null`), 상대 Connect 를 받은 뒤 `resolveContinuousSyncInterval`(`@visibleForTesting`, 두 요청 중 느린 쪽을 설정 간격 ~ `maxContinuousSyncInterval` 로 자름)을 **한 번** 계산해 루프 말미 대기에 쓴다 — 루프 변경은 대기 값 한 줄. 생성자 `maxContinuousSyncInterval`(기본 `defaultMaxContinuousSyncInterval` 30초, 설정 간격이 더 길면 그 간격 · 설정 간격 미만은 `ArgumentError` — `resolveMaxContinuousSyncInterval`), getter `continuousSyncInterval`·`maxContinuousSyncInterval`, `wrapDatabase` 전달 |
 | `lib/src/database/database.dart`·`session.dart` (세션별 간격) | `OfflineSyncDatabase(maxContinuousSyncInterval:)`(생성 시 검증), `sync(continuousSyncInterval:)` 를 엔진에 전달. `OfflineSyncDatabaseSession(...)`·`.wraps(...)` 도 `maxContinuousSyncInterval` 을 받아 전달한다(이미 감싼 db 면 `continuousSyncInterval` 처럼 무시). 생성 `createSyncSession` 은 둘 다 전달하지 않음 |
 | `lib/src/sync/client_sync.dart` | `OfflineSyncClient.syncContinuously(continuousSyncInterval:)` 를 기기 엔진까지 전달. `syncOnce` 에는 인자가 없다. `OfflineSyncTransport`·모듈 endpoint·생성 클라이언트는 **무변경** |
-| `lib/src/sync/outbound_batch.dart` (신규)·`lib/serverpod_offline_sync.dart` (배럴) | 배치 예산·행 격리(unibook#14251): 공개 `OfflineSyncBatchBudget`(`unlimited`·`maxChanges`·`maxPayloadChars`·`measurePayload`, 잘못된 값은 `ArgumentError`)·`OfflineSyncChangePayloadMeasure`·`OfflineSyncRowKey`·`OfflineSyncRowIsolation` 을 배럴에서 `show` 로 export — **공개 API 가 늘어남**. `@internal` 계획기 `planOutboundUnits`(순수 함수, HLC 순 정렬 + 자를 수 있는 자리)·`OutboundBatchMeter` |
+| `lib/src/sync/outbound_batch.dart` (신규)·`lib/serverpod_offline_sync.dart` (배럴) | 배치 예산·행 격리(unibook#14251): 공개 `OfflineSyncBatchBudget`(`unlimited`·`maxChanges`·`maxPayloadChars`·`measurePayload`, 잘못된 값은 `ArgumentError`)·`OfflineSyncChangePayloadMeasure`·`OfflineSyncRowKey`·`OfflineSyncRowIsolation` 을 배럴에서 `show` 로 export — **공개 API 가 늘어남**. `@internal` 계획기 `planOutboundUnits`(순수 함수, HLC 순 정렬 + 자를 수 있는 자리 — 유닛 ⊇ 그룹 ⊇ 파트)·`takeUnitsWithinChangeLimit`(변경 수 한도로 배치가 받을 유닛 접두)·`OutboundBatchMeter` |
 | `lib/src/sync/end_of_batch.spy.yaml`·`lib/src/generated/sync/end_of_batch.dart` | `OfflineSyncEndOfBatch` 에 nullable `hasMore` 1필드 — **와이어 추가**(unibook#14251). 새 피어는 항상 `true`/`false` 를 싣는다. 구버전 피어는 보내지 않고(null) 받으면 무시한다. 재생성 산출물은 `end_of_batch.dart` 1파일(fixture 서버 재생성 diff 0) |
 | `lib/src/crdt/merge.dart` | `collectNextBatch` 가 상대 `EndOfBatch.hasMore` 를 `OfflineSyncCycleBatch.peerHasMore` 에 담는다(unibook#14251). 유휴 타임아웃으로 끝난 배치는 null |
-| `lib/src/sync/engine.dart` (배치 예산·행 격리) | 생성자 `batchBudget`(기본 `unlimited`)·`rowIsolation`, getter, `wrapDatabase` 전달. 루프: 둘 다 기본값이면 **종전 `collectPendingChanges` 그대로**, 아니면 `_collectPlannedBatch`(같은 스냅샷을 HLC 순으로 계획해 예산 안에서 멈추고 `hasMore`). `EndOfBatch(hasMore:)`. `once` 는 두 플래그 중 하나라도 `true` 면 회차를 더 돈다(상대가 null 이면 닫음). 상대 `Close` 로 끝난·다 보낸 `once` 세션이 `onReleasedRowsConfirmed`. `_readPendingChanges(releasedRows:)` — 해제 행의 변경 전부를 같은 스냅샷에서(없으면 쿼리 무추가). 스트림 3종을 판정 `_sendsInsert/Update/Delete` 와 해석 `_resolveInsert/Update/Delete` 로 나눔(업스트림 경로 동작 무변경). `countUnsentRows` 가 두 집합의 로컬 행을 더함 ([배치 예산과 행 격리](#배치-예산과-행-격리)) |
-| `lib/src/database/database.dart`·`session.dart` (배치 예산·행 격리) | `OfflineSyncDatabase(batchBudget:, rowIsolation:)`·getter, `OfflineSyncDatabaseSession(...)`·`.wraps(...)` 도 받아 전달(이미 감싼 db 면 무시). 생성 `createSyncSession` 은 전달하지 않음 |
+| `lib/src/sync/engine.dart` (배치 예산·행 격리) | 생성자 `batchBudget`(기본 `unlimited`)·`rowIsolation`, getter, `wrapDatabase` 전달. 루프: 둘 다 기본값이면 **종전 `collectPendingChanges` 그대로**, 아니면 `_collectPlannedBatch`(같은 스냅샷을 HLC 순으로 계획해 예산 안에서 멈추고 `hasMore`. 변경 수 한도로 받을 유닛을 먼저 정해 그 insert 의 attempted value 만 읽고(`debugOnAttemptedValuesRead`), 혼자 넘치는 유닛은 그룹 단위로 보낸다). `EndOfBatch(hasMore:)`. `once` 는 두 플래그 중 하나라도 `true` 면 회차를 더 돈다(상대가 null 이면 닫음). 상대 `Close` 로 끝난·다 보낸 `once` 세션이 `onReleasedRowsConfirmed`, 그것이 돌아온 **뒤** 컨텍스트에 알려 미전송 건수 watch 가 다시 센다(`OfflineSyncDatabaseContext.notifyUnsentRowCountInputsChanged`, `@internal`). `_readPendingChanges(releasedRows:)` — 해제 행의 변경 전부를 같은 스냅샷에서(없으면 쿼리 무추가). 스트림 3종을 판정 `_sendsInsert/Update/Delete` 와 해석 `_resolveInsert/Update/Delete` 로 나눔(업스트림 경로 동작 무변경). `countUnsentRows` 가 두 집합의 로컬 행을 더함 ([배치 예산과 행 격리](#배치-예산과-행-격리)) |
+| `lib/src/database/database.dart`·`session.dart`·`unsent_row_count.dart` (배치 예산·행 격리) | `OfflineSyncDatabase(batchBudget:, rowIsolation:)`·getter, `OfflineSyncDatabaseSession(...)`·`.wraps(...)` 도 받아 전달(이미 감싼 db 면 무시). 생성 `createSyncSession` 은 전달하지 않음. `watchUnsentRowCountTriggers` = SQLite 커밋 watch ⊕ 컨텍스트 알림(`mergeTriggers`) |
 | `serverpod_offline_sync_server` `business/offline_sync.dart` (배치 예산) | `initializeOfflineSync(batchBudget:)`(기본 `unlimited`)·`OfflineSyncSession.batchBudget` getter(unibook#14251). 행 격리는 서버에 두지 않는다 |
 | **포크 전용 테스트** (업스트림에 없음) | 엔진 `test/hlc/hlc_max_drift_test.dart`·`test/managers/hlc_manager_test.dart`·`test/sync/failure_mapping_test.dart`·`test/sync/max_clock_drift_config_test.dart`·`test/database/unsent_row_count_test.dart`·`test/sync/continuous_sync_interval_policy_test.dart`·`test/sync/outbound_batch_plan_test.dart`, 클라이언트 `test/failure_test.dart`·`test/sync_status_test.dart`, 서버 모듈 `test/integration/failure_mapping_test.dart`·`test/integration/continuous_sync_interval_test.dart`·`test/integration/batch_budget_test.dart`. 업스트림을 새로 풀면 **지워진다** — [업스트림 따라가기](#업스트림-따라가기) 1단계 |
 
@@ -452,14 +452,30 @@ pod.initializeOfflineSync(
 | 기본 | `OfflineSyncBatchBudget.unlimited` — 종전 경로 그대로(업스트림 순서 · 회차당 한 배치). 행 격리도 없으면 수집은 종전 `collectPendingChanges` 다(차이는 `EndOfBatch` 의 `hasMore: false` 뿐) |
 | 순서 | 예산이 있으면 **HLC 순**으로 보낸다. 배치는 항상 HLC 접두라, 체크포인트가 마지막으로 보낸 변경으로 가도 건너뛰는 변경이 없다. 업스트림 순서(insert 먼저)로 자르면 insert 보다 앞서 찍힌 update 를 체크포인트가 지나쳐 **다시 보내지 않는다** |
 | 자를 수 없는 곳 | 같은 HLC 사이(체크포인트 조회가 `>` 다) · 행의 insert 와 **그보다 앞서 찍힌** 그 행의 변경 사이(받는 쪽은 모르는 행의 update·delete 를 버리고, delete 는 한 배치 안에서만 미룬다 — 다른 노드의 다음 세대 delete 가 동시 재삽입보다 오래된 HLC 를 가질 수 있다) |
-| cascade | 한 노드의 연속 삭제 tombstone(`userDelete`·`userCascadeDelete`)에 cascade 가 있으면 첫 삭제부터 마지막 cascade 까지 한 유닛 — 부모 삭제와 cascade 가 같은 배치로 간다. 그 유닛만으로 예산을 넘으면 위 두 제약만 지켜 자른다(짝이 갈라져도 받는 쪽은 결국 둘 다 받는다) |
+| 자르지 않는 곳 | 위 두 제약과 달리 **피한다** — 예산이 허락하면 한 유닛으로 같은 배치에 보내고, 유닛만으로 예산을 넘을 때만 그룹 단위로, 그룹만으로도 넘으면 위 두 제약만 지켜 자른다(짝이 갈라져도 받는 쪽은 결국 둘 다 받는다). 한 쓰기의 흔적은 "바로 다음 스탬프"(같은 datetime · counter+1 — recorder 는 한 쓰기의 변경마다 increment 한다)뿐이라 그것으로 판단한다. 벽시계가 그 사이에 넘어가면 사슬이 끊겨 따로 간다(종전 동작으로 물러날 뿐이다) |
+| └ cascade | 한 노드의 연속 삭제 tombstone(`userDelete`·`userCascadeDelete`)에 cascade 가 있으면 첫 삭제부터 마지막 cascade 까지 한 **유닛** — 부모 삭제와 cascade 가 같은 배치로 간다. 인접만으로는 바로 앞의 무관한 삭제와 부모를 구별할 수 없어 유닛은 그것도 품는다. **그룹**은 첫 cascade 앞에 바로 다음 스탬프로 이어진 userDelete(그 삭제의 부모)부터 마지막 cascade 까지 — 유닛이 넘치면 앞의 무관한 삭제는 먼저 가고, 부모+cascade 는 들어가면 함께, 안 들어가면 다음 배치로 간다 |
+| └ 한 쓰기 | 한 노드가 같은 행에 바로 다음 스탬프로 이어 찍은 변경(여러 컬럼 update 등)은 한 유닛·한 그룹 — 받는 쪽이 다음 배치까지 **반쯤 쓴 행**을 보이지 않는다. 여러 행 update 는 행마다 따로 |
 | 한도 | **포함** — 한도와 같으면 들어가고 넘으면 안 들어간다. 넘기 **전에** 멈추고 `EndOfBatch(hasMore: true)` |
 | 혼자 넘는 변경 | 빈 배치에 들어가지 않는 첫 파트는 **혼자** 보낸다. 받는 쪽이 판정하고, 보내는 쪽은 멈추지 않는다(무한 루프·영구 정지 없음). 받는 쪽이 그것을 거부하면 행 격리가 다음 수단이다 |
 | `once` | 두 피어가 서로의 `hasMore` 를 읽고 **하나라도 `true` 면 둘 다** 한 회차 더 돈다. 세션이 끝나면 보류분이 모두 간 것이다 |
 | 연속 | 회차마다 한 배치. 회차 대기는 그대로라, 남은 배치 수 × (간격 + 유휴) 만큼 걸린다 |
 | 구버전 피어 | `hasMore` 를 보내지 않는다(null). 그러면 새 피어도 **닫고** 나머지는 다음 세션에 보낸다 — 오류는 없지만 세션당 한 배치다. **서버를 먼저 배포**하세요 |
 | 새 피어의 신호 | 예산이 없어도 모든 `EndOfBatch` 에 `true`/`false` 를 싣는다 — 구버전과 구분하는 신호다 |
-| 비용 | 회차마다 보류분 메타데이터 3쿼리(업스트림과 같은 쿼리)를 다시 읽어 정렬한다. 들어가지 못한 유닛의 도메인 값 조회는 버려지고 다음 회차에 다시 읽힌다 |
+| 비용 | 회차마다 보류분 메타데이터 3쿼리(업스트림과 같은 쿼리)를 다시 읽어 정렬한다 — 보류분 N 을 maxChanges 씩 보내면 약 N² / maxChanges. attempted value 는 변경 수 한도로 이번 배치가 받을 유닛의 insert 만 읽는다. 페이로드 한도에 들어가지 못한 유닛의 도메인 값 조회는 버려지고 다음 회차에 다시 읽힌다. 실측은 아래 |
+
+**실측**(fixture SQLite, 기기가 보류 insert N 건을 `once` 한 세션으로 보냄, 두 번 평균, unibook#14251 리뷰 F4):
+
+| N | 무한도 | `maxChanges: 100` (attempted value 전부 읽던 때) | `maxChanges: 100` |
+|---:|---:|---:|---:|
+| 2,000 | 1.2 s | 2.0 s | 1.9 s |
+| 4,000 | 1.6 s | 5.5 s | 5.3 s |
+| 8,000 | 3.3 s | 18.3 s | 17.9 s |
+
+N = 8,000 의 80 회차는 대략 보내는 쪽의 보류 재읽기 6.5 s, 받는 쪽 서버가 회차마다 자기 보류를 모으는 스캔
+6.8 s, 받는 쪽 배치별 병합 3 s 다(두 피어가 한 isolate 라 경계는 겹친다). attempted value 전부 읽기는 80 회차 합
+0.47 s 였다. HLC keyset 으로 보류를 나눠 읽으면 보내는 쪽 몫은 줄지만, 열린 hard/soft 유닛이 닫힐 때까지 읽기를 늘려야
+해 넣지 않았다 — 실제 규모의 수치(unibook#14192 스테이징 실측)가 요구할 때 한다. 기본 경로(무한도·격리 없음)의
+순서는 SQLite 테스트가 고정하고, PostgreSQL 스냅샷 경로는 unibook 통합 테스트가 맡는다.
 
 ⚠️ **척도는 받는 쪽과 같아야 합니다.** 받는 쪽이 더 크게 재면 보내는 쪽이 한도에 맞춰 나눈 배치를 받는 쪽이 거부하고,
 그 배치는 매 세션 같은 모양으로 다시 만들어집니다. 보내는 쪽 목표를 받는 쪽 상한보다 여유 있게 낮추세요(unibook 은
@@ -509,7 +525,7 @@ await store.release((tableName: 'note', rowId: noteId)); // 격리에서 빼고 
 | 해제 | 체크포인트와 무관하게 그 행의 변경 전부(insert · 필드 · tombstone, 다른 노드가 쓴 것 포함)를 같은 스냅샷에서 읽어 **세션당 한 번** 보낸다. 값은 늘 현재 값이다 — 고친 뒤 해제하면 고친 값이 간다 |
 | 확인 | 상대의 `Close` 로 끝났고 더 보낼 것이 없던 `once` 세션만 `onReleasedRowsConfirmed(보낸 해제 행)` 을 부른다. 거기서 `releasedRows` 에서 빼세요. 연속 세션 · 실패한 세션 · 구버전 피어와 일찍 닫은 세션은 확인하지 않는다(다음 세션이 다시 보낸다) |
 | 둘 다 | 격리가 이긴다 |
-| 미전송 건수 | `unsentRowCount` 가 두 집합 중 로컬에 있는 행을 더한다 — 로그아웃 판정이 0 으로 읽고 DB 를 지우지 않게. 커밋 워치는 집합 변경을 못 보므로 바꾼 뒤 다시 세세요(`refreshUnsentRowCount`) |
+| 미전송 건수 | `unsentRowCount` 가 두 집합 중 로컬에 있는 행을 더한다(체크포인트가 계속 되돌아가 노드의 모든 행을 세는 폴백에서도) — 로그아웃 판정이 0 으로 읽고 DB 를 지우지 않게. 세션이 해제 행을 확인하면 `onReleasedRowsConfirmed` 가 돌아온 뒤 watch 가 다시 센다(세션의 커밋은 그 전이라, 그때 시작한 계산은 아직 해제 행을 볼 수 있다). 그 밖에 집합을 바꾸면 커밋이 없으므로 다시 세세요(`refreshUnsentRowCount`) |
 | 영속 | 두 집합은 구현체가 **재시작을 넘어 남겨야** 한다. 잃으면 격리 행은 동기화에서 조용히 빠지고 건수에서도 빠진다 |
 | 서버 | 두지 않는다(기기 전용). `initializeOfflineSync` 에는 인자가 없다 |
 
@@ -555,7 +571,8 @@ cd test/offline_sync_watch_test_client && dart pub get && dart test
 ```
 
 watch fixture의 모델은 `test/offline_sync_watch_test_server/lib/src/models`에 있습니다. 모델을 바꾸면
-생성 코드와 마이그레이션을 다시 만듭니다.
+생성 코드와 마이그레이션을 다시 만듭니다. `Attachment`(`note` 로의 `onDelete=Cascade` 관계)는 배치 예산 테스트가
+cascade tombstone 을 만들려고 둔 포크 전용 모델입니다(`Note.folder` 는 `SetNull` 이라 cascade 가 생기지 않는다).
 
 ```bash
 cd test/offline_sync_watch_test_server

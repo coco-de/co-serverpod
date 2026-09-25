@@ -4,8 +4,9 @@
   session (`OfflineSyncDatabaseSession.wraps(batchBudget:, rowIsolation:)`),
   not on `OfflineSyncClient` or `OfflineSyncStatusTracker`; both packages
   re-export them. `OfflineSyncStatus.unsentRowCount` counts the isolated and
-  released rows too. Changing those sets commits nothing, so call
-  `refreshUnsentRowCount` after.
+  released rows too. A session that confirms released rows makes the tracker
+  count again after the confirmation; any other change to those sets commits
+  nothing, so call `refreshUnsentRowCount` after.
 
 - feat: `OfflineSyncStatusTracker.syncContinuously(continuousSyncInterval:)`
   forwards the request to `OfflineSyncClient.syncContinuously`
