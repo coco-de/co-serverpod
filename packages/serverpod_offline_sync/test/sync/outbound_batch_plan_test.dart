@@ -8,11 +8,12 @@ import 'package:uuid/uuid.dart';
 ///
 /// The planner is pure: it orders and cuts what the engine read from the CRDT
 /// tables. The engine's use of it, over real SQLite replicas, is tested in
-/// `test/offline_sync_watch_test_client/test/batch_budget_test.dart`; the
-/// cascade case needs a cascading foreign key the fixture schema does not
-/// have, so its shape is pinned here with the stamping order the recorder
-/// produces (`_softDeleteRowsByTable`: the deleted parents, then their cascade
-/// children, each with its own increment).
+/// `test/offline_sync_watch_test_client/test/batch_budget_test.dart`. The
+/// shapes here use the stamps the recorder produces: one write takes one HLC
+/// per change, the previous one's datetime with the next counter
+/// (`_softDeleteRowsByTable`: the deleted parents, then their cascade
+/// children; `upsertCrdtFieldsForRows`: each column of a row in turn). Changes
+/// of separate writes get their own millisecond here.
 void main() {
   final device = UuidValue.fromString('00000000-0000-7000-8000-00000000000d');
   final other = UuidValue.fromString('00000000-0000-7000-8000-00000000000e');
@@ -59,6 +60,11 @@ void main() {
   /// The units as lists of parts of indices, for readable expectations.
   List<List<List<int>>> shape(List<OutboundChangeRef> changes) => [
     for (final unit in planOutboundUnits(changes)) unit.parts,
+  ];
+
+  /// The units as lists of groups of parts of indices.
+  List<List<List<List<int>>>> groups(List<OutboundChangeRef> changes) => [
+    for (final unit in planOutboundUnits(changes)) unit.groups,
   ];
 
   group('Given pending changes collected in upstream order,', () {
@@ -127,7 +133,7 @@ void main() {
           delete(hlc(1, other), 1, reason: CrdtDataDeletedReason.userDelete),
           update(hlc(2), 9),
           insert(hlc(3), 1),
-          update(hlc(4), 1),
+          update(hlc(0, device, 1), 1),
         ];
 
         expect(shape(changes), [
@@ -145,7 +151,11 @@ void main() {
       'when a row is inserted and later updated and deleted, then each goes on '
       'its own: the receiver has the row by then',
       () {
-        final changes = [insert(hlc(1), 1), update(hlc(2), 1), delete(hlc(3), 1)];
+        final changes = [
+          insert(hlc(0, device, 1), 1),
+          update(hlc(0, device, 2), 1),
+          delete(hlc(0, device, 3), 1),
+        ];
 
         expect(shape(changes), [
           [
@@ -156,6 +166,98 @@ void main() {
           ],
           [
             [2],
+          ],
+        ]);
+      },
+    );
+  });
+
+  group('Given one write that changed several columns of a row,', () {
+    test(
+      'when its changes were stamped one right after the other, then they are '
+      'one unit and one group of single-change parts',
+      () {
+        final changes = [
+          update(hlc(1), 1),
+          update(hlc(2), 1, column: 'archived'),
+          update(hlc(3), 1, column: 'folderId'),
+        ];
+
+        expect(groups(changes), [
+          [
+            [
+              [0],
+              [1],
+              [2],
+            ],
+          ],
+        ]);
+      },
+    );
+
+    test(
+      "when another node's change sorts between them, then the unit spans it",
+      () {
+        final changes = [
+          update(hlc(1), 1),
+          update(hlc(1, other), 9),
+          update(hlc(2), 1, column: 'archived'),
+        ];
+
+        expect(shape(changes), [
+          [
+            [0],
+            [1],
+            [2],
+          ],
+        ]);
+      },
+    );
+
+    test(
+      'when the clock moved on between two changes of a row, then they are '
+      'separate writes and separate units',
+      () {
+        final changes = [
+          update(hlc(4), 1),
+          update(hlc(0, device, 1), 1, column: 'archived'),
+        ];
+
+        expect(shape(changes), hasLength(2));
+      },
+    );
+
+    test(
+      'when a counter was skipped between two changes of a row, then they are '
+      'separate units',
+      () {
+        final changes = [update(hlc(1), 1), update(hlc(3), 1, column: 'archived')];
+
+        expect(shape(changes), hasLength(2));
+      },
+    );
+
+    test(
+      'when consecutive stamps changed different rows, then each row is a unit '
+      'of its own',
+      () {
+        // An update of several rows stamps each row's columns in turn: the
+        // rows are separate writes to the receiver.
+        final changes = [
+          update(hlc(1), 1),
+          update(hlc(2), 1, column: 'archived'),
+          update(hlc(3), 2),
+          update(hlc(4), 2, column: 'archived'),
+        ];
+
+        expect(shape(changes), [
+          [
+            [0],
+            [1],
+          ],
+          [
+            [2],
+            [3],
           ],
         ]);
       },
@@ -249,6 +351,101 @@ void main() {
           [
             [2],
             [3],
+          ],
+        ]);
+      },
+    );
+
+    test(
+      'when the node deleted something in an earlier millisecond just before, '
+      'then the unit keeps it and the group starts at the parents',
+      () {
+        // Adjacency cannot tell an unrelated delete from a parent: the unit
+        // keeps both. The chain of stamps can: the parents' write stamped
+        // them right before its first cascade delete.
+        final changes = [
+          delete(hlc(5, device, 0), 5),
+          delete(hlc(0, device, 1), 1, table: 'page'),
+          delete(hlc(1, device, 1), 2, table: 'page'),
+          delete(
+            hlc(2, device, 1),
+            1,
+            table: 'page_meta',
+            reason: CrdtDataDeletedReason.userCascadeDelete,
+          ),
+          delete(
+            hlc(3, device, 1),
+            2,
+            table: 'page_meta',
+            reason: CrdtDataDeletedReason.userCascadeDelete,
+          ),
+        ];
+
+        expect(groups(changes), [
+          [
+            [
+              [0],
+            ],
+            [
+              [1],
+              [2],
+              [3],
+              [4],
+            ],
+          ],
+        ]);
+      },
+    );
+
+    test(
+      'when the earlier delete was stamped right before the parents, then the '
+      'group reaches it too',
+      () {
+        final changes = [
+          delete(hlc(1), 5),
+          delete(hlc(2), 1, table: 'page'),
+          delete(
+            hlc(3),
+            1,
+            table: 'page_meta',
+            reason: CrdtDataDeletedReason.userCascadeDelete,
+          ),
+        ];
+
+        expect(groups(changes), [
+          [
+            [
+              [0],
+              [1],
+              [2],
+            ],
+          ],
+        ]);
+      },
+    );
+
+    test(
+      'when the clock moved on between a parent and its cascade, then the group '
+      'starts at the cascade',
+      () {
+        final changes = [
+          delete(hlc(7, device, 0), 1, table: 'page'),
+          delete(
+            hlc(0, device, 1),
+            1,
+            table: 'page_meta',
+            reason: CrdtDataDeletedReason.userCascadeDelete,
+          ),
+        ];
+
+        expect(groups(changes), [
+          [
+            [
+              [0],
+            ],
+            [
+              [1],
+            ],
           ],
         ]);
       },

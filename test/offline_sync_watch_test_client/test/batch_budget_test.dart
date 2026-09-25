@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:clock/clock.dart';
 import 'package:offline_sync_watch_test_client/offline_sync_watch_test_client.dart';
 import 'package:path/path.dart' as p;
 import 'package:serverpod_offline_sync_client/serverpod_offline_sync_client.dart';
@@ -25,6 +26,8 @@ import 'support/sync_harness.dart';
 /// | Device budget, continuous | One batch per round, every change sent |
 /// | An update stamped between two inserts | Sent: HLC order, not inserts first |
 /// | Either limit ends between a delete and its cascade | Both in the next batch |
+/// | An earlier delete fills the batch before a delete and its cascade | The earlier delete, then both in the next batch |
+/// | The budget ends inside one write's changes of a row | All of them in the next batch |
 /// | A delete stamped before its row's insert, new device | Sent with the insert: the device ends without the row |
 /// | Server budget (authoritative) | The device receives batches at the limit and every row |
 /// | Payload limit, a change larger than the budget | Sent alone, the session goes on |
@@ -129,6 +132,13 @@ void main() {
     );
     return tombstone!;
   }
+
+  /// Runs [write] at a wall clock [ahead] of now, so every HLC it takes shares
+  /// one millisecond, and apart from anything written before it.
+  Future<T> inOneMillisecond<T>(
+    Future<T> Function() write, {
+    Duration ahead = const Duration(milliseconds: 20),
+  }) => withClock(Clock.fixed(DateTime.now().toUtc().add(ahead)), write);
 
   /// The kind of each change of [batch], in order.
   List<String> kindsOf(List<CrdtMergeChange> batch) => [
@@ -356,6 +366,95 @@ void main() {
         },
       );
     }
+
+    test(
+      'should_send_the_earlier_delete_then_a_delete_and_its_cascade_when_they_exceed_the_budget_together',
+      () async {
+        // The delete just before sits in the same run of tombstones as the
+        // parent, so the unit holds all three and exceeds the budget. It goes
+        // group by group: the earlier delete, then the parent with its
+        // cascade, which one write stamped one right after the other.
+        final userId = const Uuid().v7obj();
+        final server = await openReplica(userId);
+        final device = await openReplica(
+          userId,
+          batchBudget: OfflineSyncBatchBudget(maxChanges: 2),
+        );
+        final earlier = await Note.db.insertRow(device, Note(title: 'e'));
+        final parent = await Note.db.insertRow(device, Note(title: 'p'));
+        final attachment = await Attachment.db.insertRow(
+          device,
+          Attachment(name: 'a', noteId: parent.id!),
+        );
+        await peerOf(server).syncOnce(device).timeout(sessionTimeout);
+        await Note.db.deleteRow(device, earlier);
+        await inOneMillisecond(() => Note.db.deleteRow(device, parent));
+        final deviceFrames = BatchRecorder();
+
+        await peerOf(
+          server,
+          mapDeviceEvent: deviceFrames.record,
+        ).syncOnce(device).timeout(sessionTimeout);
+
+        expect(deviceFrames.dataSizes, [1, 2]);
+        expect(
+          [
+            for (final batch in deviceFrames.dataBatches)
+              [for (final change in batch) change.uuidRowId],
+          ],
+          [
+            [earlier.id],
+            [parent.id, attachment.id],
+          ],
+        );
+        expect(await titlesOf(server), isEmpty);
+        expect(await Attachment.db.count(server), 0);
+      },
+    );
+
+    test(
+      'should_send_one_writes_changes_of_a_row_in_one_batch_when_the_budget_ends_between_them',
+      () async {
+        // An update stamps each changed column in turn. A batch that ended
+        // between them would show the server the row half written until the
+        // next round.
+        final userId = const Uuid().v7obj();
+        final server = await openReplica(userId);
+        final device = await openReplica(
+          userId,
+          batchBudget: OfflineSyncBatchBudget(maxChanges: 2),
+        );
+        final note = await Note.db.insertRow(device, Note(title: 'n'));
+        final other = await Note.db.insertRow(device, Note(title: 'x'));
+        await peerOf(server).syncOnce(device).timeout(sessionTimeout);
+        await Note.db.updateRow(
+          device,
+          other.copyWith(title: 'x2'),
+          columns: (t) => [t.title],
+        );
+        await inOneMillisecond(
+          () => Note.db.updateRow(
+            device,
+            note.copyWith(title: 'n2', archived: true),
+            columns: (t) => [t.title, t.archived],
+          ),
+        );
+        final deviceFrames = BatchRecorder();
+
+        await peerOf(
+          server,
+          mapDeviceEvent: deviceFrames.record,
+        ).syncOnce(device).timeout(sessionTimeout);
+
+        expect(deviceFrames.dataSizes, [1, 2]);
+        expect([
+          for (final change in deviceFrames.dataBatches.last)
+            (change.uuidRowId, (change as CrdtMergeUpdate).columnName),
+        ], unorderedEquals([(note.id, 'title'), (note.id, 'archived')]));
+        final merged = await Note.db.findById(server, note.id!);
+        expect((merged!.title, merged.archived), ('n2', true));
+      },
+    );
 
     test(
       'should_send_a_change_larger_than_the_budget_alone_and_go_on_when_the_payload_limit_is_hit',

@@ -31,7 +31,9 @@ typedef OfflineSyncChangePayloadMeasure = int Function(CrdtMergeChange change);
 /// between changes with the same HLC, and never between a row's insert and a
 /// change of that row stamped before it (a receiver that does not have the row
 /// drops such a change). It also avoids cutting a delete from the cascade
-/// deletes it caused, unless that group alone exceeds the budget.
+/// deletes it caused, and one write's changes of a row from each other (the
+/// receiver would show the row half written until the next batch), unless
+/// that group alone exceeds the budget.
 ///
 /// A change that alone exceeds the budget is sent in a batch of its own: the
 /// receiver decides, the sender does not stop. Limits are inclusive: a batch
@@ -177,19 +179,25 @@ typedef OutboundChangeRef = ({
 /// ends inside a unit that fits.
 @internal
 final class OutboundUnit {
-  /// Creates a unit of [parts].
-  OutboundUnit(this.parts);
+  /// Creates a unit of [groups].
+  OutboundUnit(this.groups);
 
-  /// The unit's changes as indices into the planned list, in send order, in
-  /// parts the batch may end between when the unit alone exceeds the budget.
-  /// A part is never split.
-  final List<List<int>> parts;
+  /// The unit's changes as indices into the planned list, in send order.
+  ///
+  /// A unit that alone exceeds the budget is sent group by group, and the
+  /// batch still never ends inside a group that fits. A group that alone
+  /// exceeds it is sent part by part. A part (a list of indices) is never
+  /// split.
+  final List<List<List<int>>> groups;
+
+  /// The unit's parts, in send order, across its groups.
+  List<List<int>> get parts => [for (final group in groups) ...group];
 
   /// Every index of the unit, in send order.
-  Iterable<int> get indices => parts.expand((part) => part);
+  Iterable<int> get indices => groups.expand((group) => group.expand((part) => part));
 
   /// The number of changes in the unit.
-  int get length => parts.fold(0, (sum, part) => sum + part.length);
+  int get length => indices.length;
 }
 
 /// Plans where a peer may end an outbound batch (fork, unibook#14251).
@@ -208,14 +216,32 @@ final class OutboundUnit {
 ///   the insert (it defers a delete only within one batch), and a delete of a
 ///   later generation can carry an older HLC than a concurrent re-insertion.
 ///
-/// A unit also keeps a delete with the cascade deletes it caused. They are
-/// stamped as consecutive changes of one node: the deleted parents first, then
-/// their cascade children. A run of consecutive delete tombstones of a node
-/// (reason [CrdtDataDeletedReason.userDelete] or
-/// [CrdtDataDeletedReason.userCascadeDelete]) that holds a cascade delete
-/// stays together from its first tombstone to its last cascade delete. It may
-/// hold unrelated deletes the node made just before; that only makes the unit
-/// larger, and a unit that exceeds the budget falls back to its parts.
+/// A unit also keeps together what one local write stamped, which the
+/// recorder stamps as consecutive changes of one node: each HLC it issues is
+/// the previous one's datetime with the next counter, until the wall clock
+/// moves on. That shape, "stamped right after", is the only trace a write
+/// leaves; a cut inside it is allowed but avoided:
+///
+/// * one write's changes of a row: an update stamps each changed column in
+///   turn. Consecutive changes of a node to the same row, each stamped right
+///   after the one before, stay together, so a receiver does not show the row
+///   half written between two batches. They are also a group (below).
+/// * a delete with the cascade deletes it caused: the deleted parents first,
+///   then their cascade children. A run of consecutive delete tombstones of a
+///   node (reason [CrdtDataDeletedReason.userDelete] or
+///   [CrdtDataDeletedReason.userCascadeDelete]) that holds a cascade delete
+///   stays together from its first tombstone to its last cascade delete. It
+///   may hold unrelated deletes the node made just before, which adjacency
+///   alone cannot tell from the parents.
+///
+/// A unit that alone exceeds the budget falls back to its groups: the batch
+/// may end between two groups, never inside one that fits. In a delete run,
+/// the group is its tail: the first cascade delete with the user deletes
+/// stamped right before it in an unbroken chain (the parents of that delete,
+/// and any delete the same write or one in the same millisecond made), to
+/// the last cascade delete. The deletes before the tail may go in an earlier
+/// batch. A chain the wall clock broke leaves some parents out of the tail;
+/// then they may go one batch before their cascade, as any part may.
 @internal
 List<OutboundUnit> planOutboundUnits(List<OutboundChangeRef> changes) {
   final order = List<int>.generate(changes.length, (index) => index)
@@ -224,8 +250,10 @@ List<OutboundUnit> planOutboundUnits(List<OutboundChangeRef> changes) {
   if (count == 0) return const [];
 
   // Cut "after position i" is forbidden while a range covers i. Each list is a
-  // difference array over positions.
+  // difference array over positions: hard for parts, grouped for groups,
+  // soft for units. Every grouped range is also soft, so groups nest in units.
   final hard = List<int>.filled(count + 1, 0);
+  final grouped = List<int>.filled(count + 1, 0);
   final soft = List<int>.filled(count + 1, 0);
   void forbid(List<int> delta, int from, int to) {
     if (to <= from) return;
@@ -255,7 +283,6 @@ List<OutboundUnit> planOutboundUnits(List<OutboundChangeRef> changes) {
     forbid(hard, firstPositionByRow[row]!, insertPosition);
   }
 
-  // A run of a node's delete tombstones with its cascade deletes.
   final positionsByNode = <UuidValue, List<int>>{};
   for (var position = 0; position < count; position++) {
     positionsByNode
@@ -263,18 +290,43 @@ List<OutboundUnit> planOutboundUnits(List<OutboundChangeRef> changes) {
         .add(position);
   }
   for (final positions in positionsByNode.values) {
+    OutboundChangeRef at(int index) => changes[order[positions[index]]];
+    bool stampedRightAfter(int index) =>
+        _isStampedRightAfter(at(index - 1).hlc, at(index).hlc);
+
+    // One write's changes of a row.
+    for (var index = 1; index < positions.length; index++) {
+      final previous = at(index - 1);
+      final change = at(index);
+      if (previous.rowId == change.rowId &&
+          previous.tableName == change.tableName &&
+          stampedRightAfter(index)) {
+        forbid(grouped, positions[index - 1], positions[index]);
+        forbid(soft, positions[index - 1], positions[index]);
+      }
+    }
+
+    // A run of delete tombstones with its cascade deletes, by index into
+    // positions.
     int? runStart;
+    int? firstCascade;
     int? lastCascade;
     void closeRun() {
-      if (runStart != null && lastCascade != null) {
-        forbid(soft, runStart!, lastCascade!);
+      if (runStart != null && firstCascade != null && lastCascade != null) {
+        var tailStart = firstCascade!;
+        while (tailStart > runStart! && stampedRightAfter(tailStart)) {
+          tailStart--;
+        }
+        forbid(grouped, positions[tailStart], positions[lastCascade!]);
+        forbid(soft, positions[runStart!], positions[lastCascade!]);
       }
       runStart = null;
+      firstCascade = null;
       lastCascade = null;
     }
 
-    for (final position in positions) {
-      final change = changes[order[position]];
+    for (var index = 0; index < positions.length; index++) {
+      final change = at(index);
       final reason = change.deleteReason;
       final inRun =
           change.kind == OutboundChangeKind.delete &&
@@ -284,21 +336,25 @@ List<OutboundUnit> planOutboundUnits(List<OutboundChangeRef> changes) {
         closeRun();
         continue;
       }
-      runStart ??= position;
+      runStart ??= index;
       if (reason == CrdtDataDeletedReason.userCascadeDelete) {
-        lastCascade = position;
+        firstCascade ??= index;
+        lastCascade = index;
       }
     }
     closeRun();
   }
 
   final units = <OutboundUnit>[];
+  var groups = <List<List<int>>>[];
   var parts = <List<int>>[];
   var part = <int>[];
   var hardDepth = 0;
+  var groupedDepth = 0;
   var softDepth = 0;
   for (var position = 0; position < count; position++) {
     hardDepth += hard[position];
+    groupedDepth += grouped[position];
     softDepth += soft[position];
     part.add(order[position]);
     final isLast = position + 1 == count;
@@ -306,13 +362,23 @@ List<OutboundUnit> planOutboundUnits(List<OutboundChangeRef> changes) {
       parts.add(part);
       part = <int>[];
     }
-    if (isLast || (hardDepth == 0 && softDepth == 0)) {
-      units.add(OutboundUnit(parts));
+    if (isLast || (hardDepth == 0 && groupedDepth == 0)) {
+      groups.add(parts);
       parts = <List<int>>[];
+    }
+    if (isLast || (hardDepth == 0 && softDepth == 0)) {
+      units.add(OutboundUnit(groups));
+      groups = <List<List<int>>>[];
     }
   }
   return units;
 }
+
+/// Whether [next] is the HLC a node issues right after [previous] within one
+/// millisecond: the shape one local write leaves (see [planOutboundUnits]).
+bool _isStampedRightAfter(Hlc previous, Hlc next) =>
+    next.datetime.isAtSameMomentAs(previous.datetime) &&
+    next.counter == previous.counter + 1;
 
 int _compareOutbound(OutboundChangeRef left, OutboundChangeRef right) {
   final byHlc = left.hlc.compareTo(right.hlc);

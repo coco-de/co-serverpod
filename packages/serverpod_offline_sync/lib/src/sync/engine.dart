@@ -295,8 +295,9 @@ class OfflineSyncEngine {
   /// cut where resuming from the advanced checkpoints skips nothing. It streams
   /// whole units while they fit and stops before the first that does not,
   /// setting [_OutboundBatch.hasMore]. A unit that does not fit an empty batch
-  /// is sent part by part while they fit; its first part is sent even when it
-  /// alone exceeds the budget, so every batch makes progress.
+  /// is sent group by group while they fit, and a group that does not fit an
+  /// empty batch part by part while they fit; that first part is sent even
+  /// when it alone exceeds the budget, so every batch makes progress.
   ///
   /// Changes are resolved (their domain values read) one unit at a time, so a
   /// unit that ends up not fitting was read for nothing; the next round reads
@@ -440,18 +441,43 @@ class OfflineSyncEngine {
           outbound.hasMore = true;
           return;
         }
-        // The unit alone exceeds the budget: keep only what resuming needs.
-        for (var index = 0; index < parts.length; index++) {
-          final part = parts[index];
-          if (!meter.isEmpty &&
-              !meter.fits(changes: part.length, payloadChars: partPayloads[index])) {
+        // The unit alone exceeds the budget: its groups go whole while they
+        // fit, and one that does not fit an empty batch keeps only what
+        // resuming needs.
+        var firstPart = 0;
+        for (final group in unit.groups) {
+          final groupEnd = firstPart + group.length;
+          final groupParts = parts.sublist(firstPart, groupEnd);
+          final groupPayloads = partPayloads.sublist(firstPart, groupEnd);
+          firstPart = groupEnd;
+          final groupLength = groupParts.fold(0, (sum, part) => sum + part.length);
+          final groupPayload = groupPayloads.fold(0, (sum, chars) => sum + chars);
+          if (meter.fits(changes: groupLength, payloadChars: groupPayload)) {
+            meter.add(changes: groupLength, payloadChars: groupPayload);
+            for (final part in groupParts) {
+              for (final entry in part) {
+                markSent(entry.planned);
+                yield entry.change;
+              }
+            }
+            continue;
+          }
+          if (!meter.isEmpty) {
             outbound.hasMore = true;
             return;
           }
-          meter.add(changes: part.length, payloadChars: partPayloads[index]);
-          for (final entry in part) {
-            markSent(entry.planned);
-            yield entry.change;
+          for (var index = 0; index < groupParts.length; index++) {
+            final part = groupParts[index];
+            if (!meter.isEmpty &&
+                !meter.fits(changes: part.length, payloadChars: groupPayloads[index])) {
+              outbound.hasMore = true;
+              return;
+            }
+            meter.add(changes: part.length, payloadChars: groupPayloads[index]);
+            for (final entry in part) {
+              markSent(entry.planned);
+              yield entry.change;
+            }
           }
         }
       }
