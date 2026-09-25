@@ -24,6 +24,7 @@ import 'support/sync_harness.dart';
 /// | No budget, no isolation | Upstream's order (inserts, updates, deletes) in one batch |
 /// | Device budget, `once` | Batches at the limit, every change sent, HLC prefix per batch, checkpoint at the last change, nothing unsent |
 /// | Device budget, continuous | One batch per round, every change sent |
+/// | Device budget, attempted values | Each batch reads its own inserts' only |
 /// | An update stamped between two inserts | Sent: HLC order, not inserts first |
 /// | Either limit ends between a delete and its cascade | Both in the next batch |
 /// | An earlier delete fills the batch before a delete and its cascade | The earlier delete, then both in the next batch |
@@ -244,6 +245,30 @@ void main() {
           serverFrames.endOfBatches.map((frame) => frame.hasMore),
           everyElement(isFalse),
         );
+      },
+    );
+
+    test(
+      'should_read_the_attempted_values_of_the_inserts_each_batch_takes_only',
+      () async {
+        // Reading them for every pending insert made each round cost the
+        // whole backlog. Nothing here has an attempted value: this pins what
+        // is read, not what is sent.
+        final userId = const Uuid().v7obj();
+        final server = await openReplica(userId);
+        final device = await openReplica(
+          userId,
+          batchBudget: OfflineSyncBatchBudget(maxChanges: 3),
+        );
+        await insertNotes(device, 10);
+        final reads = <int>[];
+        addTearDown(() => OfflineSyncEngine.debugOnAttemptedValuesRead = null);
+        OfflineSyncEngine.debugOnAttemptedValuesRead = reads.add;
+
+        await peerOf(server).syncOnce(device).timeout(sessionTimeout);
+
+        expect(reads, [3, 3, 3, 1]);
+        expect(await Note.db.count(server), 10);
       },
     );
 

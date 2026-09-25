@@ -1368,6 +1368,13 @@ class OfflineSyncEngine {
     ),
   );
 
+  /// Called with the number of pending inserts whose attempted values a
+  /// collection reads, when it reads any (fork, unibook#14251).
+  ///
+  /// Lets a test see that a planned batch reads only the inserts it can take.
+  @visibleForTesting
+  static void Function(int insertCount)? debugOnAttemptedValuesRead;
+
   /// Called by the pending-change collection with its session, inside its
   /// snapshot, after it reads the pending inserts and before it reads the
   /// updates.
@@ -1873,6 +1880,7 @@ class OfflineSyncEngine {
   ) async {
     final rowIds = {for (final row in rows) ?row.id};
     if (rowIds.isEmpty) return {};
+    debugOnAttemptedValuesRead?.call(rowIds.length);
 
     final fields = await CrdtDataField.db.find(
       session,
