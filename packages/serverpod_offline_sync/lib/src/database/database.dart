@@ -18,6 +18,7 @@ import '../spaces/membership.dart';
 import '../sync/engine.dart';
 import '../sync/exceptions.dart';
 import '../sync/integrity_violation.dart';
+import '../sync/outbound_batch.dart';
 import 'merge_utils/database_helpers.dart';
 import 'recorder.dart';
 import 'session.dart';
@@ -69,6 +70,14 @@ class OfflineSyncDatabase implements Database {
     /// Configures the new context when `context` is null. When `context` is
     /// given, a different value throws [ArgumentError].
     Duration? maxClockDrift,
+
+    /// How much one outbound batch may carry, see [OfflineSyncBatchBudget]
+    /// (fork, unibook#14251). Unlimited by default.
+    OfflineSyncBatchBudget batchBudget = OfflineSyncBatchBudget.unlimited,
+
+    /// Rows this database does not send, and rows it sends again in full, see
+    /// [OfflineSyncRowIsolation] (fork, unibook#14251). None by default.
+    OfflineSyncRowIsolation? rowIsolation,
   }) : this._(
          delegate,
          OfflineSyncDatabaseContext.resolve(
@@ -85,6 +94,8 @@ class OfflineSyncDatabase implements Database {
            maxContinuousSyncInterval,
          ),
          persistentUserId: persistentUserId,
+         batchBudget: batchBudget,
+         rowIsolation: rowIsolation,
        );
 
   OfflineSyncDatabase._(
@@ -95,6 +106,8 @@ class OfflineSyncDatabase implements Database {
     required this._continuousSyncInterval,
     required this._maxContinuousSyncInterval,
     required UuidValue? persistentUserId,
+    required this._batchBudget,
+    required this._rowIsolation,
   }) : _recorder = CrdtMutationRecorder(
          _delegate,
          context: _context,
@@ -114,6 +127,8 @@ class OfflineSyncDatabase implements Database {
   final int _syncBatchSize;
   final Duration _continuousSyncInterval;
   final Duration _maxContinuousSyncInterval;
+  final OfflineSyncBatchBudget _batchBudget;
+  final OfflineSyncRowIsolation? _rowIsolation;
 
   final CrdtMutationRecorder _recorder;
 
@@ -124,7 +139,17 @@ class OfflineSyncDatabase implements Database {
     continuousSyncInterval: _continuousSyncInterval,
     maxContinuousSyncInterval: _maxContinuousSyncInterval,
     databaseContext: _context,
+    batchBudget: _batchBudget,
+    rowIsolation: _rowIsolation,
   );
+
+  /// How much one outbound batch of this database may carry (fork,
+  /// unibook#14251).
+  OfflineSyncBatchBudget get batchBudget => _batchBudget;
+
+  /// The rows this database holds back or sends again in full (fork,
+  /// unibook#14251), or null.
+  OfflineSyncRowIsolation? get rowIsolation => _rowIsolation;
 
   /// The maximum clock drift this database accepts, see
   /// [OfflineSyncDatabaseContext.maxClockDrift].

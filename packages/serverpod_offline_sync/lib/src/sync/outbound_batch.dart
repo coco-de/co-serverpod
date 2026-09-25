@@ -1,0 +1,376 @@
+import 'dart:async';
+
+import 'package:meta/meta.dart';
+import 'package:uuid/uuid.dart';
+
+import '../generated/protocol.dart';
+import '../hlc/hlc.dart';
+
+/// Measures the payload of one outbound change in the unit of
+/// [OfflineSyncBatchBudget.maxPayloadChars] (fork, unibook#14251).
+///
+/// Called with the change as the peer is about to send it: an insert carries
+/// the whole row, an update one column, a delete no value. Must not return a
+/// negative number.
+typedef OfflineSyncChangePayloadMeasure = int Function(CrdtMergeChange change);
+
+/// How much one outbound batch may carry: the changes a peer sends in one
+/// round, closed by its [OfflineSyncEndOfBatch] (fork, unibook#14251).
+///
+/// The receiving peer holds a whole batch in memory before it merges it, so a
+/// round that sends every pending change at once, as upstream does, can exceed
+/// what the receiver accepts: a device back after a long time offline, or a
+/// server sending a new device everything. With a budget, the peer ends its
+/// batch before the next change would take it over a limit and sends the rest
+/// in the next rounds of the same session. A `once` session runs those rounds
+/// before it closes ([OfflineSyncEndOfBatch.hasMore]); a continuous session
+/// sends one batch per round.
+///
+/// A batch is always a prefix of the pending changes in HLC order, cut where
+/// the peer may resume from its checkpoints without skipping a change: never
+/// between changes with the same HLC, and never between a row's insert and a
+/// change of that row stamped before it (a receiver that does not have the row
+/// drops such a change). It also avoids cutting a delete from the cascade
+/// deletes it caused, unless that group alone exceeds the budget.
+///
+/// A change that alone exceeds the budget is sent in a batch of its own: the
+/// receiver decides, the sender does not stop. Limits are inclusive: a batch
+/// exactly at a limit fits.
+///
+/// [unlimited], the default everywhere, keeps the upstream behavior: every
+/// pending change in one batch, in the upstream order.
+final class OfflineSyncBatchBudget {
+  /// Limits a batch to [maxChanges] changes and to [maxPayloadChars] of
+  /// payload as [measurePayload] measures it. Either may be null (no limit on
+  /// that axis), not both: use [unlimited].
+  ///
+  /// Throws [ArgumentError] for a limit below 1, for no limit at all, and for
+  /// [maxPayloadChars] without [measurePayload].
+  factory OfflineSyncBatchBudget({
+    int? maxChanges,
+    int? maxPayloadChars,
+    OfflineSyncChangePayloadMeasure? measurePayload,
+  }) {
+    if (maxChanges != null && maxChanges < 1) {
+      throw ArgumentError.value(maxChanges, 'maxChanges', 'Must be >= 1');
+    }
+    if (maxPayloadChars != null && maxPayloadChars < 1) {
+      throw ArgumentError.value(maxPayloadChars, 'maxPayloadChars', 'Must be >= 1');
+    }
+    if (maxChanges == null && maxPayloadChars == null) {
+      throw ArgumentError(
+        'A budget needs maxChanges or maxPayloadChars. Use '
+        'OfflineSyncBatchBudget.unlimited for no limit.',
+      );
+    }
+    if (maxPayloadChars != null && measurePayload == null) {
+      throw ArgumentError.notNull('measurePayload');
+    }
+    return OfflineSyncBatchBudget._(
+      maxChanges: maxChanges,
+      maxPayloadChars: maxPayloadChars,
+      measurePayload: measurePayload,
+    );
+  }
+
+  const OfflineSyncBatchBudget._({
+    this.maxChanges,
+    this.maxPayloadChars,
+    this.measurePayload,
+  });
+
+  /// No limit: one batch per round with every pending change, as upstream.
+  static const OfflineSyncBatchBudget unlimited = OfflineSyncBatchBudget._();
+
+  /// The most changes one batch carries, or null for no limit.
+  final int? maxChanges;
+
+  /// The most payload one batch carries, as [measurePayload] measures it, or
+  /// null for no limit.
+  final int? maxPayloadChars;
+
+  /// Measures one change for [maxPayloadChars]. Null only without that limit.
+  final OfflineSyncChangePayloadMeasure? measurePayload;
+
+  /// Whether this budget sets no limit.
+  bool get isUnlimited => maxChanges == null && maxPayloadChars == null;
+}
+
+/// A row of a synchronized table (fork, unibook#14251).
+typedef OfflineSyncRowKey = ({String tableName, UuidValue rowId});
+
+/// Rows a peer does not send, and rows it sends once more in full after it
+/// stopped holding them back (fork, unibook#14251).
+///
+/// Without it, a receiver that rejects one row (a value over its limit, a
+/// table the device may not write) stops the whole account: the rejected
+/// batch never merges, and every later session sends the same row first. An
+/// isolated row is left out of every outbound batch, so the rest keeps
+/// syncing.
+///
+/// ⚠️ **The checkpoints pass an isolated row.** Once a later change of the same
+/// node is merged, the receiver's checkpoint is past the isolated row's
+/// changes and no collection sends them again. Only [releasedRows] brings them
+/// back: a released row is sent in full, from its first change, whatever the
+/// checkpoints. So both sets are **durable state the implementation owns**:
+/// keep them across restarts (next to the database file, for example). A row
+/// that leaves [isolatedRows] without entering [releasedRows] is never sent
+/// again.
+///
+/// The engine reads both sets at the start of every collection and never
+/// changes them. A row in both counts as isolated. The unsent row count
+/// (`OfflineSyncDatabase.unsentRowCount`) counts every row of both sets that
+/// exists locally, so a sign-out check does not drop them; it recounts on
+/// commits only, so refresh it after changing the sets.
+abstract interface class OfflineSyncRowIsolation {
+  /// The rows this peer does not send.
+  Set<OfflineSyncRowKey> get isolatedRows;
+
+  /// The rows this peer sends in full once more: every change it holds for
+  /// them, including those its checkpoints are past.
+  ///
+  /// A session sends each of them once. They stay here, and later sessions
+  /// send them again, until [onReleasedRowsConfirmed] reports them.
+  Set<OfflineSyncRowKey> get releasedRows;
+
+  /// Called after a `once` session that sent [rows] from [releasedRows] ended
+  /// with the peer's close, which comes only after the peer merged every batch.
+  /// Remove them from [releasedRows] here.
+  ///
+  /// A continuous session never confirms. A session that fails, or that closed
+  /// before it sent everything (a peer built before
+  /// [OfflineSyncEndOfBatch.hasMore]), confirms nothing.
+  FutureOr<void> onReleasedRowsConfirmed(Set<OfflineSyncRowKey> rows);
+}
+
+/// The kind of an outbound change, in the order changes with the same HLC are
+/// sent.
+@internal
+enum OutboundChangeKind {
+  /// A [CrdtMergeInsert].
+  insert,
+
+  /// A [CrdtMergeUpdate].
+  update,
+
+  /// A [CrdtMergeDelete].
+  delete,
+}
+
+/// What the outbound batch planner needs to know about one pending change.
+@internal
+typedef OutboundChangeRef = ({
+  Hlc hlc,
+  OutboundChangeKind kind,
+  String tableName,
+  UuidValue rowId,
+  String? columnName,
+  CrdtDataDeletedReason? deleteReason,
+});
+
+/// Changes that travel together when the budget allows it: the batch never
+/// ends inside a unit that fits.
+@internal
+final class OutboundUnit {
+  /// Creates a unit of [parts].
+  OutboundUnit(this.parts);
+
+  /// The unit's changes as indices into the planned list, in send order, in
+  /// parts the batch may end between when the unit alone exceeds the budget.
+  /// A part is never split.
+  final List<List<int>> parts;
+
+  /// Every index of the unit, in send order.
+  Iterable<int> get indices => parts.expand((part) => part);
+
+  /// The number of changes in the unit.
+  int get length => parts.fold(0, (sum, part) => sum + part.length);
+}
+
+/// Plans where a peer may end an outbound batch (fork, unibook#14251).
+///
+/// Returns the changes of [changes] as units in send order: HLC order, so that
+/// every prefix of the units is a prefix of every node's changes and a
+/// checkpoint that moves to the last change sent skips none. Changes with the
+/// same HLC are ordered insert, update, delete, then by table, row and column.
+///
+/// A part (the smallest piece a batch ends between) keeps:
+///
+/// * changes with the same HLC together. The checkpoint query resumes after
+///   the checkpoint (`>`), so a cut between two of them would skip the second.
+/// * a row's insert with every change of that row sorted before it. A receiver
+///   that does not have the row drops an update or delete that arrives before
+///   the insert (it defers a delete only within one batch), and a delete of a
+///   later generation can carry an older HLC than a concurrent re-insertion.
+///
+/// A unit also keeps a delete with the cascade deletes it caused. They are
+/// stamped as consecutive changes of one node: the deleted parents first, then
+/// their cascade children. A run of consecutive delete tombstones of a node
+/// (reason [CrdtDataDeletedReason.userDelete] or
+/// [CrdtDataDeletedReason.userCascadeDelete]) that holds a cascade delete
+/// stays together from its first tombstone to its last cascade delete. It may
+/// hold unrelated deletes the node made just before; that only makes the unit
+/// larger, and a unit that exceeds the budget falls back to its parts.
+@internal
+List<OutboundUnit> planOutboundUnits(List<OutboundChangeRef> changes) {
+  final order = List<int>.generate(changes.length, (index) => index)
+    ..sort((left, right) => _compareOutbound(changes[left], changes[right]));
+  final count = order.length;
+  if (count == 0) return const [];
+
+  // Cut "after position i" is forbidden while a range covers i. Each list is a
+  // difference array over positions.
+  final hard = List<int>.filled(count + 1, 0);
+  final soft = List<int>.filled(count + 1, 0);
+  void forbid(List<int> delta, int from, int to) {
+    if (to <= from) return;
+    delta[from]++;
+    delta[to]--;
+  }
+
+  // Same HLC (datetime, counter and node): never apart.
+  for (var position = 0; position + 1 < count; position++) {
+    if (changes[order[position]].hlc == changes[order[position + 1]].hlc) {
+      forbid(hard, position, position + 1);
+    }
+  }
+
+  // A row's insert with every change of that row sorted before it.
+  final firstPositionByRow = <(String, UuidValue), int>{};
+  final insertPositionByRow = <(String, UuidValue), int>{};
+  for (var position = 0; position < count; position++) {
+    final change = changes[order[position]];
+    final row = (change.tableName, change.rowId);
+    firstPositionByRow.putIfAbsent(row, () => position);
+    if (change.kind == OutboundChangeKind.insert) {
+      insertPositionByRow[row] = position;
+    }
+  }
+  for (final MapEntry(key: row, value: insertPosition) in insertPositionByRow.entries) {
+    forbid(hard, firstPositionByRow[row]!, insertPosition);
+  }
+
+  // A run of a node's delete tombstones with its cascade deletes.
+  final positionsByNode = <UuidValue, List<int>>{};
+  for (var position = 0; position < count; position++) {
+    positionsByNode
+        .putIfAbsent(changes[order[position]].hlc.nodeId, () => [])
+        .add(position);
+  }
+  for (final positions in positionsByNode.values) {
+    int? runStart;
+    int? lastCascade;
+    void closeRun() {
+      if (runStart != null && lastCascade != null) {
+        forbid(soft, runStart!, lastCascade!);
+      }
+      runStart = null;
+      lastCascade = null;
+    }
+
+    for (final position in positions) {
+      final change = changes[order[position]];
+      final reason = change.deleteReason;
+      final inRun =
+          change.kind == OutboundChangeKind.delete &&
+          (reason == CrdtDataDeletedReason.userDelete ||
+              reason == CrdtDataDeletedReason.userCascadeDelete);
+      if (!inRun) {
+        closeRun();
+        continue;
+      }
+      runStart ??= position;
+      if (reason == CrdtDataDeletedReason.userCascadeDelete) {
+        lastCascade = position;
+      }
+    }
+    closeRun();
+  }
+
+  final units = <OutboundUnit>[];
+  var parts = <List<int>>[];
+  var part = <int>[];
+  var hardDepth = 0;
+  var softDepth = 0;
+  for (var position = 0; position < count; position++) {
+    hardDepth += hard[position];
+    softDepth += soft[position];
+    part.add(order[position]);
+    final isLast = position + 1 == count;
+    if (isLast || hardDepth == 0) {
+      parts.add(part);
+      part = <int>[];
+    }
+    if (isLast || (hardDepth == 0 && softDepth == 0)) {
+      units.add(OutboundUnit(parts));
+      parts = <List<int>>[];
+    }
+  }
+  return units;
+}
+
+int _compareOutbound(OutboundChangeRef left, OutboundChangeRef right) {
+  final byHlc = left.hlc.compareTo(right.hlc);
+  if (byHlc != 0) return byHlc;
+  final byKind = left.kind.index - right.kind.index;
+  if (byKind != 0) return byKind;
+  final byTable = left.tableName.compareTo(right.tableName);
+  if (byTable != 0) return byTable;
+  final byRow = left.rowId.uuid.compareTo(right.rowId.uuid);
+  if (byRow != 0) return byRow;
+  return (left.columnName ?? '').compareTo(right.columnName ?? '');
+}
+
+/// Counts one outbound batch against an [OfflineSyncBatchBudget].
+@internal
+final class OutboundBatchMeter {
+  /// Starts an empty batch under [budget].
+  OutboundBatchMeter(this.budget);
+
+  /// The budget this batch is counted against.
+  final OfflineSyncBatchBudget budget;
+
+  /// The changes counted so far.
+  int get changes => _changes;
+  var _changes = 0;
+
+  /// The payload counted so far.
+  int get payloadChars => _payloadChars;
+  var _payloadChars = 0;
+
+  /// Whether nothing has been counted yet.
+  bool get isEmpty => _changes == 0;
+
+  /// The payload of [change] as the budget measures it, 0 without a payload
+  /// limit.
+  int payloadOf(CrdtMergeChange change) {
+    if (budget.maxPayloadChars == null) return 0;
+    final chars = budget.measurePayload!(change);
+    if (chars < 0) {
+      throw StateError(
+        'OfflineSyncBatchBudget.measurePayload returned $chars for a change '
+        'of ${change.tableName}; a payload cannot be negative.',
+      );
+    }
+    return chars;
+  }
+
+  /// Whether [changes] more changes fit on the change axis.
+  bool fitsChanges(int changes) {
+    final max = budget.maxChanges;
+    return max == null || _changes + changes <= max;
+  }
+
+  /// Whether [changes] more changes with [payloadChars] of payload fit.
+  bool fits({required int changes, required int payloadChars}) {
+    final maxPayload = budget.maxPayloadChars;
+    return fitsChanges(changes) &&
+        (maxPayload == null || _payloadChars + payloadChars <= maxPayload);
+  }
+
+  /// Counts [changes] changes with [payloadChars] of payload.
+  void add({required int changes, required int payloadChars}) {
+    _changes += changes;
+    _payloadChars += payloadChars;
+  }
+}

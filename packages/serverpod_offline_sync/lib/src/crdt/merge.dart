@@ -55,7 +55,8 @@ extension OfflineSyncStreamEventStreamExtension
           batch.changes.addAll(changes);
         case OfflineSyncIdleTimeout():
           if (batch.isEmpty) return batch;
-        case OfflineSyncEndOfBatch():
+        case OfflineSyncEndOfBatch(:final hasMore):
+          batch.peerHasMore = hasMore;
           return batch;
         case OfflineSyncClose():
           return null;
@@ -96,6 +97,11 @@ class OfflineSyncCycleBatch {
 
   /// The peer's merge changes for this cycle.
   final List<CrdtMergeChange> changes = [];
+
+  /// The [OfflineSyncEndOfBatch.hasMore] of the batch the peer closed (fork,
+  /// unibook#14251). Null when the batch ended on an idle timeout, and from a
+  /// peer built before the flag existed.
+  bool? peerHasMore;
 
   /// Whether the peer sent nothing this cycle (it was idle).
   bool get isEmpty => spaceSet == null && sinceHlcs.isEmpty && changes.isEmpty;

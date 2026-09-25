@@ -3,6 +3,7 @@ import 'package:serverpod_database/serverpod_database.dart';
 import 'package:uuid/uuid.dart';
 
 import '../sync/engine.dart';
+import '../sync/outbound_batch.dart';
 import 'database.dart';
 import 'recorder.dart';
 
@@ -46,6 +47,17 @@ class OfflineSyncDatabaseSession implements DatabaseSession {
     /// from the one of `context`, or of an already wrapped `db`, throws
     /// [ArgumentError].
     Duration? maxClockDrift,
+
+    /// How much one outbound batch may carry, see [OfflineSyncBatchBudget]
+    /// (fork, unibook#14251). Unlimited by default. Like
+    /// `continuousSyncInterval`, it is ignored when `db` is already an
+    /// [OfflineSyncDatabase].
+    OfflineSyncBatchBudget batchBudget = OfflineSyncBatchBudget.unlimited,
+
+    /// Rows this database does not send, and rows it sends again in full, see
+    /// [OfflineSyncRowIsolation] (fork, unibook#14251). None by default.
+    /// Ignored when `db` is already an [OfflineSyncDatabase].
+    OfflineSyncRowIsolation? rowIsolation,
   }) : _db = db is OfflineSyncDatabase
            ? _checkWrappedMaxClockDrift(db, maxClockDrift)
            : OfflineSyncDatabase(
@@ -57,6 +69,8 @@ class OfflineSyncDatabaseSession implements DatabaseSession {
                maxContinuousSyncInterval: maxContinuousSyncInterval,
                persistentUserId: persistentUserId,
                maxClockDrift: maxClockDrift,
+               batchBudget: batchBudget,
+               rowIsolation: rowIsolation,
              );
 
   /// Creates a [OfflineSyncDatabaseSession] instance that wraps a [DatabaseSession].
@@ -99,6 +113,16 @@ class OfflineSyncDatabaseSession implements DatabaseSession {
     /// change it on a client, open the session with this factory instead and
     /// call `session.db.initialize()` afterwards.
     Duration? maxClockDrift,
+
+    /// How much one outbound batch may carry, see
+    /// [OfflineSyncDatabaseSession.new] (fork, unibook#14251). The generated
+    /// `createSyncSession` does not forward it.
+    OfflineSyncBatchBudget batchBudget = OfflineSyncBatchBudget.unlimited,
+
+    /// Rows this database does not send, and rows it sends again in full, see
+    /// [OfflineSyncDatabaseSession.new] (fork, unibook#14251). The generated
+    /// `createSyncSession` does not forward it.
+    OfflineSyncRowIsolation? rowIsolation,
   }) => OfflineSyncDatabaseSession(
     session.db,
     syncTables: syncTables,
@@ -108,6 +132,8 @@ class OfflineSyncDatabaseSession implements DatabaseSession {
     maxContinuousSyncInterval: maxContinuousSyncInterval,
     persistentUserId: persistentUserId,
     maxClockDrift: maxClockDrift,
+    batchBudget: batchBudget,
+    rowIsolation: rowIsolation,
   ).._wrappedSession = session;
 
   static OfflineSyncDatabase _checkWrappedMaxClockDrift(

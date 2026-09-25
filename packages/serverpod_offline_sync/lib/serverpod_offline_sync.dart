@@ -17,3 +17,9 @@ export 'src/sync/client_sync.dart';
 export 'src/sync/engine.dart';
 export 'src/sync/exceptions.dart' hide PendingOutboundIntegrityViolation;
 export 'src/sync/failure_mapping.dart';
+export 'src/sync/outbound_batch.dart'
+    show
+        OfflineSyncBatchBudget,
+        OfflineSyncChangePayloadMeasure,
+        OfflineSyncRowIsolation,
+        OfflineSyncRowKey;
