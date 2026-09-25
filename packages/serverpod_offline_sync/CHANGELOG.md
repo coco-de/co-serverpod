@@ -62,6 +62,39 @@
     production-scale numbers ask for it (unibook#14192 measures on staging).
     The default path is pinned by a SQLite test (upstream order, one batch);
     the PostgreSQL snapshot is covered by unibook's integration tests.
+  - A change that writes a foreign key stays in one part with the pending
+    insert of the parent it names when that insert sorts after it, and every
+    change between them (`OutboundDependency`, `planOutboundUnits
+    (dependencies:)`). Restoring a row (inserting it again with its id) stamps
+    its insert anew, so a child's insert, or an update of a child's foreign
+    key column, written before the restore sorts before the parent's insert.
+    The receiver merges one batch in one transaction with deferred foreign
+    keys: a batch that ended between them failed its commit with
+    `DatabaseForeignKeyViolationException`, and the sender built the same
+    first batch every session, stopping the account's sync for good. Before
+    anything is resolved, the engine picks without reads the changes that may
+    depend on a later insert (an insert, or a foreign key column update, whose
+    parent table has a pending insert sorted after it), reads the foreign keys
+    of those in the units the batch can take (one query per table for the
+    domain columns, one for their attempted values: the value sent is the
+    attempted one), plans again with what it found, and repeats until the
+    units hold no change not yet read, so a parent a dependency brings in
+    brings its own restored parent too. Only keys to a parent's `id` are
+    followed. Nothing is read without a limit (one batch). A part that alone
+    exceeds the budget still goes whole in an empty batch; this one can span
+    everything written between the child and the restore. A parent that is
+    isolated is never sent, and its children still fail the receiver: isolate
+    them too. `OfflineSyncEngine.debugOnForeignKeysRead` (`@visibleForTesting`)
+    reports the reads.
+  - Where the batch still splits a group that alone exceeds the budget, the
+    receiver shows it half applied until the next batch: one write's changes
+    of a row larger than `maxChanges`, or a delete run whose cascade group
+    (from the first cascade's parents to the last cascade delete) holds
+    several cascading deletes, where a later parent and its cascade may go in
+    different batches.
+  - The change limit is what lets a batch read only its own units: with a
+    payload limit only (`maxChanges: null`), every round reads the attempted
+    values and the foreign key candidates of every unit.
   - Breaking for implementations: a class that implements `OfflineSyncEngine`
     or `OfflineSyncDatabase` must add the getters `batchBudget` and
     `rowIsolation`, unless it forwards missing members through `noSuchMethod`.
