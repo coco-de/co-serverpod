@@ -29,6 +29,7 @@ import 'support/sync_harness.dart';
 /// | An earlier delete fills the batch before a delete and its cascade | The earlier delete, then both in the next batch |
 /// | The budget ends inside one write's changes of a row | All of them in the next batch |
 /// | A delete stamped before its row's insert, new device | Sent with the insert: the device ends without the row |
+/// | An insert whose foreign key the server projected away, in a later batch | Sent with the attempted value, not the projected one |
 /// | Server budget (authoritative) | The device receives batches at the limit and every row |
 /// | Payload limit, a change larger than the budget | Sent alone, the session goes on |
 /// | A peer built before `hasMore` | Each side closes after one batch; the next session sends on |
@@ -611,6 +612,57 @@ void main() {
           ],
           ['delete', 'insert'],
         );
+      },
+    );
+  });
+
+  group('Given a server with a batch budget and a projected foreign key,', () {
+    test(
+      'should_send_the_attempted_value_of_an_insert_that_comes_in_a_later_batch',
+      () async {
+        // The phone files n in folder f while the tablet deletes f. The
+        // server keeps n's folder as attempted and shows null. Peers must get
+        // the attempted fact to converge, and each batch reads the attempted
+        // values of its own inserts only.
+        final userId = const Uuid().v7obj();
+        final server = await openReplica(
+          userId,
+          batchBudget: OfflineSyncBatchBudget(maxChanges: 3),
+        );
+        final phone = await openReplica(userId);
+        final tablet = await openReplica(userId);
+        final folder = await Folder.db.insertRow(phone, Folder(name: 'f'));
+        await peerOf(server).syncOnce(phone).timeout(sessionTimeout);
+        await peerOf(server).syncOnce(tablet).timeout(sessionTimeout);
+        await Folder.db.deleteRow(tablet, folder);
+        await insertNotes(phone, 6);
+        final filed = await Note.db.insertRow(
+          phone,
+          Note(title: 'n', folderId: folder.id),
+        );
+        await peerOf(server).syncOnce(tablet).timeout(sessionTimeout);
+        await peerOf(server).syncOnce(phone).timeout(sessionTimeout);
+        final onServer = await Note.db.findById(server, filed.id!);
+        expect(onServer!.folderId, isNull, reason: 'projected away');
+        final laptop = await openReplica(userId);
+        final serverFrames = BatchRecorder();
+
+        await peerOf(
+          server,
+          mapServerStream: (stream) => stream.map(serverFrames.record),
+        ).syncOnce(laptop).timeout(sessionTimeout);
+
+        final batches = serverFrames.dataBatches;
+        final batchOfFiled = batches.indexWhere(
+          (batch) => batch.any((change) => change.uuidRowId == filed.id),
+        );
+        expect(batchOfFiled, greaterThan(0), reason: 'not the first batch');
+        final insert = batches[batchOfFiled].singleWhere(
+          (change) => change is CrdtMergeInsert && change.uuidRowId == filed.id,
+        );
+        expect(((insert as CrdtMergeInsert).data as Note).folderId, folder.id);
+        expect(await Note.db.count(laptop), 7);
+        expect((await Note.db.findById(laptop, filed.id!))!.folderId, isNull);
       },
     );
   });

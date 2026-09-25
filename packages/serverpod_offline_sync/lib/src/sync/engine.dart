@@ -299,9 +299,17 @@ class OfflineSyncEngine {
   /// empty batch part by part while they fit; that first part is sent even
   /// when it alone exceeds the budget, so every batch makes progress.
   ///
+  /// The change limit decides before anything is resolved which units the
+  /// batch can take ([takeUnitsWithinChangeLimit]); the attempted values of
+  /// their inserts are read at once, and nothing of the units after them.
   /// Changes are resolved (their domain values read) one unit at a time, so a
-  /// unit that ends up not fitting was read for nothing; the next round reads
-  /// it again.
+  /// unit that ends up not fitting the payload limit was read for nothing; the
+  /// next round reads it again.
+  ///
+  /// Every round still reads the pending changes of the whole backlog and
+  /// plans them: a round costs about what the backlog does, so a backlog of N
+  /// changes sent maxChanges at a time costs about N² / maxChanges. See the
+  /// README for measurements.
   Stream<CrdtMergeChange> _collectPlannedBatch(
     DatabaseSession session, {
     required Map<UuidValue, List<Hlc>> checkpointsBySpaceUuid,
@@ -372,8 +380,14 @@ class OfflineSyncEngine {
       }
       if (planned.isEmpty) return;
 
+      final units = planOutboundUnits([for (final change in planned) change.ref]);
+      // The change limit needs no reads, so it bounds the units this batch can
+      // take before any is resolved, and only theirs are read.
+      final candidates = takeUnitsWithinChangeLimit(units, _batchBudget);
+      if (candidates.length < units.length) outbound.hasMore = true;
       final attemptedValueFieldsByRowId = await _loadAttemptedValueFields(session, [
-        for (final change in planned) ?change.row,
+        for (final unit in candidates)
+          for (final index in unit.indices) ?planned[index].row,
       ]);
       // Domain ownership is immutable while a collection runs, so read each
       // row's owner at most once.
@@ -409,12 +423,7 @@ class OfflineSyncEngine {
       }
 
       final meter = OutboundBatchMeter(_batchBudget);
-      final units = planOutboundUnits([for (final change in planned) change.ref]);
-      for (final unit in units) {
-        if (!meter.isEmpty && !meter.fitsChanges(unit.length)) {
-          outbound.hasMore = true;
-          return;
-        }
+      for (final unit in candidates) {
         final parts = [
           for (final part in unit.parts)
             [

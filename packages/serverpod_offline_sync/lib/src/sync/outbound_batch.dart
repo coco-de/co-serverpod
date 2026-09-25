@@ -380,6 +380,30 @@ bool _isStampedRightAfter(Hlc previous, Hlc next) =>
     next.datetime.isAtSameMomentAs(previous.datetime) &&
     next.counter == previous.counter + 1;
 
+/// The longest prefix of [units] an empty batch can take under the change
+/// limit of [budget] (fork, unibook#14251): the first unit whatever its size
+/// (a unit that alone exceeds the limit is sent in part), then each unit while
+/// the total stays within [OfflineSyncBatchBudget.maxChanges]. Every unit
+/// without that limit.
+///
+/// The payload limit may end the batch earlier: it needs the changes resolved.
+@internal
+List<OutboundUnit> takeUnitsWithinChangeLimit(
+  List<OutboundUnit> units,
+  OfflineSyncBatchBudget budget,
+) {
+  final maxChanges = budget.maxChanges;
+  if (maxChanges == null) return units;
+  var changes = 0;
+  var taken = 0;
+  for (final unit in units) {
+    if (taken > 0 && changes + unit.length > maxChanges) break;
+    changes += unit.length;
+    taken++;
+  }
+  return units.sublist(0, taken);
+}
+
 int _compareOutbound(OutboundChangeRef left, OutboundChangeRef right) {
   final byHlc = left.hlc.compareTo(right.hlc);
   if (byHlc != 0) return byHlc;

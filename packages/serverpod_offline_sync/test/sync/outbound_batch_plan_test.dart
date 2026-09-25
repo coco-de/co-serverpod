@@ -554,6 +554,60 @@ void main() {
     );
   });
 
+  group('Given planned units and a change limit,', () {
+    /// A unit of [length] single-change parts.
+    OutboundUnit unitOf(int length) => OutboundUnit([
+      [
+        for (var i = 0; i < length; i++) [i],
+      ],
+    ]);
+
+    test(
+      'when units fill the limit, then the batch can take them and no more',
+      () {
+        final units = [unitOf(2), unitOf(1), unitOf(1), unitOf(3)];
+
+        expect(
+          takeUnitsWithinChangeLimit(units, OfflineSyncBatchBudget(maxChanges: 4)),
+          units.take(3),
+        );
+        expect(
+          takeUnitsWithinChangeLimit(units, OfflineSyncBatchBudget(maxChanges: 3)),
+          units.take(2),
+        );
+      },
+    );
+
+    test(
+      'when the first unit alone exceeds the limit, then the batch still takes '
+      'it, and only it',
+      () {
+        final units = [unitOf(5), unitOf(1)];
+
+        expect(
+          takeUnitsWithinChangeLimit(units, OfflineSyncBatchBudget(maxChanges: 2)),
+          units.take(1),
+        );
+      },
+    );
+
+    test('when there is no change limit, then the batch can take every unit', () {
+      final units = [unitOf(50), unitOf(50)];
+
+      expect(
+        takeUnitsWithinChangeLimit(units, OfflineSyncBatchBudget.unlimited),
+        units,
+      );
+      expect(
+        takeUnitsWithinChangeLimit(
+          units,
+          OfflineSyncBatchBudget(maxPayloadChars: 1, measurePayload: (_) => 1),
+        ),
+        units,
+      );
+    });
+  });
+
   group('Given the end-of-batch frame,', () {
     test('when it says there is more, then the flag survives the wire', () {
       final json = OfflineSyncEndOfBatch(hasMore: true).toJson();
