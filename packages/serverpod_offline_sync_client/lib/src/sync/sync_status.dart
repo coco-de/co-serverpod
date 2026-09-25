@@ -223,14 +223,19 @@ class OfflineSyncStatusTracker {
   /// error, the error becomes [OfflineSyncStatus.lastFailure] and counts as
   /// handled; [OfflineSyncSubscription.done] still completes with it. The count
   /// is read again when it ends.
+  ///
+  /// [continuousSyncInterval] asks for a longer wait between rounds, see
+  /// [OfflineSyncClient.syncContinuously] (unibook#14207).
   OfflineSyncSubscription syncContinuously({
     OfflineSyncOnMergeSuccess? onMergeSuccess,
+    Duration? continuousSyncInterval,
   }) {
     final OfflineSyncSubscription subscription;
     try {
       subscription = _client.syncContinuously(
         _session,
         onMergeSuccess: onMergeSuccess,
+        continuousSyncInterval: continuousSyncInterval,
       );
     } on Object catch (error) {
       unawaited(_recordContinuousFailure(error));

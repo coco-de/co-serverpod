@@ -22,11 +22,13 @@ abstract class OfflineSyncConnect extends _icw2tu00.OfflineSyncStreamEvent
   OfflineSyncConnect._({
     required this.localNodeId,
     required this.syncTablesHash,
+    this.continuousSyncInterval,
   });
 
   factory OfflineSyncConnect({
     required _iss.UuidValue localNodeId,
     required String syncTablesHash,
+    Duration? continuousSyncInterval,
   }) = _OfflineSyncConnectImpl;
 
   factory OfflineSyncConnect.fromJson(Map<String, dynamic> jsonSerialization) {
@@ -35,6 +37,12 @@ abstract class OfflineSyncConnect extends _icw2tu00.OfflineSyncStreamEvent
         jsonSerialization['localNodeId'],
       ),
       syncTablesHash: jsonSerialization['syncTablesHash'] as String,
+      continuousSyncInterval:
+          jsonSerialization['continuousSyncInterval'] == null
+          ? null
+          : _iss.DurationJsonExtension.fromJson(
+              jsonSerialization['continuousSyncInterval'],
+            ),
     );
   }
 
@@ -44,6 +52,15 @@ abstract class OfflineSyncConnect extends _icw2tu00.OfflineSyncStreamEvent
   /// The hash of the synchronized schema configured on this peer.
   String syncTablesHash;
 
+  /// The wait between continuous sync rounds this peer asks for in this
+  /// session (fork, unibook#14207).
+  ///
+  /// Each peer bounds the slower of the two requests by its own settings:
+  /// never below its configured interval, never above its maximum. Null when
+  /// the peer asks for nothing, in a `once` session, and from a peer built
+  /// before the field existed, whose generated `fromJson` also ignores it.
+  Duration? continuousSyncInterval;
+
   /// Returns a shallow copy of this [OfflineSyncConnect]
   /// with some or all fields replaced by the given arguments.
   @override
@@ -51,6 +68,7 @@ abstract class OfflineSyncConnect extends _icw2tu00.OfflineSyncStreamEvent
   OfflineSyncConnect copyWith({
     _iss.UuidValue? localNodeId,
     String? syncTablesHash,
+    Duration? continuousSyncInterval,
   });
   @override
   Map<String, dynamic> toJson() {
@@ -58,6 +76,8 @@ abstract class OfflineSyncConnect extends _icw2tu00.OfflineSyncStreamEvent
       '__className__': 'serverpod_offline_sync.OfflineSyncConnect',
       'localNodeId': localNodeId.toJson(),
       'syncTablesHash': syncTablesHash,
+      if (continuousSyncInterval != null)
+        'continuousSyncInterval': continuousSyncInterval?.toJson(),
     };
   }
 
@@ -67,6 +87,8 @@ abstract class OfflineSyncConnect extends _icw2tu00.OfflineSyncStreamEvent
       '__className__': 'serverpod_offline_sync.OfflineSyncConnect',
       'localNodeId': localNodeId.toJson(),
       'syncTablesHash': syncTablesHash,
+      if (continuousSyncInterval != null)
+        'continuousSyncInterval': continuousSyncInterval?.toJson(),
     };
   }
 
@@ -80,9 +102,11 @@ class _OfflineSyncConnectImpl extends OfflineSyncConnect {
   _OfflineSyncConnectImpl({
     required _iss.UuidValue localNodeId,
     required String syncTablesHash,
+    Duration? continuousSyncInterval,
   }) : super._(
          localNodeId: localNodeId,
          syncTablesHash: syncTablesHash,
+         continuousSyncInterval: continuousSyncInterval,
        );
 
   /// Returns a shallow copy of this [OfflineSyncConnect]
@@ -92,10 +116,14 @@ class _OfflineSyncConnectImpl extends OfflineSyncConnect {
   OfflineSyncConnect copyWith({
     _iss.UuidValue? localNodeId,
     String? syncTablesHash,
+    Object? continuousSyncInterval = _Undefined,
   }) {
     return OfflineSyncConnect(
       localNodeId: localNodeId ?? this.localNodeId,
       syncTablesHash: syncTablesHash ?? this.syncTablesHash,
+      continuousSyncInterval: continuousSyncInterval is Duration?
+          ? continuousSyncInterval
+          : this.continuousSyncInterval,
     );
   }
 }

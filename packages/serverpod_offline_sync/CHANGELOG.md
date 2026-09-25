@@ -1,5 +1,54 @@
 ## Unreleased (co-serverpod fork)
 
+- feat: A continuous session can ask for a longer wait between rounds
+  (unibook#14207). `OfflineSyncClient.syncContinuously`,
+  `OfflineSyncDatabase.sync` and `OfflineSyncEngine.sync` take
+  `continuousSyncInterval`, which travels to the other peer in the new
+  nullable `OfflineSyncConnect.continuousSyncInterval`. Each peer waits the
+  slower of the two requests, never below its configured
+  `continuousSyncInterval` and never above the new
+  `maxContinuousSyncInterval`, so a request only slows a session down. With
+  no request a peer waits its configured interval, as before. A `once`
+  session sends no request and ignores the peer's; `syncOnce` has no such
+  parameter.
+  - `maxContinuousSyncInterval` defaults to
+    `defaultMaxContinuousSyncInterval` (30 s), or to the configured interval
+    when that is longer, so a longer interval configured before keeps
+    working. A value below the interval throws `ArgumentError`
+    (`resolveMaxContinuousSyncInterval`). `OfflineSyncDatabase`,
+    `OfflineSyncDatabaseSession` and `OfflineSyncDatabaseSession.wraps` take
+    it and check it on construction; like `continuousSyncInterval` it is
+    ignored when the session is given an already wrapped `OfflineSyncDatabase`.
+    The generated `createSyncSession` forwards neither.
+  - Wire: one nullable field on the connect frame, left out when null. A peer
+    built before it sends none and ignores one (generated `fromJson` reads
+    known keys only), so a new device on an old server gets the server's
+    configured interval without notice. The module endpoint, the generated
+    client and `OfflineSyncTransport` are unchanged. Regenerated
+    `generated/sync/connect.dart` and `generated/sync/stream_event.dart`
+    (the `_Undefined` sentinel of the nullable `copyWith`).
+  - A session that asks for nothing runs at the configured interval, the
+    fastest any request allows. Configure that interval for the load you
+    accept; requests cannot make up for a low one.
+  - While it waits, a peer does not read the other side, so a session whose
+    device left ends up to one interval later, after one more round (space
+    reconcile and the pending-change query). The maximum bounds that, and
+    the number of such sessions after a burst of reconnects grows with it.
+    Racing the wait against the peer closing would remove it but changes the
+    loop: resuming the inbound subscription during the wait restarts the idle
+    timeout, whose marker would then end the next round's batch at once.
+  - Adds `OfflineSyncEngine.continuousSyncInterval`,
+    `maxContinuousSyncInterval` and `@visibleForTesting
+    resolveContinuousSyncInterval`.
+  - Breaking for implementations: a class that implements
+    `OfflineSyncEngine` must add the getters `continuousSyncInterval` and
+    `maxContinuousSyncInterval` and the method
+    `resolveContinuousSyncInterval`, unless it forwards missing members
+    through `noSuchMethod`. A class that implements or overrides
+    `OfflineSyncEngine.sync`, `OfflineSyncDatabase.sync` or
+    `OfflineSyncClient.syncContinuously` must add the `continuousSyncInterval`
+    parameter; `noSuchMethod` does not cover a declared override.
+
 - feat!: A server gives every space its own CRDT node (unibook#14218).
   Upstream shared one node across all spaces of a database. On a server that
   node is persisted and shared by every instance, so a device clock pulling it

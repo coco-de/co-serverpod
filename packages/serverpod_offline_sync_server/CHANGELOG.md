@@ -1,5 +1,17 @@
 ## Unreleased (co-serverpod fork)
 
+- feat: A continuous session's wait is bounded per session (unibook#14207).
+  `initializeOfflineSync(continuousSyncInterval:)` is the shortest wait a
+  session can ask for and the wait of a session that asks for nothing; the
+  new `maxContinuousSyncInterval` is the longest (default 30 s, or the
+  interval when that is longer; below the interval throws `ArgumentError` at
+  startup). The device asks in its connect frame, so the module endpoint
+  `offlineSync.sync` is unchanged. `OfflineSyncSession.sync` takes
+  `continuousSyncInterval` too, for an app endpoint to slow a session down on
+  top of the device's request: the slower one wins. Breaking for
+  implementations: a class that implements or overrides
+  `OfflineSyncSession.sync` must add the parameter.
+
 - docs: `initializeOfflineSync(maxClockDrift:)` describes the server node per
   space (unibook#14218): one device's pull reaches only its own space, and
   lowering the limit blocks writes only in the spaces whose node is ahead.
