@@ -15,9 +15,11 @@ import 'package:serverpod/protocol.dart' as _isp;
 import 'package:serverpod/serverpod.dart' as _is;
 import 'package:serverpod_offline_sync_server/serverpod_offline_sync_server.dart'
     as _izehhkf5;
+import 'attachment.dart' as _i6v7uii8;
 import 'folder.dart' as _ij200e11;
 import 'local_draft.dart' as _icz3qgao;
 import 'note.dart' as _io8vvye9;
+export 'attachment.dart';
 export 'folder.dart';
 export 'local_draft.dart';
 export 'note.dart';
@@ -31,6 +33,64 @@ class Protocol extends _is.DatabaseSerializationManager {
   static final Protocol _instance = Protocol._().._registerHostProtocols();
 
   static List<_isp.TableDefinition> get targetTableDefinitions => [
+    _isp.TableDefinition(
+      name: 'attachment',
+      dartName: 'Attachment',
+      schema: 'public',
+      module: 'offline_sync_watch_test',
+      columns: [
+        _isp.ColumnDefinition(
+          name: 'id',
+          columnType: _isp.ColumnType.uuid,
+          isNullable: false,
+          dartType: 'UuidValue?',
+          columnDefault: 'random_v7',
+        ),
+        _isp.ColumnDefinition(
+          name: 'spaceId',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: true,
+          dartType: 'int?',
+        ),
+        _isp.ColumnDefinition(
+          name: 'name',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'noteId',
+          columnType: _isp.ColumnType.uuid,
+          isNullable: false,
+          dartType: 'UuidValue',
+        ),
+      ],
+      foreignKeys: [
+        _isp.ForeignKeyDefinition(
+          constraintName: 'attachment_fk_0',
+          columns: ['spaceId'],
+          referenceTable: 'offline_sync_spaces',
+          referenceTableSchema: 'public',
+          referenceColumns: ['id'],
+          onUpdate: _isp.ForeignKeyAction.noAction,
+          onDelete: _isp.ForeignKeyAction.cascade,
+          matchType: null,
+        ),
+        _isp.ForeignKeyDefinition(
+          constraintName: 'attachment_fk_1',
+          columns: ['noteId'],
+          referenceTable: 'note',
+          referenceTableSchema: 'public',
+          referenceColumns: ['id'],
+          onUpdate: _isp.ForeignKeyAction.noAction,
+          onDelete: _isp.ForeignKeyAction.cascade,
+          matchType: null,
+          deferrable: _isp.DeferrableConstraint.initiallyDeferred,
+        ),
+      ],
+      indexes: [],
+      managed: true,
+    ),
     _isp.TableDefinition(
       name: 'folder',
       dartName: 'Folder',
@@ -164,6 +224,9 @@ class Protocol extends _is.DatabaseSerializationManager {
       }
     }
 
+    if (t == _i6v7uii8.Attachment) {
+      return _i6v7uii8.Attachment.fromJson(data) as T;
+    }
     if (t == _ij200e11.Folder) {
       return _ij200e11.Folder.fromJson(data) as T;
     }
@@ -172,6 +235,9 @@ class Protocol extends _is.DatabaseSerializationManager {
     }
     if (t == _io8vvye9.Note) {
       return _io8vvye9.Note.fromJson(data) as T;
+    }
+    if (t == _is.getType<_i6v7uii8.Attachment?>()) {
+      return (data != null ? _i6v7uii8.Attachment.fromJson(data) : null) as T;
     }
     if (t == _is.getType<_ij200e11.Folder?>()) {
       return (data != null ? _ij200e11.Folder.fromJson(data) : null) as T;
@@ -205,6 +271,7 @@ class Protocol extends _is.DatabaseSerializationManager {
 
   static String? getClassNameForType(Type type) {
     return switch (type) {
+      _i6v7uii8.Attachment => 'Attachment',
       _ij200e11.Folder => 'Folder',
       _icz3qgao.LocalDraft => 'LocalDraft',
       _io8vvye9.Note => 'Note',
@@ -225,6 +292,8 @@ class Protocol extends _is.DatabaseSerializationManager {
     }
 
     switch (data) {
+      case _i6v7uii8.Attachment():
+        return 'Attachment';
       case _ij200e11.Folder():
         return 'Folder';
       case _icz3qgao.LocalDraft():
@@ -250,6 +319,9 @@ class Protocol extends _is.DatabaseSerializationManager {
     var dataClassName = data['className'];
     if (dataClassName is! String) {
       return super.deserializeByClassName(data);
+    }
+    if (dataClassName == 'Attachment') {
+      return deserialize<_i6v7uii8.Attachment>(data['data']);
     }
     if (dataClassName == 'Folder') {
       return deserialize<_ij200e11.Folder>(data['data']);
@@ -290,6 +362,8 @@ class Protocol extends _is.DatabaseSerializationManager {
       }
     }
     switch (t) {
+      case _i6v7uii8.Attachment:
+        return _i6v7uii8.Attachment.t;
       case _ij200e11.Folder:
         return _ij200e11.Folder.t;
       case _io8vvye9.Note:

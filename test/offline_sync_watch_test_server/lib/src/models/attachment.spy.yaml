@@ -1,0 +1,9 @@
+### A note's attachment. Deleting the note deletes it (fork, unibook#14251):
+### the batch budget tests need a cascading foreign key, whose delete the
+### recorder stamps right after its parent's as a cascade tombstone.
+class: Attachment
+table: attachment
+database: sync
+fields:
+  name: String
+  noteId: UuidValue, relation(parent=note, onDelete=Cascade, deferred)
