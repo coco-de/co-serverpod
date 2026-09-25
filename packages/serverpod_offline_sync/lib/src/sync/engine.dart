@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show min;
 
 import 'package:clock/clock.dart';
 import 'package:meta/meta.dart' show visibleForTesting;
@@ -10,6 +11,7 @@ import '../crdt/extensions.dart';
 import '../crdt/merge.dart';
 import '../database/database.dart';
 import '../database/merge_utils/database_helpers.dart';
+import '../database/merge_utils/foreign_key_graph.dart';
 import '../database/recorder.dart';
 import '../database/unique_index_utils.dart';
 import '../generated/protocol.dart';
@@ -19,6 +21,7 @@ import '../spaces/membership.dart';
 import '../utils/case_when.dart' show Case;
 import 'exceptions.dart';
 import 'integrity_violation.dart';
+import 'outbound_batch.dart';
 import 'space_state.dart';
 
 export 'space_state.dart' show OfflineSyncPeerMode;
@@ -64,6 +67,15 @@ class OfflineSyncEngine {
     /// Configures the new context when `databaseContext` is null. When
     /// `databaseContext` is given, a different value throws [ArgumentError].
     Duration? maxClockDrift,
+
+    /// How much one outbound batch may carry (fork, unibook#14251), see
+    /// [OfflineSyncBatchBudget]. Unlimited by default: every pending change in
+    /// one batch, as upstream.
+    this._batchBudget = OfflineSyncBatchBudget.unlimited,
+
+    /// Rows this peer does not send, and rows it sends again in full (fork,
+    /// unibook#14251), see [OfflineSyncRowIsolation]. None by default.
+    this._rowIsolation,
   }) : _syncTables = syncTables,
        _serializationManager = serializationManager,
        _databaseContext = OfflineSyncDatabaseContext.resolve(
@@ -142,6 +154,16 @@ class OfflineSyncEngine {
   /// The longest delay between continuous sync rounds a session can ask for.
   Duration get maxContinuousSyncInterval => _maxContinuousSyncInterval;
 
+  final OfflineSyncBatchBudget _batchBudget;
+  final OfflineSyncRowIsolation? _rowIsolation;
+
+  /// How much one outbound batch may carry (fork, unibook#14251).
+  OfflineSyncBatchBudget get batchBudget => _batchBudget;
+
+  /// The rows this peer holds back or sends again in full (fork,
+  /// unibook#14251), or null.
+  OfflineSyncRowIsolation? get rowIsolation => _rowIsolation;
+
   /// The delay between this session's continuous rounds (fork,
   /// unibook#14207).
   ///
@@ -174,6 +196,8 @@ class OfflineSyncEngine {
       maxContinuousSyncInterval: _maxContinuousSyncInterval,
       persistentUserId: persistentUserId,
       context: _databaseContext,
+      batchBudget: _batchBudget,
+      rowIsolation: _rowIsolation,
     );
   }
 
@@ -262,6 +286,453 @@ class OfflineSyncEngine {
       await _recordAndThrowIntegrityViolation(session, violation);
     }
   }
+
+  /// Streams one outbound batch of the pending changes for every space in
+  /// [checkpointsBySpaceUuid], under [batchBudget] and [rowIsolation] (fork,
+  /// unibook#14251).
+  ///
+  /// Reads the same snapshot as [collectPendingChanges], leaves out the
+  /// isolated rows, adds every change of the released rows this session has
+  /// not sent yet, and plans the batch with [planOutboundUnits]: HLC order,
+  /// cut where resuming from the advanced checkpoints skips nothing. It streams
+  /// whole units while they fit and stops before the first that does not,
+  /// setting [_OutboundBatch.hasMore]. A unit that does not fit an empty batch
+  /// is sent group by group while they fit, and a group that does not fit an
+  /// empty batch part by part while they fit; that first part is sent even
+  /// when it alone exceeds the budget, so every batch makes progress.
+  ///
+  /// The change limit decides before anything is resolved which units the
+  /// batch can take ([takeUnitsWithinChangeLimit]); the foreign keys of their
+  /// changes that may name a later insert are read to keep those together
+  /// ([_planOutboundUnits]), then the attempted values of their inserts at
+  /// once, and nothing of the units after them.
+  /// Changes are resolved (their domain values read) one unit at a time, so a
+  /// unit that ends up not fitting the payload limit was read for nothing; the
+  /// next round reads it again.
+  ///
+  /// Every round still reads the pending changes of the whole backlog and
+  /// plans them: a round costs about what the backlog does, so a backlog of N
+  /// changes sent maxChanges at a time costs about N² / maxChanges. See the
+  /// README for measurements.
+  Stream<CrdtMergeChange> _collectPlannedBatch(
+    DatabaseSession session, {
+    required Map<UuidValue, List<Hlc>> checkpointsBySpaceUuid,
+    required _OutboundBatch outbound,
+    required _ReleasedRowsSent released,
+  }) async* {
+    if (checkpointsBySpaceUuid.isEmpty) return;
+
+    // Read once: the implementation may change the sets while this runs.
+    final isolatedRows = {...?_rowIsolation?.isolatedRows};
+    final releasedRows = {...?_rowIsolation?.releasedRows}..removeAll(isolatedRows);
+
+    final spaces = await OfflineSyncSpace.db.find(
+      session,
+      where: (t) => t.uuidSpaceId.inSet(checkpointsBySpaceUuid.keys.toSet()),
+    );
+    final spaceUuidById = {
+      for (final space in spaces) space.id!: space.uuidSpaceId,
+    };
+    final checkpointsBySpaceId = {
+      for (final space in spaces)
+        space.id!: checkpointsBySpaceUuid[space.uuidSpaceId] ?? const <Hlc>[],
+    };
+
+    try {
+      final pending = await _readPendingChanges(
+        session,
+        checkpointsBySpaceId,
+        releasedRows: releasedRows,
+      );
+
+      final planned = <_PlannedChange>[];
+      final seen = <(OutboundChangeKind, int)>{};
+      void plan(_PlannedChange change) {
+        // A change read both as pending and as released is pending.
+        if (!seen.add((change.ref.kind, change.sourceId))) return;
+        if (isolatedRows.contains(change.rowKey)) return;
+        // A released row's change goes once per session.
+        if (change.forced && released.entries.contains(change.sentKey)) return;
+        planned.add(change);
+      }
+
+      for (final (rows, forced) in [
+        (pending.rows, false),
+        (pending.releasedRows, true),
+      ]) {
+        for (final row in rows) {
+          if (_sendsInsert(row)) plan(_PlannedChange.insert(row, forced: forced));
+        }
+      }
+      for (final (fields, forced) in [
+        (pending.fields, false),
+        (pending.releasedFields, true),
+      ]) {
+        for (final field in fields) {
+          if (_sendsUpdate(field)) plan(_PlannedChange.update(field, forced: forced));
+        }
+      }
+      for (final (tombstones, forced) in [
+        (pending.tombstones, false),
+        (pending.releasedTombstones, true),
+      ]) {
+        for (final tombstone in tombstones) {
+          if (_sendsDelete(tombstone)) {
+            plan(_PlannedChange.delete(tombstone, forced: forced));
+          }
+        }
+      }
+      if (planned.isEmpty) return;
+
+      // The change limit needs no reads, so it bounds the units this batch can
+      // take before any is resolved, and only theirs are read.
+      final (:units, :candidates) = await _planOutboundUnits(session, planned);
+      if (candidates.length < units.length) outbound.hasMore = true;
+      final attemptedValueFieldsByRowId = await _loadAttemptedValueFields(session, [
+        for (final unit in candidates)
+          for (final index in unit.indices) ?planned[index].row,
+      ]);
+      // Domain ownership is immutable while a collection runs, so read each
+      // row's owner at most once.
+      final ownerCache = DomainRowOwnerCache();
+      Future<CrdtMergeChange> resolve(_PlannedChange change) =>
+          switch (change.ref.kind) {
+            OutboundChangeKind.insert => _resolveInsert(
+              session,
+              spaceUuidById,
+              change.row!,
+              attemptedValueFieldsByRowId[change.row!.id!],
+              ownerCache,
+            ),
+            OutboundChangeKind.update => _resolveUpdate(
+              session,
+              spaceUuidById,
+              change.field!,
+              ownerCache,
+            ),
+            OutboundChangeKind.delete => _resolveDelete(
+              session,
+              spaceUuidById,
+              change.tombstone!,
+              ownerCache,
+            ),
+          };
+      void markSent(_PlannedChange change) {
+        if (!releasedRows.contains(change.rowKey)) return;
+        // Pending or not: once sent, the checkpoint is past it, and the next
+        // collection reads it only as released.
+        released.entries.add(change.sentKey);
+        released.rows.add(change.rowKey);
+      }
+
+      final meter = OutboundBatchMeter(_batchBudget);
+      for (final unit in candidates) {
+        final parts = [
+          for (final part in unit.parts)
+            [
+              for (final index in part)
+                (planned: planned[index], change: await resolve(planned[index])),
+            ],
+        ];
+        final partPayloads = [
+          for (final part in parts)
+            part.fold(0, (sum, entry) => sum + meter.payloadOf(entry.change)),
+        ];
+        final unitPayload = partPayloads.fold(0, (sum, chars) => sum + chars);
+        if (meter.fits(changes: unit.length, payloadChars: unitPayload)) {
+          meter.add(changes: unit.length, payloadChars: unitPayload);
+          for (final part in parts) {
+            for (final entry in part) {
+              markSent(entry.planned);
+              yield entry.change;
+            }
+          }
+          continue;
+        }
+        if (!meter.isEmpty) {
+          outbound.hasMore = true;
+          return;
+        }
+        // The unit alone exceeds the budget: its groups go whole while they
+        // fit, and one that does not fit an empty batch keeps only what
+        // resuming needs.
+        var firstPart = 0;
+        for (final group in unit.groups) {
+          final groupEnd = firstPart + group.length;
+          final groupParts = parts.sublist(firstPart, groupEnd);
+          final groupPayloads = partPayloads.sublist(firstPart, groupEnd);
+          firstPart = groupEnd;
+          final groupLength = groupParts.fold(0, (sum, part) => sum + part.length);
+          final groupPayload = groupPayloads.fold(0, (sum, chars) => sum + chars);
+          if (meter.fits(changes: groupLength, payloadChars: groupPayload)) {
+            meter.add(changes: groupLength, payloadChars: groupPayload);
+            for (final part in groupParts) {
+              for (final entry in part) {
+                markSent(entry.planned);
+                yield entry.change;
+              }
+            }
+            continue;
+          }
+          if (!meter.isEmpty) {
+            outbound.hasMore = true;
+            return;
+          }
+          for (var index = 0; index < groupParts.length; index++) {
+            final part = groupParts[index];
+            if (!meter.isEmpty &&
+                !meter.fits(changes: part.length, payloadChars: groupPayloads[index])) {
+              outbound.hasMore = true;
+              return;
+            }
+            meter.add(changes: part.length, payloadChars: groupPayloads[index]);
+            for (final entry in part) {
+              markSent(entry.planned);
+              yield entry.change;
+            }
+          }
+        }
+      }
+    } on PendingOutboundIntegrityViolation catch (violation) {
+      await _recordAndThrowIntegrityViolation(session, violation);
+    }
+  }
+
+  /// Plans [planned] with [planOutboundUnits] and takes the units an empty
+  /// batch can take under the change limit ([takeUnitsWithinChangeLimit]),
+  /// keeping each change that writes a foreign key with the pending insert of
+  /// the parent it names (fork, unibook#14251).
+  ///
+  /// A parent's insert sorts after a change that names it when the parent was
+  /// deleted and inserted again with its id after that change was written: the
+  /// restore stamps the insert anew. The change is a child's insert, or an
+  /// update of a child's foreign key column. A batch that ended between them
+  /// would fail at the receiver's commit, and every retry would build the same
+  /// batch. So each such pair is an [OutboundDependency], which the planner
+  /// keeps in one part with everything between.
+  ///
+  /// Only such changes whose table has a foreign key to a table with a
+  /// pending insert sorted after them can depend on one, and only those this
+  /// batch can take matter: their foreign keys are read, then the plan is made
+  /// again with what was found, until the units this batch can take hold no
+  /// such change not yet read. A dependency can take a parent's insert into
+  /// this batch, and its own foreign keys are read in the next pass, so a
+  /// parent whose own parent was inserted again after it brings that one too.
+  ///
+  /// Without a limit every change goes in one batch, whose foreign keys the
+  /// receiver checks at commit whatever the order: nothing is read.
+  Future<({List<OutboundUnit> units, List<OutboundUnit> candidates})>
+  _planOutboundUnits(
+    DatabaseSession session,
+    List<_PlannedChange> planned,
+  ) async {
+    final refs = [for (final change in planned) change.ref];
+    var units = planOutboundUnits(refs);
+    var candidates = takeUnitsWithinChangeLimit(units, _batchBudget);
+    if (_batchBudget.isUnlimited) return (units: units, candidates: candidates);
+
+    final suspects = _foreignKeySuspects(planned);
+    if (suspects.isEmpty) return (units: units, candidates: candidates);
+    final insertIndexByRow = <(String, UuidValue), int>{
+      for (var index = 0; index < planned.length; index++)
+        if (planned[index].ref.kind == OutboundChangeKind.insert)
+          (planned[index].ref.tableName, planned[index].ref.rowId): index,
+    };
+    final read = <int>{};
+    final dependencies = <OutboundDependency>[];
+    while (true) {
+      final toRead = <int>[];
+      for (final unit in candidates) {
+        for (final index in unit.indices) {
+          if (suspects.containsKey(index) && read.add(index)) toRead.add(index);
+        }
+      }
+      if (toRead.isEmpty) break;
+      debugOnForeignKeysRead?.call(toRead.length);
+      final found = await _readForeignKeyDependencies(
+        session,
+        planned,
+        {for (final index in toRead) index: suspects[index]!},
+        insertIndexByRow,
+      );
+      if (found.isEmpty) continue;
+      dependencies.addAll(found);
+      units = planOutboundUnits(refs, dependencies: dependencies);
+      candidates = takeUnitsWithinChangeLimit(units, _batchBudget);
+    }
+    return (units: units, candidates: candidates);
+  }
+
+  /// The changes of [planned] that may depend on a pending insert sorted after
+  /// them, by index, with the foreign keys that may name it: an insert with a
+  /// foreign key, or an update of a foreign key column, to a table with a
+  /// pending insert sorted after the change. Needs no reads.
+  ///
+  /// Only keys to a parent's `id` are followed, the only kind a Serverpod
+  /// relation declares.
+  Map<int, List<ForeignKeyEdge>> _foreignKeySuspects(
+    List<_PlannedChange> planned,
+  ) {
+    final lastInsertHlcByTable = <String, Hlc>{};
+    for (final change in planned) {
+      if (change.ref.kind != OutboundChangeKind.insert) continue;
+      final last = lastInsertHlcByTable[change.ref.tableName];
+      if (last == null || last < change.ref.hlc) {
+        lastInsertHlcByTable[change.ref.tableName] = change.ref.hlc;
+      }
+    }
+    final edgesByChildTable = _databaseContext.foreignKeys.edgesByChildTable;
+    final suspects = <int, List<ForeignKeyEdge>>{};
+    for (var index = 0; index < planned.length; index++) {
+      final ref = planned[index].ref;
+      if (ref.kind == OutboundChangeKind.delete) continue;
+      final edges = [
+        for (final edge in edgesByChildTable[ref.tableName] ?? const <ForeignKeyEdge>[])
+          if (edge.parentColumn == 'id' &&
+              (ref.kind == OutboundChangeKind.insert ||
+                  edge.childColumn == ref.columnName) &&
+              (lastInsertHlcByTable[edge.parentTableName]?.compareTo(ref.hlc) ?? -1) >
+                  0)
+            edge,
+      ];
+      if (edges.isNotEmpty) suspects[index] = edges;
+    }
+    return suspects;
+  }
+
+  /// Reads the foreign keys [edgesByIndex] names for each change of [planned]
+  /// and returns a dependency on each pending insert of [insertIndexByRow] one
+  /// of them names that sorts after the change.
+  ///
+  /// A parent's insert sorted before the change already goes in the same batch
+  /// or an earlier one, so it adds nothing, and leaving it out spares a plan:
+  /// a change that is a candidate only because another row of the parent's
+  /// table was inserted after it (a backlog that interleaves writes, of one
+  /// node or several) has its foreign keys read, and the plan is not made
+  /// again.
+  ///
+  /// The value a peer sends is the authored one: a column with an attempted
+  /// value sends that, not the projected domain value. One query per table
+  /// reads the domain columns, one more the attempted values of those columns.
+  Future<List<OutboundDependency>> _readForeignKeyDependencies(
+    DatabaseSession session,
+    List<_PlannedChange> planned,
+    Map<int, List<ForeignKeyEdge>> edgesByIndex,
+    Map<(String, UuidValue), int> insertIndexByRow,
+  ) async {
+    final indicesByTable = <String, List<int>>{};
+    for (final index in edgesByIndex.keys) {
+      indicesByTable.putIfAbsent(planned[index].ref.tableName, () => []).add(index);
+    }
+    final dependencies = <OutboundDependency>[];
+    for (final MapEntry(key: tableName, value: indices) in indicesByTable.entries) {
+      final rowsById = <int, CrdtDataRow>{
+        for (final index in indices)
+          if (planned[index].row ?? planned[index].field!.row! case final row)
+            row.id!: row,
+      };
+      final valuesByRowId = await _readForeignKeyValues(
+        session,
+        tableName,
+        rowsById.values.toList(),
+        {
+          for (final index in indices)
+            for (final edge in edgesByIndex[index]!) edge.childColumn,
+        },
+      );
+      for (final index in indices) {
+        final values = valuesByRowId[planned[index].ref.rowId];
+        if (values == null) continue;
+        for (final edge in edgesByIndex[index]!) {
+          final parentId = values[edge.childColumn];
+          if (parentId == null) continue;
+          final parentIndex = insertIndexByRow[(edge.parentTableName, parentId)];
+          if (parentIndex == null ||
+              parentIndex == index ||
+              !(planned[parentIndex].ref.hlc > planned[index].ref.hlc)) {
+            continue;
+          }
+          dependencies.add((dependent: index, prerequisite: parentIndex));
+        }
+      }
+    }
+    return dependencies;
+  }
+
+  /// The [columnNames] of the domain [rows] of [tableName], by row id, with
+  /// each attempted value in place of the projected domain value.
+  Future<Map<UuidValue, Map<String, UuidValue?>>> _readForeignKeyValues(
+    DatabaseSession session,
+    String tableName,
+    List<CrdtDataRow> rows,
+    Set<String> columnNames,
+  ) async {
+    final table = _syncTablesByName[tableName]!;
+    final columns = [
+      for (final column in table.columns)
+        if (columnNames.contains(column.columnName)) column,
+    ];
+    final escapedTableName = tableName.escapeIdentifier();
+    final selected = [
+      '"id"',
+      for (final column in columns)
+        '${_outboundColumnExpression(session, column)} AS "${column.columnName.escapeIdentifier()}"',
+    ].join(', ');
+    final valuesByRowId = <UuidValue, Map<String, UuidValue?>>{};
+    const chunkSize = 500;
+    for (var start = 0; start < rows.length; start += chunkSize) {
+      final chunk = rows.sublist(start, min(start + chunkSize, rows.length));
+      final result = await session.db.unsafeQuery(
+        'SELECT $selected FROM "$escapedTableName" '
+        'WHERE "id" IN (${[for (final row in chunk) row.uuidRowId].sqlLiteralList()})',
+      );
+      for (final resultRow in result) {
+        final columnMap = resultRow.toColumnMap();
+        final rowId = (columnMap['id'] as Object?).toUuidValue();
+        if (rowId == null) continue;
+        valuesByRowId[rowId] = {
+          for (final column in columns)
+            column.columnName:
+                (_decodeStructuredValue(
+                          session,
+                          column,
+                          columnMap[column.columnName],
+                        )
+                        as Object?)
+                    .toUuidValue(),
+        };
+      }
+    }
+
+    final rowIdByCrdtRowId = {for (final row in rows) row.id!: row.uuidRowId};
+    final attempted = await CrdtDataField.db.find(
+      session,
+      where: (t) =>
+          t.rowId.inSet(rowIdByCrdtRowId.keys.toSet()) &
+          t.attemptedValue.id.notEquals(null) &
+          t.column.name.inSet(columnNames),
+      include: CrdtDataField.include(
+        column: CrdtSchemaColumn.include(),
+        attemptedValue: CrdtDataAttemptedValue.include(),
+      ),
+    );
+    for (final field in attempted) {
+      final rowId = rowIdByCrdtRowId[field.rowId];
+      final values = rowId == null ? null : valuesByRowId[rowId];
+      if (values == null) continue;
+      values[field.column!.name] = (field.attemptedValue?.value as Object?)
+          .toUuidValue();
+    }
+    return valuesByRowId;
+  }
+
+  /// Called with the number of pending changes whose foreign keys a planned
+  /// collection reads, each time it reads some (fork, unibook#14251).
+  ///
+  /// Lets a test see that a planned batch reads the foreign keys of the
+  /// changes it can take only, and again for the parents a dependency brings.
+  @visibleForTesting
+  static void Function(int changeCount)? debugOnForeignKeysRead;
 
   /// Creates the [OfflineSyncSinceHlc] checkpoint for a space handshake.
   ///
@@ -438,6 +909,10 @@ class OfflineSyncEngine {
           .moveAndThrowIfNot<OfflineSyncSpaceSet>();
       await spaces.adoptPeerGrants(peerSpaceSet.spaces);
 
+      // Fork (unibook#14251): what this session sent of the released rows,
+      // so each is sent once per session and confirmed at its end.
+      final released = _ReleasedRowsSent();
+
       while (true) {
         await spaces.reconcile();
 
@@ -457,10 +932,21 @@ class OfflineSyncEngine {
           hasChanges = true;
         }
 
-        final pendingLocalChanges = collectPendingChanges(
-          session,
-          checkpointsBySpaceUuid: spaces.sendableCheckpoints,
-        );
+        // Fork (unibook#14251): with a batch budget or row isolation, the
+        // batch is planned (HLC order, cut where resuming skips nothing) and
+        // may end before every pending change is sent.
+        final outbound = _OutboundBatch();
+        final pendingLocalChanges = _batchBudget.isUnlimited && _rowIsolation == null
+            ? collectPendingChanges(
+                session,
+                checkpointsBySpaceUuid: spaces.sendableCheckpoints,
+              )
+            : _collectPlannedBatch(
+                session,
+                checkpointsBySpaceUuid: spaces.sendableCheckpoints,
+                outbound: outbound,
+                released: released,
+              );
 
         await for (final changes in pendingLocalChanges.chunked(_syncBatchSize)) {
           hasChanges = true;
@@ -471,7 +957,7 @@ class OfflineSyncEngine {
           yield OfflineSyncMergeChunk(changes: changes);
         }
         if (hasChanges || once) {
-          yield OfflineSyncEndOfBatch();
+          yield OfflineSyncEndOfBatch(hasMore: outbound.hasMore);
         }
 
         final batch = await inboundIterator.collectNextBatch(
@@ -501,6 +987,13 @@ class OfflineSyncEngine {
           if (!hadSendableCheckpoints && spaces.sendableCheckpoints.isNotEmpty) {
             continue;
           }
+          // Fork (unibook#14251): both peers read both flags, so both run the
+          // extra round or neither does. A peer built before the flag sends
+          // none and closes here, so this peer closes too.
+          final peerHasMore = batch.peerHasMore;
+          if (peerHasMore != null && (outbound.hasMore || peerHasMore)) {
+            continue;
+          }
           yield OfflineSyncClose();
           await inboundIterator.moveAndThrowIfNot<OfflineSyncClose>();
           sessionCompleted = true;
@@ -517,6 +1010,21 @@ class OfflineSyncEngine {
           unawaited(_drainUntilDone(inboundIterator));
           if (!spaces.isAuthoritative) {
             await _recordConfirmedLocalCheckpoints(session, spaces, localNodeId);
+          }
+          // Fork (unibook#14251): the peer merged every batch before it
+          // closed. Only a session that sent everything it collected confirms:
+          // closing with more to send (an old peer) may have left a released
+          // row half sent.
+          if (!outbound.hasMore && released.rows.isNotEmpty) {
+            await _rowIsolation?.onReleasedRowsConfirmed(
+              Set.unmodifiable(released.rows),
+            );
+            // The sets changed after the session's last commit, on which the
+            // unsent row count watch counts, so that count may have read them
+            // before the change: count again, after the callback, not before.
+            // The callback itself comes after the confirmed checkpoint is
+            // recorded, so a failure to record it leaves the sets as they were.
+            _databaseContext.notifyUnsentRowCountInputsChanged();
           }
           return;
         }
@@ -738,12 +1246,17 @@ class OfflineSyncEngine {
   /// collection, restricted to [localNodeId], so it counts the rows whose
   /// changes a sync from the recorded checkpoints would send. A space without a
   /// recorded checkpoint counts all of the node's rows in it.
+  ///
+  /// Fork (unibook#14251): every row of [rowIsolation]'s sets that exists
+  /// locally counts too, whoever wrote it. The checkpoints pass an isolated
+  /// row, so without this a sign-out check would read 0 and drop it.
   Future<int> countUnsentRows(
     DatabaseSession session, {
     required UuidValue localNodeId,
   }) async {
     final tableNames = _syncTablesByName.keys.toSet();
     if (tableNames.isEmpty) return 0;
+    final heldRowIds = await _heldRowIds(session);
 
     // Read the checkpoints before the rows and again after them. One that
     // advanced meanwhile leaves the count high. One that went back (the
@@ -757,6 +1270,7 @@ class OfflineSyncEngine {
         localNodeId: localNodeId,
         tableNames: tableNames,
         confirmedBySpaceId: confirmed,
+        heldRowIds: heldRowIds,
       );
       final current = await _ownCheckpoints(session, localNodeId);
       if (!_anyCheckpointWentBack(confirmed, current)) return count;
@@ -767,6 +1281,7 @@ class OfflineSyncEngine {
           localNodeId: localNodeId,
           tableNames: tableNames,
           confirmedBySpaceId: const {},
+          heldRowIds: heldRowIds,
         );
       }
       confirmed = current;
@@ -817,19 +1332,46 @@ class OfflineSyncEngine {
     return false;
   }
 
+  /// The CRDT row ids of the rows [rowIsolation] holds back or releases, of the
+  /// synchronized tables, that exist locally (fork, unibook#14251).
+  Future<Set<int>> _heldRowIds(DatabaseSession session) async {
+    final isolation = _rowIsolation;
+    if (isolation == null) return const {};
+    final idsByTable = <String, Set<UuidValue>>{};
+    for (final row in {...isolation.isolatedRows, ...isolation.releasedRows}) {
+      if (!_syncTablesByName.containsKey(row.tableName)) continue;
+      idsByTable.putIfAbsent(row.tableName, () => {}).add(row.rowId);
+    }
+    if (idsByTable.isEmpty) return const {};
+    final rows = await CrdtDataRow.db.find(
+      session,
+      where: (t) {
+        Expression? any;
+        for (final MapEntry(key: table, value: ids) in idsByTable.entries) {
+          final expression = t.tbl.name.equals(table) & t.uuidRowId.inSet(ids);
+          any = any == null ? expression : any | expression;
+        }
+        return any!;
+      },
+    );
+    return {for (final row in rows) row.id!};
+  }
+
   /// Counts the rows holding a change of [localNodeId] after its checkpoint in
-  /// [confirmedBySpaceId], every row of the node in a space without one.
+  /// [confirmedBySpaceId], every row of the node in a space without one, and
+  /// the rows of [heldRowIds].
   Future<int> _countOwnRowsAfter(
     DatabaseSession session, {
     required UuidValue localNodeId,
     required Set<String> tableNames,
     required Map<int, Hlc> confirmedBySpaceId,
+    Set<int> heldRowIds = const {},
   }) async {
     final spaces = await OfflineSyncSpace.db.find(session);
     final checkpointsBySpaceId = {
       for (final space in spaces) space.id!: [?confirmedBySpaceId[space.id!]],
     };
-    if (checkpointsBySpaceId.isEmpty) return 0;
+    if (checkpointsBySpaceId.isEmpty) return heldRowIds.length;
 
     final rows = await CrdtDataRow.db.find(
       session,
@@ -858,6 +1400,7 @@ class OfflineSyncEngine {
       for (final row in rows) row.id!,
       for (final field in fields) field.rowId,
       for (final tombstone in tombstones) tombstone.rowId,
+      ...heldRowIds,
     }.length;
   }
 
@@ -944,17 +1487,25 @@ class OfflineSyncEngine {
   /// A transaction takes the snapshot: repeatable read on PostgreSQL, the
   /// write lock on SQLite. It holds only these three queries; domain values
   /// are read afterwards, as each change is yielded.
+  ///
+  /// Fork (unibook#14251): with [releasedRows], the same snapshot also reads
+  /// every change of those rows in the spaces of [checkpointsBySpaceId],
+  /// whatever the checkpoints (`released*`). Without them, no query is added.
   Future<
     ({
       List<CrdtDataRow> rows,
       List<CrdtDataField> fields,
       List<CrdtDataDeleted> tombstones,
+      List<CrdtDataRow> releasedRows,
+      List<CrdtDataField> releasedFields,
+      List<CrdtDataDeleted> releasedTombstones,
     })
   >
   _readPendingChanges(
     DatabaseSession session,
-    Map<int, List<Hlc>> checkpointsBySpaceId,
-  ) => session.db.transaction(
+    Map<int, List<Hlc>> checkpointsBySpaceId, {
+    Set<OfflineSyncRowKey> releasedRows = const {},
+  }) => session.db.transaction(
     (transaction) async {
       final rows = await CrdtDataRow.db.find(
         session,
@@ -986,12 +1537,83 @@ class OfflineSyncEngine {
         ),
         transaction: transaction,
       );
-      return (rows: rows, fields: fields, tombstones: tombstones);
+      final releasedIdsByTable = <String, Set<UuidValue>>{
+        for (final row in releasedRows)
+          if (_syncTablesByName.containsKey(row.tableName)) row.tableName: {},
+      };
+      for (final row in releasedRows) {
+        releasedIdsByTable[row.tableName]?.add(row.rowId);
+      }
+      if (releasedIdsByTable.isEmpty) {
+        return (
+          rows: rows,
+          fields: fields,
+          tombstones: tombstones,
+          releasedRows: const <CrdtDataRow>[],
+          releasedFields: const <CrdtDataField>[],
+          releasedTombstones: const <CrdtDataDeleted>[],
+        );
+      }
+      final spaceIds = checkpointsBySpaceId.keys.toSet();
+      Expression releasedFilter(
+        ColumnString tableName,
+        ColumnUuid rowId,
+        ColumnInt spaceId,
+      ) {
+        Expression? any;
+        for (final MapEntry(key: table, value: ids) in releasedIdsByTable.entries) {
+          final expression = tableName.equals(table) & rowId.inSet(ids);
+          any = any == null ? expression : any | expression;
+        }
+        return spaceId.inSet(spaceIds) & any!;
+      }
+
+      return (
+        rows: rows,
+        fields: fields,
+        tombstones: tombstones,
+        releasedRows: await CrdtDataRow.db.find(
+          session,
+          where: (t) => releasedFilter(t.tbl.name, t.uuidRowId, t.spaceId),
+          include: CrdtDataRow.include(
+            tbl: CrdtSchemaTable.include(),
+            node: CrdtNode.include(),
+          ),
+          transaction: transaction,
+        ),
+        releasedFields: await CrdtDataField.db.find(
+          session,
+          where: (t) => releasedFilter(t.row.tbl.name, t.row.uuidRowId, t.row.spaceId),
+          include: CrdtDataField.include(
+            row: CrdtDataRow.include(tbl: CrdtSchemaTable.include()),
+            column: CrdtSchemaColumn.include(),
+            node: CrdtNode.include(),
+            attemptedValue: CrdtDataAttemptedValue.include(),
+          ),
+          transaction: transaction,
+        ),
+        releasedTombstones: await CrdtDataDeleted.db.find(
+          session,
+          where: (t) => releasedFilter(t.row.tbl.name, t.row.uuidRowId, t.row.spaceId),
+          include: CrdtDataDeleted.include(
+            row: CrdtDataRow.include(tbl: CrdtSchemaTable.include()),
+            node: CrdtNode.include(),
+          ),
+          transaction: transaction,
+        ),
+      );
     },
     settings: const TransactionSettings(
       isolationLevel: IsolationLevel.repeatableRead,
     ),
   );
+
+  /// Called with the number of pending inserts whose attempted values a
+  /// collection reads, when it reads any (fork, unibook#14251).
+  ///
+  /// Lets a test see that a planned batch reads only the inserts it can take.
+  @visibleForTesting
+  static void Function(int insertCount)? debugOnAttemptedValuesRead;
 
   /// Called by the pending-change collection with its session, inside its
   /// snapshot, after it reads the pending inserts and before it reads the
@@ -1014,63 +1636,85 @@ class OfflineSyncEngine {
     );
 
     for (final row in rows) {
-      final tableName = row.tbl!.name;
-      if (!_syncTablesByName.containsKey(tableName)) continue;
-
-      final table = _syncTablesByName[tableName]!;
-      final dartName = _classNamesByTableName[tableName];
-      if (dartName == null) continue;
-
-      final spaceId = row.spaceId;
-      final spaceUuid = spaceUuidById[spaceId]!;
-
-      final domainRow = await _fetchDomainRow(
+      if (!_sendsInsert(row)) continue;
+      yield await _resolveInsert(
         session,
-        tableName,
-        row.uuidRowId,
-        table,
-        dartName,
+        spaceUuidById,
+        row,
         attemptedValueFieldsByRowId[row.id!],
-        spaceId,
         ownerCache,
       );
-      if (!domainRow.exists) {
-        _throwPendingIntegrityViolation(
-          crdtDataRowId: row.id,
-          type: OfflineSyncViolationType.missingDomainRow,
-          operation: OfflineSyncViolationOperation.outboundInsert,
-          tableName: tableName,
-          rowId: row.uuidRowId,
-          ownerSpaceId: null,
-          incomingSpaceUuid: spaceUuid,
-          uuidNodeId: row.node!.uuidNodeId,
-          hlc: row.hlc,
-        );
-      }
-      if (domainRow.ownerSpaceId != spaceId) {
-        _throwPendingIntegrityViolation(
-          crdtDataRowId: row.id,
-          type: OfflineSyncViolationType.ownershipCollision,
-          operation: OfflineSyncViolationOperation.outboundInsert,
-          tableName: tableName,
-          rowId: row.uuidRowId,
-          ownerSpaceId: domainRow.ownerSpaceId,
-          incomingSpaceUuid: spaceUuid,
-          uuidNodeId: row.node!.uuidNodeId,
-          hlc: row.hlc,
-        );
-      }
+    }
+  }
 
-      yield CrdtMergeInsert(
-        uuidSpaceId: spaceUuid,
-        hlcDatetime: row.hlcDatetime,
-        hlcCounter: row.hlcCounter,
+  /// Whether the pending [row] is sent as an insert.
+  bool _sendsInsert(CrdtDataRow row) {
+    final tableName = row.tbl!.name;
+    return _syncTablesByName.containsKey(tableName) &&
+        _classNamesByTableName[tableName] != null;
+  }
+
+  /// The insert for the pending [row], which [_sendsInsert] accepted.
+  Future<CrdtMergeInsert> _resolveInsert(
+    DatabaseSession session,
+    Map<int, UuidValue> spaceUuidById,
+    CrdtDataRow row,
+    List<CrdtDataField>? attemptedValueFields,
+    DomainRowOwnerCache ownerCache,
+  ) async {
+    final tableName = row.tbl!.name;
+    final table = _syncTablesByName[tableName]!;
+    final dartName = _classNamesByTableName[tableName]!;
+
+    final spaceId = row.spaceId;
+    final spaceUuid = spaceUuidById[spaceId]!;
+
+    final domainRow = await _fetchDomainRow(
+      session,
+      tableName,
+      row.uuidRowId,
+      table,
+      dartName,
+      attemptedValueFields,
+      spaceId,
+      ownerCache,
+    );
+    if (!domainRow.exists) {
+      _throwPendingIntegrityViolation(
+        crdtDataRowId: row.id,
+        type: OfflineSyncViolationType.missingDomainRow,
+        operation: OfflineSyncViolationOperation.outboundInsert,
         tableName: tableName,
-        uuidRowId: row.uuidRowId,
+        rowId: row.uuidRowId,
+        ownerSpaceId: null,
+        incomingSpaceUuid: spaceUuid,
         uuidNodeId: row.node!.uuidNodeId,
-        data: domainRow.row,
+        hlc: row.hlc,
       );
     }
+    if (domainRow.ownerSpaceId != spaceId) {
+      _throwPendingIntegrityViolation(
+        crdtDataRowId: row.id,
+        type: OfflineSyncViolationType.ownershipCollision,
+        operation: OfflineSyncViolationOperation.outboundInsert,
+        tableName: tableName,
+        rowId: row.uuidRowId,
+        ownerSpaceId: domainRow.ownerSpaceId,
+        incomingSpaceUuid: spaceUuid,
+        uuidNodeId: row.node!.uuidNodeId,
+        hlc: row.hlc,
+      );
+    }
+
+    return CrdtMergeInsert(
+      uuidSpaceId: spaceUuid,
+      hlcDatetime: row.hlcDatetime,
+      hlcCounter: row.hlcCounter,
+      tableName: tableName,
+      uuidRowId: row.uuidRowId,
+      uuidNodeId: row.node!.uuidNodeId,
+      data: domainRow.row,
+    );
   }
 
   Stream<CrdtMergeUpdate> _streamUpdates(
@@ -1080,64 +1724,78 @@ class OfflineSyncEngine {
     DomainRowOwnerCache ownerCache,
   ) async* {
     for (final field in fields) {
-      final tableName = field.row!.tbl!.name;
-      if (!_syncTablesByName.containsKey(tableName)) continue;
-      if (field.hlcDatetime == field.row!.hlcDatetime &&
-          field.hlcCounter == field.row!.hlcCounter &&
-          field.nodeId == field.row!.nodeId) {
-        continue;
-      }
+      if (!_sendsUpdate(field)) continue;
+      yield await _resolveUpdate(session, spaceUuidById, field, ownerCache);
+    }
+  }
 
-      final spaceId = field.row!.spaceId;
-      final spaceUuid = spaceUuidById[spaceId]!;
-      final columnName = field.column!.name;
-      final columnValue = await _fetchOwnedColumnValue(
-        session,
-        tableName,
-        field.row!.uuidRowId,
-        columnName,
-        field.attemptedValue,
-        spaceId,
-        ownerCache,
-      );
-      if (!columnValue.exists) {
-        _throwPendingIntegrityViolation(
-          crdtDataRowId: field.row!.id,
-          type: OfflineSyncViolationType.missingDomainRow,
-          operation: OfflineSyncViolationOperation.outboundUpdate,
-          tableName: tableName,
-          rowId: field.row!.uuidRowId,
-          ownerSpaceId: null,
-          incomingSpaceUuid: spaceUuid,
-          uuidNodeId: field.node!.uuidNodeId,
-          hlc: field.hlc,
-        );
-      }
-      if (columnValue.ownerSpaceId != spaceId) {
-        _throwPendingIntegrityViolation(
-          crdtDataRowId: field.row!.id,
-          type: OfflineSyncViolationType.ownershipCollision,
-          operation: OfflineSyncViolationOperation.outboundUpdate,
-          tableName: tableName,
-          rowId: field.row!.uuidRowId,
-          ownerSpaceId: columnValue.ownerSpaceId,
-          incomingSpaceUuid: spaceUuid,
-          uuidNodeId: field.node!.uuidNodeId,
-          hlc: field.hlc,
-        );
-      }
+  /// Whether the pending [field] is sent as an update: not when it was written
+  /// with its row's insert, which carries it.
+  bool _sendsUpdate(CrdtDataField field) {
+    final tableName = field.row!.tbl!.name;
+    if (!_syncTablesByName.containsKey(tableName)) return false;
+    return !(field.hlcDatetime == field.row!.hlcDatetime &&
+        field.hlcCounter == field.row!.hlcCounter &&
+        field.nodeId == field.row!.nodeId);
+  }
 
-      yield CrdtMergeUpdate(
-        uuidSpaceId: spaceUuid,
-        hlcDatetime: field.hlcDatetime,
-        hlcCounter: field.hlcCounter,
+  /// The update for the pending [field], which [_sendsUpdate] accepted.
+  Future<CrdtMergeUpdate> _resolveUpdate(
+    DatabaseSession session,
+    Map<int, UuidValue> spaceUuidById,
+    CrdtDataField field,
+    DomainRowOwnerCache ownerCache,
+  ) async {
+    final tableName = field.row!.tbl!.name;
+    final spaceId = field.row!.spaceId;
+    final spaceUuid = spaceUuidById[spaceId]!;
+    final columnName = field.column!.name;
+    final columnValue = await _fetchOwnedColumnValue(
+      session,
+      tableName,
+      field.row!.uuidRowId,
+      columnName,
+      field.attemptedValue,
+      spaceId,
+      ownerCache,
+    );
+    if (!columnValue.exists) {
+      _throwPendingIntegrityViolation(
+        crdtDataRowId: field.row!.id,
+        type: OfflineSyncViolationType.missingDomainRow,
+        operation: OfflineSyncViolationOperation.outboundUpdate,
         tableName: tableName,
-        uuidRowId: field.row!.uuidRowId,
+        rowId: field.row!.uuidRowId,
+        ownerSpaceId: null,
+        incomingSpaceUuid: spaceUuid,
         uuidNodeId: field.node!.uuidNodeId,
-        columnName: columnName,
-        value: columnValue.value,
+        hlc: field.hlc,
       );
     }
+    if (columnValue.ownerSpaceId != spaceId) {
+      _throwPendingIntegrityViolation(
+        crdtDataRowId: field.row!.id,
+        type: OfflineSyncViolationType.ownershipCollision,
+        operation: OfflineSyncViolationOperation.outboundUpdate,
+        tableName: tableName,
+        rowId: field.row!.uuidRowId,
+        ownerSpaceId: columnValue.ownerSpaceId,
+        incomingSpaceUuid: spaceUuid,
+        uuidNodeId: field.node!.uuidNodeId,
+        hlc: field.hlc,
+      );
+    }
+
+    return CrdtMergeUpdate(
+      uuidSpaceId: spaceUuid,
+      hlcDatetime: field.hlcDatetime,
+      hlcCounter: field.hlcCounter,
+      tableName: tableName,
+      uuidRowId: field.row!.uuidRowId,
+      uuidNodeId: field.node!.uuidNodeId,
+      columnName: columnName,
+      value: columnValue.value,
+    );
   }
 
   Stream<CrdtMergeDelete> _streamDeletes(
@@ -1147,44 +1805,56 @@ class OfflineSyncEngine {
     DomainRowOwnerCache ownerCache,
   ) async* {
     for (final tombstone in tombstones) {
-      if (!tombstone.reason.isSynced) continue;
+      if (!_sendsDelete(tombstone)) continue;
+      yield await _resolveDelete(session, spaceUuidById, tombstone, ownerCache);
+    }
+  }
 
-      final tableName = tombstone.row!.tbl!.name;
-      if (!_syncTablesByName.containsKey(tableName)) continue;
+  /// Whether the pending [tombstone] is sent as a delete.
+  bool _sendsDelete(CrdtDataDeleted tombstone) =>
+      tombstone.reason.isSynced &&
+      _syncTablesByName.containsKey(tombstone.row!.tbl!.name);
 
-      final spaceId = tombstone.row!.spaceId;
-      final spaceUuid = spaceUuidById[spaceId]!;
-      final owner = await _readDomainRowOwner(
-        session,
-        tableName,
-        tombstone.row!.uuidRowId,
-        ownerCache,
-      );
-      if (owner.exists && owner.spaceId != spaceId) {
-        _throwPendingIntegrityViolation(
-          crdtDataRowId: tombstone.row!.id,
-          type: OfflineSyncViolationType.ownershipCollision,
-          operation: OfflineSyncViolationOperation.outboundDelete,
-          tableName: tableName,
-          rowId: tombstone.row!.uuidRowId,
-          ownerSpaceId: owner.spaceId,
-          incomingSpaceUuid: spaceUuid,
-          uuidNodeId: tombstone.node!.uuidNodeId,
-          hlc: tombstone.hlc,
-        );
-      }
-
-      yield CrdtMergeDelete(
-        uuidSpaceId: spaceUuid,
-        hlcDatetime: tombstone.hlcDatetime,
-        hlcCounter: tombstone.hlcCounter,
+  /// The delete for the pending [tombstone], which [_sendsDelete] accepted.
+  Future<CrdtMergeDelete> _resolveDelete(
+    DatabaseSession session,
+    Map<int, UuidValue> spaceUuidById,
+    CrdtDataDeleted tombstone,
+    DomainRowOwnerCache ownerCache,
+  ) async {
+    final tableName = tombstone.row!.tbl!.name;
+    final spaceId = tombstone.row!.spaceId;
+    final spaceUuid = spaceUuidById[spaceId]!;
+    final owner = await _readDomainRowOwner(
+      session,
+      tableName,
+      tombstone.row!.uuidRowId,
+      ownerCache,
+    );
+    if (owner.exists && owner.spaceId != spaceId) {
+      _throwPendingIntegrityViolation(
+        crdtDataRowId: tombstone.row!.id,
+        type: OfflineSyncViolationType.ownershipCollision,
+        operation: OfflineSyncViolationOperation.outboundDelete,
         tableName: tableName,
-        uuidRowId: tombstone.row!.uuidRowId,
+        rowId: tombstone.row!.uuidRowId,
+        ownerSpaceId: owner.spaceId,
+        incomingSpaceUuid: spaceUuid,
         uuidNodeId: tombstone.node!.uuidNodeId,
-        clFlag: tombstone.clFlag,
-        reason: tombstone.reason,
+        hlc: tombstone.hlc,
       );
     }
+
+    return CrdtMergeDelete(
+      uuidSpaceId: spaceUuid,
+      hlcDatetime: tombstone.hlcDatetime,
+      hlcCounter: tombstone.hlcCounter,
+      tableName: tableName,
+      uuidRowId: tombstone.row!.uuidRowId,
+      uuidNodeId: tombstone.node!.uuidNodeId,
+      clFlag: tombstone.clFlag,
+      reason: tombstone.reason,
+    );
   }
 
   Expression _rowHlcAfterFilter(
@@ -1450,6 +2120,7 @@ class OfflineSyncEngine {
   ) async {
     final rowIds = {for (final row in rows) ?row.id};
     if (rowIds.isEmpty) return {};
+    debugOnAttemptedValuesRead?.call(rowIds.length);
 
     final fields = await CrdtDataField.db.find(
       session,
@@ -1585,6 +2256,101 @@ class OfflineSyncEngine {
 
     return entries;
   }
+}
+
+/// What one outbound batch left for later rounds (fork, unibook#14251).
+final class _OutboundBatch {
+  /// Whether the batch stopped before every pending change was sent.
+  bool hasMore = false;
+}
+
+/// What a session sent of the released rows (fork, unibook#14251).
+final class _ReleasedRowsSent {
+  /// The changes of released rows sent so far, by kind, source row id and
+  /// HLC: each goes once per session, whether it was pending or read only as
+  /// released. A change written again since has a new HLC and goes again.
+  final Set<(OutboundChangeKind, int, Hlc)> entries = {};
+
+  /// The released rows with at least one change sent, confirmed when the
+  /// session ends with the peer's close.
+  final Set<OfflineSyncRowKey> rows = {};
+}
+
+/// A pending change the planned collection may send (fork, unibook#14251).
+final class _PlannedChange {
+  _PlannedChange._(
+    this.ref,
+    this.sourceId, {
+    required this.forced,
+    this.row,
+    this.field,
+    this.tombstone,
+  });
+
+  factory _PlannedChange.insert(CrdtDataRow row, {required bool forced}) =>
+      _PlannedChange._(
+        (
+          hlc: row.hlc,
+          kind: OutboundChangeKind.insert,
+          tableName: row.tbl!.name,
+          rowId: row.uuidRowId,
+          columnName: null,
+          deleteReason: null,
+        ),
+        row.id!,
+        forced: forced,
+        row: row,
+      );
+
+  factory _PlannedChange.update(CrdtDataField field, {required bool forced}) =>
+      _PlannedChange._(
+        (
+          hlc: field.hlc,
+          kind: OutboundChangeKind.update,
+          tableName: field.row!.tbl!.name,
+          rowId: field.row!.uuidRowId,
+          columnName: field.column!.name,
+          deleteReason: null,
+        ),
+        field.id!,
+        forced: forced,
+        field: field,
+      );
+
+  factory _PlannedChange.delete(
+    CrdtDataDeleted tombstone, {
+    required bool forced,
+  }) => _PlannedChange._(
+    (
+      hlc: tombstone.hlc,
+      kind: OutboundChangeKind.delete,
+      tableName: tombstone.row!.tbl!.name,
+      rowId: tombstone.row!.uuidRowId,
+      columnName: null,
+      deleteReason: tombstone.reason,
+    ),
+    tombstone.id!,
+    forced: forced,
+    tombstone: tombstone,
+  );
+
+  /// What the planner orders and cuts by.
+  final OutboundChangeRef ref;
+
+  /// The id of the CRDT metadata row the change comes from.
+  final int sourceId;
+
+  /// Whether it was read only because its row is released: the checkpoints
+  /// are past it.
+  final bool forced;
+
+  final CrdtDataRow? row;
+  final CrdtDataField? field;
+  final CrdtDataDeleted? tombstone;
+
+  OfflineSyncRowKey get rowKey => (tableName: ref.tableName, rowId: ref.rowId);
+
+  (OutboundChangeKind, int, Hlc) get sentKey => (ref.kind, sourceId, ref.hlc);
 }
 
 Expression _afterAnySpaceCheckpointFilter(

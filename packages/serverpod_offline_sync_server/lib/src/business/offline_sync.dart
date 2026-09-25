@@ -71,12 +71,23 @@ extension OfflineSyncInitialize on Serverpod {
   /// wall clock catches up; a sync that needs a server timestamp there reaches
   /// the device as [OfflineSyncFailureCode.serverClockDrift]. See
   /// [OfflineSyncDatabaseContext.maxClockDrift].
+  ///
+  /// [batchBudget] bounds what the server sends a device in one batch (fork,
+  /// unibook#14251), see [OfflineSyncBatchBudget]. Unlimited by default, as
+  /// upstream: a device syncing for the first time receives everything in one
+  /// batch, which it holds in memory before it merges it. With a budget, a
+  /// `once` session sends the rest in more rounds before it closes, and a
+  /// continuous session sends one batch per round. A device built before
+  /// [OfflineSyncEndOfBatch.hasMore] closes its `once` session after the first
+  /// batch and gets the rest in its next sessions. It applies to every sync
+  /// session of this pod and to the databases the interceptor wraps.
   void initializeOfflineSync({
     required List<Table> syncTables,
     int syncBatchSize = OfflineSyncEngine.defaultSyncBatchSize,
     Duration continuousSyncInterval = OfflineSyncEngine.defaultContinuousSyncInterval,
     Duration? maxContinuousSyncInterval,
     Duration maxClockDrift = Hlc.defaultMaxDrift,
+    OfflineSyncBatchBudget batchBudget = OfflineSyncBatchBudget.unlimited,
   }) {
     _offlineSyncByServerpod[this] = OfflineSyncEngine(
       syncTables: syncTables,
@@ -85,6 +96,7 @@ extension OfflineSyncInitialize on Serverpod {
       continuousSyncInterval: continuousSyncInterval,
       maxContinuousSyncInterval: maxContinuousSyncInterval,
       maxClockDrift: maxClockDrift,
+      batchBudget: batchBudget,
     );
   }
 }
@@ -106,6 +118,10 @@ class OfflineSyncSession {
   /// The maximum clock drift configured by
   /// [OfflineSyncInitialize.initializeOfflineSync].
   Duration get maxClockDrift => _sync.maxClockDrift;
+
+  /// The outbound batch budget configured by
+  /// [OfflineSyncInitialize.initializeOfflineSync] (fork, unibook#14251).
+  OfflineSyncBatchBudget get batchBudget => _sync.batchBudget;
 
   /// Runs a CRDT sync session with this [OfflineSyncSession]'s [Session] bound.
   ///

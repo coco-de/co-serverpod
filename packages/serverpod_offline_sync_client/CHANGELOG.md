@@ -1,5 +1,13 @@
 ## Unreleased (co-serverpod fork)
 
+- docs: The batch budget and row isolation (unibook#14251) are set on the
+  session (`OfflineSyncDatabaseSession.wraps(batchBudget:, rowIsolation:)`),
+  not on `OfflineSyncClient` or `OfflineSyncStatusTracker`; both packages
+  re-export them. `OfflineSyncStatus.unsentRowCount` counts the isolated and
+  released rows too. A session that confirms released rows makes the tracker
+  count again after the confirmation; any other change to those sets commits
+  nothing, so call `refreshUnsentRowCount` after.
+
 - feat: `OfflineSyncStatusTracker.syncContinuously(continuousSyncInterval:)`
   forwards the request to `OfflineSyncClient.syncContinuously`
   (unibook#14207). Breaking for implementations: a class that implements or

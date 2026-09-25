@@ -1,5 +1,132 @@
 ## Unreleased (co-serverpod fork)
 
+- feat: A batch budget splits a round into several batches (unibook#14251).
+  Upstream sends every pending change of a round in one batch, closed by one
+  `OfflineSyncEndOfBatch`, and the receiver holds a batch in memory until it
+  ends. A device back after a long time offline, or a server sending a new
+  device everything, could exceed what the receiver accepts, and the same
+  batch was built again every session. `OfflineSyncBatchBudget` (`maxChanges`,
+  `maxPayloadChars` with `measurePayload`) ends the batch before the next
+  change would exceed a limit; the rest goes in the next rounds. Limits are
+  inclusive. `OfflineSyncEngine`, `OfflineSyncDatabase`,
+  `OfflineSyncDatabaseSession` and `OfflineSyncDatabaseSession.wraps` take
+  `batchBudget`; `OfflineSyncBatchBudget.unlimited`, the default, keeps the
+  upstream collection and order.
+  - Order and cuts (`planOutboundUnits`, `@internal`): with a budget the
+    changes go in HLC order, so every batch is an HLC prefix and a checkpoint
+    that moves to the last change sent skips none. Cut in the upstream order
+    (inserts first), a batch would move the checkpoint past an update stamped
+    before a later insert, and no round would send it again. A batch never
+    ends between changes with the same HLC, nor between a row's insert and a
+    change of that row stamped before it (a receiver drops an update or delete
+    of a row it does not have, and defers a delete only within one batch).
+    It also avoids two cuts, falling back to the rules above only when the
+    group alone exceeds the budget. A node's run of delete tombstones that
+    holds a cascade delete stays together from its first tombstone to its last
+    cascade delete, so a parent delete and its cascade go in one batch. A
+    node's consecutive changes of one row, each stamped right after the one
+    before (same datetime, next counter: the shape one write leaves, such as
+    an update of several columns), stay together, so a receiver does not show
+    the row half written until the next batch. A unit that alone exceeds the
+    budget goes group by group: in a delete run, the group starts at the user
+    deletes stamped right before the first cascade delete (its parents), so
+    unrelated deletes made just before may go one batch earlier while the
+    parents and their cascade still go together when they fit. A part that
+    alone exceeds the budget goes in a batch of its own: the receiver decides,
+    the sender never stops.
+  - Wire: one nullable field, `OfflineSyncEndOfBatch.hasMore`, which a peer
+    built with it always sets. A `once` session runs another round when either
+    peer set it, so both peers decide alike (`OfflineSyncCycleBatch
+    .peerHasMore`). A peer built before the field sends none and ignores it; a
+    peer that reads none closes, and the rest goes in its next session (one
+    batch per session, no error). Regenerated
+    `generated/sync/end_of_batch.dart`. A continuous session sends one batch
+    per round and keeps its wait.
+  - The server side is the same loop (authoritative mode); see the server
+    package for `initializeOfflineSync(batchBudget:)`.
+  - Cost: each round reads the pending metadata again (the upstream queries)
+    and sorts it, so a backlog of N changes sent maxChanges at a time costs
+    about N² / maxChanges. The change limit picks the units a batch can take
+    before anything is resolved, and only their inserts' attempted values are
+    read (`OfflineSyncEngine.debugOnAttemptedValuesRead` shows it). A unit that
+    did not fit the payload limit had its domain values read for nothing; the
+    next round reads them again. Measured on the SQLite fixture (a device
+    sends N inserts in one `once` session, mean of two runs): unlimited
+    1.2 s / 1.6 s / 3.3 s and `maxChanges: 100` 1.9 s / 5.3 s / 17.9 s for
+    N = 2,000 / 4,000 / 8,000 (18.3 s before reading only the batch's
+    attempted values). At N = 8,000 the 80 rounds spend about 6.5 s re-reading
+    the sender's pending changes, 6.8 s in the receiving server's own
+    per-round collection scan and 3 s in its per-batch merges. Reading pending
+    changes by HLC keyset would cut the sender's part but must extend each
+    read until every open hard and soft unit closes; it is left until
+    production-scale numbers ask for it (unibook#14192 measures on staging).
+    The default path is pinned by a SQLite test (upstream order, one batch);
+    the PostgreSQL snapshot is covered by unibook's integration tests.
+  - A change that writes a foreign key stays in one part with the pending
+    insert of the parent it names when that insert sorts after it, and every
+    change between them (`OutboundDependency`, `planOutboundUnits
+    (dependencies:)`). Restoring a row (inserting it again with its id) stamps
+    its insert anew, so a child's insert, or an update of a child's foreign
+    key column, written before the restore sorts before the parent's insert.
+    The receiver merges one batch in one transaction with deferred foreign
+    keys: a batch that ended between them failed its commit with
+    `DatabaseForeignKeyViolationException`, and the sender built the same
+    first batch every session, stopping the account's sync for good. Before
+    anything is resolved, the engine picks without reads the changes that may
+    depend on a later insert (an insert, or a foreign key column update, whose
+    parent table has a pending insert sorted after it), reads the foreign keys
+    of those in the units the batch can take (one query per table for the
+    domain columns, one for their attempted values: the value sent is the
+    attempted one), plans again when a parent's insert it names sorts after
+    it (one sorted before already goes in that batch or an earlier one, and
+    plans nothing again), and repeats until the units hold no change not yet
+    read, so a parent a dependency brings in brings its own restored parent
+    too. Only keys to a parent's `id` are
+    followed. Nothing is read without a limit (one batch). A part that alone
+    exceeds the budget still goes whole in an empty batch; this one can span
+    everything written between the child and the restore. A parent that is
+    isolated is never sent, and its children still fail the receiver: isolate
+    them too. `OfflineSyncEngine.debugOnForeignKeysRead` (`@visibleForTesting`)
+    reports the reads.
+  - Where the batch still splits a group that alone exceeds the budget, the
+    receiver shows it half applied until the next batch: one write's changes
+    of a row larger than `maxChanges`, or a delete run whose cascade group
+    (from the first cascade's parents to the last cascade delete) holds
+    several cascading deletes, where a later parent and its cascade may go in
+    different batches.
+  - The change limit is what lets a batch read only its own units: with a
+    payload limit only (`maxChanges: null`), every round reads the attempted
+    values and the foreign key candidates of every unit.
+  - Breaking for implementations: a class that implements `OfflineSyncEngine`
+    or `OfflineSyncDatabase` must add the getters `batchBudget` and
+    `rowIsolation`, unless it forwards missing members through `noSuchMethod`.
+- feat: Row isolation (unibook#14251). A receiver that rejects one row stopped
+  the whole account: the batch never merged, and every later session sent the
+  same row first. `OfflineSyncRowIsolation` (`isolatedRows`, `releasedRows`,
+  `onReleasedRowsConfirmed`), passed as `rowIsolation` like `batchBudget`,
+  leaves the isolated rows out of every batch. Once a later change of the same
+  node merges, the receiver's checkpoint is past them, so leaving isolation is
+  not enough to send them again: a released row goes in full, every change of
+  it read from the same snapshot whatever the checkpoints, once per session. A
+  `once` session that ended with the peer's close and nothing left to send
+  reports the released rows it sent to `onReleasedRowsConfirmed`; a continuous
+  session, a failed one, or one closed early by an old peer reports nothing.
+  A row in both sets is isolated. The implementation must keep both sets
+  across restarts: an isolated row whose isolation is lost is silently no
+  longer synced. `unsentRowCount` counts every row of both sets that exists
+  locally, so a sign-out check does not drop them, also in the every-row
+  fallback of a checkpoint that keeps going back. `watchUnsentRowCount` and
+  `watchUnsentRowCountTriggers` count again once `onReleasedRowsConfirmed`
+  returned: the session's commits come before it, so a count they started
+  could still hold the released rows. Other changes to the sets commit
+  nothing: count again after them. Deleting a row does not
+  release it (the hidden domain row keeps the rejected value, which the insert
+  carries); rewrite the rejected column, then delete and release.
+  - The three pending-change streams are split into the checks
+    (`_sendsInsert`/`Update`/`Delete`) and the resolvers
+    (`_resolveInsert`/`Update`/`Delete`) that the planned collection shares;
+    the upstream path behaves as before.
+
 - feat: A continuous session can ask for a longer wait between rounds
   (unibook#14207). `OfflineSyncClient.syncContinuously`,
   `OfflineSyncDatabase.sync` and `OfflineSyncEngine.sync` take

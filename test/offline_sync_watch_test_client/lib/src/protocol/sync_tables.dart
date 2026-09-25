@@ -11,10 +11,15 @@
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 import 'package:serverpod_database/serverpod_database.dart' as _isd;
+import 'attachment.dart' as _i6v7uii8;
 import 'folder.dart' as _ij200e11;
 import 'note.dart' as _io8vvye9;
 
 /// The tables synchronized between client and server by the
 /// `serverpod_offline_sync` package, including the ones owned by modules and
 /// shared packages.
-final List<_isd.Table> syncTables = [_ij200e11.Folder.t, _io8vvye9.Note.t];
+final List<_isd.Table> syncTables = [
+  _i6v7uii8.Attachment.t,
+  _ij200e11.Folder.t,
+  _io8vvye9.Note.t,
+];

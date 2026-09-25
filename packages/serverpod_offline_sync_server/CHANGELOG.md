@@ -1,5 +1,22 @@
 ## Unreleased (co-serverpod fork)
 
+- feat: `initializeOfflineSync(batchBudget:)` bounds what the server sends a
+  device in one batch (unibook#14251), and `OfflineSyncSession.batchBudget`
+  reads it. Unlimited by default, as upstream: a device syncing for the first
+  time received everything in one batch, which it holds in memory before it
+  merges it. With a budget, a `once` session sends the rest in more rounds
+  before it closes and a continuous session one batch per round. It applies
+  to every sync session of the pod and to the databases the interceptor
+  wraps. A device built before `OfflineSyncEndOfBatch.hasMore` closes its
+  `once` session after the first batch and gets the rest in its next
+  sessions. The server always tells the device whether it has more, even
+  without a budget. Row isolation is a device's and has no server setting.
+  The server plans its batches as a device does, so a child the server holds
+  goes in one batch with the insert of a parent it restored after the child
+  was written: a new device would otherwise fail every session on its foreign
+  key. Breaking for implementations: a class that implements
+  `OfflineSyncSession` must add the `batchBudget` getter.
+
 - feat: A continuous session's wait is bounded per session (unibook#14207).
   `initializeOfflineSync(continuousSyncInterval:)` is the shortest wait a
   session can ask for and the wait of a session that asks for nothing; the
