@@ -1308,16 +1308,23 @@ class OfflineSyncDatabase implements Database {
 
     // On the server this is authoritative membership; on a persistent client it
     // is the server-projected membership cache.
+    //
+    // Fork: the membership is read in [transaction] (unibook#14256). Outside
+    // it, SQLite refuses the read with a `LockError` once the transaction had
+    // to wait for another one, and the read misses memberships written earlier
+    // in the same transaction.
     final spaceGroups = await Future.wait<List<OfflineSyncSpace>>([
       OfflineSyncSpace.db.find(
         _delegate.session,
         where: (t) => t.uuidSpaceId.equals(userId),
+        transaction: transaction,
       ),
       OfflineSyncSpaceMember.db
           .find(
             _delegate.session,
             where: (t) => t.userUuid.equals(userId),
             include: OfflineSyncSpaceMember.include(space: OfflineSyncSpace.include()),
+            transaction: transaction,
           )
           .then((memberships) => [for (final member in memberships) member.space!]),
     ]);

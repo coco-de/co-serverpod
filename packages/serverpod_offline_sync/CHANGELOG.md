@@ -1,5 +1,18 @@
 ## Unreleased (co-serverpod fork)
 
+- fix: A read in a transaction reads the space membership in that transaction
+  (unibook#14256). `find`, `findFirstRow`, `findById` and `count` first read
+  the reader's spaces (`offline_sync_spaces`, `offline_sync_space_members`) to
+  build the space predicate, and upstream read them without the caller's
+  transaction. On SQLite a read outside the transaction escapes the open write
+  lock only through the parent zone the adapter records when a transaction
+  starts, one field shared by all transactions: the first transaction to
+  finish clears it while another still waits for the lock, and that one's
+  reads then fail with `LockError: Blocked attempt to use connection object in
+  a read/write lock callback`. Two overlapping transactions are enough, as
+  when a sync and a local write start together right after sign-in. The read
+  also missed a membership written earlier in the same transaction. Writes,
+  the wire format and the schema are unchanged.
 - feat: A batch budget splits a round into several batches (unibook#14251).
   Upstream sends every pending change of a round in one batch, closed by one
   `OfflineSyncEndOfBatch`, and the receiver holds a batch in memory until it
