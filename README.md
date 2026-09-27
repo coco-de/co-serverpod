@@ -153,6 +153,21 @@ resolve합니다(Serverpod 4.1.0-beta.1). 각 패키지에서 `dart pub get` 후
 >   `cli_util` 제약에서 해석이 실패합니다.
 > - `melos run generate`(`*_server`, 전역 CLI)가 포크 모듈을 다른 CLI 버전으로 재생성하는 것도 막습니다.
 
+## Graft code graph
+
+This repository shares the Graft agent instructions in `AGENTS.md`. The
+generated `graft/` graph stays local, so each contributor builds it after
+cloning the repository:
+
+```bash
+npx --yes @nanonets/graft@0.18.0 build
+```
+
+The build needs no API key. Run the same command after large code changes, or
+query the graph directly with `npx --yes @nanonets/graft@0.18.0 ask "<task>" --source`;
+queries refresh changed files automatically. The pinned version keeps the
+shared instructions and generated graph format consistent.
+
 ## 라이선스
 
 BSD-3-Clause © Cocode Inc.
