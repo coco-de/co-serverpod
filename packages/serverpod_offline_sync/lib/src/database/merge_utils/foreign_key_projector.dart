@@ -7,6 +7,7 @@ import '../../generated/protocol.dart';
 import '../../hlc/hlc.dart';
 import 'database_helpers.dart';
 import 'foreign_key_graph.dart';
+import 'projection_debug.dart';
 import 'recorder_context.dart';
 import 'types.dart';
 import 'unique_resolver.dart';
@@ -774,6 +775,48 @@ class CrdtForeignKeyProjector {
     bool localWrite = false,
     Set<MergeRowKey> restoringRows = const {},
   }) async {
+    final onPass = OfflineSyncProjectionDebug.onPass;
+    if (onPass == null) {
+      return (await _project(
+        transaction,
+        pendingInserts: pendingInserts,
+        authoredOverlays: authoredOverlays,
+        seedTables: seedTables,
+        seedRows: seedRows,
+        materialize: materialize,
+        localWrite: localWrite,
+        restoringRows: restoringRows,
+      )).plan;
+    }
+    final watch = Stopwatch()..start();
+    final (:plan, :rowCount) = await _project(
+      transaction,
+      pendingInserts: pendingInserts,
+      authoredOverlays: authoredOverlays,
+      seedTables: seedTables,
+      seedRows: seedRows,
+      materialize: materialize,
+      localWrite: localWrite,
+      restoringRows: restoringRows,
+    );
+    onPass(
+      elapsed: watch.elapsed,
+      rowCount: rowCount,
+      seeded: seedRows != null,
+    );
+    return plan;
+  }
+
+  Future<({ProjectionPlan plan, int rowCount})> _project(
+    Transaction transaction, {
+    required List<PendingProjectionRow> pendingInserts,
+    required Map<MergeFieldKey, Object?> authoredOverlays,
+    required Set<String>? seedTables,
+    required Set<MergeRowKey>? seedRows,
+    required bool materialize,
+    required bool localWrite,
+    required Set<MergeRowKey> restoringRows,
+  }) async {
     final state = await _loadProjectionState(
       transaction,
       pendingInserts: pendingInserts,
@@ -783,8 +826,11 @@ class CrdtForeignKeyProjector {
     );
     if (state.rows.isEmpty) {
       return (
-        domain: const <MergeRowKey, Map<String, Object?>>{},
-        reasons: const <MergeFieldKey, CrdtProjectionReason>{},
+        plan: (
+          domain: const <MergeRowKey, Map<String, Object?>>{},
+          reasons: const <MergeFieldKey, CrdtProjectionReason>{},
+        ),
+        rowCount: 0,
       );
     }
 
@@ -811,7 +857,7 @@ class CrdtForeignKeyProjector {
         transaction: transaction,
       );
     }
-    return _materializeValues(
+    final plan = await _materializeValues(
       state: state,
       finalHidden: finalHidden,
       authoredOverlays: authoredOverlays,
@@ -820,6 +866,7 @@ class CrdtForeignKeyProjector {
       restoringRows: restoringRows,
       transaction: transaction,
     );
+    return (plan: plan, rowCount: state.rows.length);
   }
 
   /// Applies a local `ON DELETE` action to a child column.
@@ -1164,6 +1211,13 @@ class CrdtForeignKeyProjector {
     );
     final valuesByRowId = <UuidValue, Map<String, Object?>>{};
     for (final (ids, columns) in readSets) {
+      if (projectionColumnNames != null) {
+        OfflineSyncProjectionDebug.onClosureColumnsRead?.call(
+          tableName,
+          ids,
+          columns,
+        );
+      }
       if (columns.isEmpty) continue;
       valuesByRowId.addAll(
         await _context.readDomainColumnValues(
@@ -1304,6 +1358,15 @@ class CrdtForeignKeyProjector {
   /// [_loadTableRowsInto]). Reading them was what made merging one child cost
   /// in proportion to its stored siblings and their payloads
   /// (co-serverpod#41).
+  ///
+  /// The walk itself is unchanged: it still reaches every row of the seeds'
+  /// foreign key component, up to a parent and down to all of its children
+  /// again, so a stroke of a note in a folder reaches the strokes of every
+  /// note in that folder. What each reached row costs is its metadata and
+  /// those few columns, about 0.1 ms per row and pass on SQLite, so a merge
+  /// stays linear in the component with a small constant. Cutting the walk
+  /// short would change results: a child can block its parent's delete, and
+  /// a sibling can hold the unique value an incoming row claims.
   Future<void> _loadRowClosureInto({
     required Set<String> tablesToLoad,
     required Set<MergeRowKey> seedRows,

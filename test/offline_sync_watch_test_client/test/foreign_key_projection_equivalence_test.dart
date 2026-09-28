@@ -27,9 +27,17 @@ import 'support/sync_harness.dart';
 /// | Child update, child delete | payload and plain columns of a seeded child |
 /// | Parent delete with a concurrent child insert, then restore | cascade hiding, restore |
 /// | Folder delete racing a note move, then restore | set-null projection, attempted value kept and cleared |
-/// | Attempted value on a sibling's plain column | the only state a sibling's unread column could change |
+/// | Attempted value on a sibling's plain column, on the server and a device | the only state a sibling's unread column could change, push and pull |
 /// | Plain column cleared in a batch that also inserts | an update written by the projection pass |
-/// | Random writes on a server and two devices, 8 seeds | everything above interleaved |
+/// | Concurrent inserts and a rename claiming a stored sibling's unique `(noteId, seq)` | unique planning on a sibling the pass only reaches, push and pull |
+/// | Random writes on a server and two devices, 8 seeds, with colliding `seq` | everything above interleaved |
+///
+/// Not covered, because the fixture has no such edge: `SET DEFAULT`,
+/// `RESTRICT` / `NO ACTION` and a table referencing itself. On those the pass
+/// reads only foreign key and unique columns of a reached row
+/// (`_closureBlockedByForeignKeys`, `_parentRowForValue`,
+/// `_findSetDefaultDependents`), which the narrowing still loads, so reading
+/// the code shows no change; a test does not pin it.
 ///
 /// Hlcs are compared by rank and nodes by creation order, so the golden does
 /// not depend on the wall clock or on random node ids. Run with
@@ -278,21 +286,28 @@ void main() {
         // and unique columns only. A database from an older schema could
         // still hold one, and the pass before the fix rewrote its reason
         // whenever a merge read that column.
-        await _plantAttemptedValue(
-          server,
-          rowId: strokes[1].id!,
-          columnName: 'seq',
-          value: 'elsewhere',
-          reason: CrdtProjectionReason.foreignKeySetNull,
-        );
+        // Planted on the server, which meets it on A's push, and on B, which
+        // meets it on its pull.
+        for (final replica in [server, b]) {
+          await _plantAttemptedValue(
+            replica,
+            rowId: strokes[1].id!,
+            columnName: 'legacyId',
+            value: 'elsewhere',
+            reason: CrdtProjectionReason.foreignKeySetNull,
+          );
+        }
         await checkpoint('stray/planted', replicas);
 
+        // The insert names legacyId, so the pass reads it for the rows it
+        // writes, and a sibling holding the attempted value is one of them.
         await apart();
         await Stroke.db.insertRow(
           a,
           Stroke(
             id: ids.next(),
             seq: 'new',
+            legacyId: 'mine',
             payload: _payload(9, 32),
             noteId: note.id!,
           ),
@@ -359,6 +374,98 @@ void main() {
         await sync(a);
         await sync(b);
         await checkpoint('overlay/cleared_with_insert', replicas);
+      },
+    );
+  });
+
+  group('Given two devices claiming a stored sibling\'s unique seq,', () {
+    test(
+      'should_write_what_the_projector_wrote_before_when_the_claims_meet_on_push_and_pull',
+      () async {
+        final ids = _Ids(5);
+        final userId = ids.next();
+        final server = await openReplica(userId);
+        final a = await openReplica(userId);
+        final b = await openReplica(userId);
+        final replicas = {'server': server, 'a': a, 'b': b};
+        Future<void> sync(OfflineSyncDatabaseSession device) =>
+            peerOf(server).syncOnce(device).timeout(sessionTimeout);
+
+        final note = await Note.db.insertRow(
+          a,
+          Note(id: ids.next(), title: 'n'),
+        );
+        final strokes = await Stroke.db.insert(a, [
+          for (var i = 0; i < 4; i++)
+            Stroke(
+              id: ids.next(),
+              seq: 's$i',
+              payload: _payload(i, 32),
+              noteId: note.id!,
+            ),
+        ]);
+        await sync(a);
+        await sync(b);
+
+        // A and B insert the same (noteId, seq) without hearing of each
+        // other. B's merges next to A's, a stored sibling by then.
+        await apart();
+        await Stroke.db.insertRow(
+          a,
+          Stroke(
+            id: ids.next(),
+            seq: 'c',
+            payload: _payload(40, 32),
+            noteId: note.id!,
+          ),
+        );
+        await apart();
+        await Stroke.db.insertRow(
+          b,
+          Stroke(
+            id: ids.next(),
+            seq: 'c',
+            payload: _payload(41, 32),
+            noteId: note.id!,
+          ),
+        );
+        await sync(a);
+        await sync(b);
+        await sync(a);
+        await checkpoint('unique/concurrent_inserts', replicas);
+
+        // A renames a stored sibling to the seq B inserts, then A frees it.
+        await apart();
+        await Stroke.db.updateRow(
+          a,
+          strokes[1].copyWith(seq: 'd'),
+          columns: (t) => [t.seq],
+        );
+        await apart();
+        await Stroke.db.insertRow(
+          b,
+          Stroke(
+            id: ids.next(),
+            seq: 'd',
+            payload: _payload(42, 32),
+            noteId: note.id!,
+          ),
+        );
+        await sync(a);
+        await sync(b);
+        await sync(a);
+        await checkpoint('unique/rename_against_insert', replicas);
+
+        await apart();
+        await Stroke.db.updateRow(
+          a,
+          strokes[1].copyWith(seq: 's1'),
+          columns: (t) => [t.seq],
+        );
+        await sync(a);
+        await sync(b);
+        await sync(a);
+        await checkpoint('unique/released', replicas);
       },
     );
   });
@@ -477,6 +584,17 @@ Future<void> _runRandomWrites(
   Future<void> sync(OfflineSyncDatabaseSession device) =>
       peerOf(server).syncOnce(device).timeout(sessionTimeout);
 
+  /// A seq for a stroke of [noteId]: often one of a few shared ones, so
+  /// replicas claim the same unique `(noteId, seq)` concurrently. Null when
+  /// the replica already holds it, where the local write would fail.
+  String? seqFor(int step, UuidValue noteId, List<Stroke> strokes) {
+    final seq = random.nextInt(3) == 0 ? 'q${random.nextInt(3)}' : 's$step';
+    final taken = strokes.any(
+      (stroke) => stroke.noteId == noteId && stroke.seq == seq,
+    );
+    return taken ? null : seq;
+  }
+
   for (var step = 0; step < 40; step++) {
     await apart();
     final replica = writers[random.nextInt(writers.length)];
@@ -498,13 +616,15 @@ Future<void> _runRandomWrites(
       case 2 || 3 || 4:
         final note = pick(notes);
         if (note == null) continue;
+        final seq = seqFor(step, note.id!, strokes);
+        if (seq == null) continue;
         final id = ids.next();
         strokeIds.add(id);
         await Stroke.db.insertRow(
           replica,
           Stroke(
             id: id,
-            seq: 's$step',
+            seq: seq,
             legacyId: random.nextBool() ? null : 'l$step',
             payload: _payload(step, 16 + random.nextInt(48)),
             noteId: note.id!,
@@ -513,11 +633,13 @@ Future<void> _runRandomWrites(
       case 5:
         final stroke = pick(strokes);
         if (stroke == null) continue;
+        final seq = seqFor(step, stroke.noteId, strokes);
+        if (seq == null) continue;
         await Stroke.db.updateRow(
           replica,
           stroke.copyWith(
             payload: _payload(step, 24),
-            seq: 'u$step',
+            seq: seq,
             legacyId: random.nextBool() ? null : 'u$step',
           ),
         );

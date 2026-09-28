@@ -8,27 +8,32 @@ import 'package:test/test.dart';
 
 import 'support/sync_harness.dart';
 
-/// Merging one child under a parent that already has many children costs
-/// about what it costs under a parent with one (co-serverpod#41,
-/// unibook#14371).
+/// Merging one child under a parent that already has many children does not
+/// read those children's payloads, and costs little per row it reaches
+/// (co-serverpod#41, unibook#14371).
 ///
-/// The pass loads the parent's children, because hiding or restoring a parent
-/// decides their fate. It used to read, for each of them, the columns the
-/// merged child names, and compare them byte by byte through a UUID probe
-/// that threw once per byte. With 2 KB payloads that was 5.5 s for 100
-/// siblings and 56 s for 1,000, on the server's push and on a device's pull
-/// alike, all of it synchronous.
+/// The pass loads the rows the merged child's foreign key component reaches:
+/// its parent, the parent's other children (hiding or restoring a parent
+/// decides their fate), and up and down from there, such as the other notes
+/// of the note's folder and their strokes. It used to read, for each of them,
+/// every column the merged child names and compare them byte by byte through
+/// a UUID probe that threw once per byte. With 2 KB payloads that was 5.5 s
+/// for 100 siblings and 56 s for 1,000, on the server's push and on a
+/// device's pull alike, all of it synchronous.
+///
+/// Now a reached row reads its foreign key and unique columns only. What is
+/// left is linear in the component: loading each reached row's metadata and
+/// those few columns, twice per merge (the batch plan and the end pass).
 ///
 /// | Case | Pinned |
 /// |---|---|
-/// | Server merges one pushed child next to 500 stored siblings | within [_maxRatio] of one sibling |
-/// | A device pulls that child next to its 500 stored siblings | same |
+/// | Server merges a pushed child; a device merges it on pull | reached rows read no payload or plain column, but do read the unique columns |
+/// | Same, next to 500 siblings and 4 more notes of 50 strokes in the folder | merge passes cost at most [_perRowBudget] per added component row |
 ///
-/// The bound compares against the same run with one sibling, so a slow
-/// machine slows both sides. Each side takes the fastest of [_attempts] runs,
-/// which drops a pause that is not the merge's.
+/// The timing counts the merge passes only ([OfflineSyncProjectionDebug]),
+/// not the rest of a sync or the projection rebuild a fresh replica runs on
+/// its first operations, and takes the fastest of [_attempts] runs.
 void main() {
-  const siblingsMany = 500;
   late Directory tempDir;
   final client = Client('http://localhost:1/');
   var databaseCount = 0;
@@ -38,6 +43,10 @@ void main() {
     tempDir = await Directory.systemTemp.createTemp('offline_sync_fk41_cost_');
   });
   tearDownAll(() => tempDir.delete(recursive: true));
+  tearDown(() {
+    OfflineSyncProjectionDebug.onClosureColumnsRead = null;
+    OfflineSyncProjectionDebug.onPass = null;
+  });
 
   Future<OfflineSyncDatabaseSession> openReplica(UuidValue userId) async {
     final session = OfflineSyncDatabaseSession.wraps(
@@ -60,76 +69,145 @@ void main() {
     return ByteData.sublistView(bytes);
   }
 
-  /// The push and pull time of one child merged next to [siblings] stored
-  /// ones, the fastest of [_attempts] runs each.
-  Future<({Duration push, Duration pull})> mergeOneChild(int siblings) async {
+  /// A server, a phone and a tablet holding one note of [siblings] strokes,
+  /// in a folder with [otherNotes] more notes of [strokesPerOtherNote] each.
+  Future<_Fixture> seed({
+    required int siblings,
+    int otherNotes = 0,
+    int strokesPerOtherNote = 0,
+  }) async {
     final userId = const Uuid().v7obj();
-    final server = await openReplica(userId);
-    final phone = await openReplica(userId);
-    final tablet = await openReplica(userId);
-    Future<void> sync(OfflineSyncDatabaseSession device) =>
-        peerOf(server).syncOnce(device).timeout(sessionTimeout);
-
-    final note = await Note.db.insertRow(phone, Note(title: 'page'));
-    await Stroke.db.insert(phone, [
+    final fixture = _Fixture(
+      server: await openReplica(userId),
+      phone: await openReplica(userId),
+      tablet: await openReplica(userId),
+      sessionTimeout: sessionTimeout,
+    );
+    final phone = fixture.phone;
+    final folder = await Folder.db.insertRow(phone, Folder(name: 'f'));
+    final note = await Note.db.insertRow(
+      phone,
+      Note(title: 'page', folderId: folder.id),
+    );
+    fixture.noteId = note.id!;
+    final stored = await Stroke.db.insert(phone, [
       for (var i = 0; i < siblings; i++)
-        Stroke(seq: 's$i', payload: payload(i), noteId: note.id!),
-    ]);
-    await sync(phone);
-    await sync(tablet);
-
-    Duration? push;
-    Duration? pull;
-    for (var attempt = 0; attempt < _attempts; attempt++) {
-      await Stroke.db.insertRow(
-        phone,
         Stroke(
-          seq: 'new$attempt',
-          payload: payload(-attempt),
+          seq: 's$i',
+          legacyId: 'l$i',
+          payload: payload(i),
           noteId: note.id!,
         ),
+    ]);
+    fixture.siblingIds.addAll([for (final stroke in stored) stroke.id!]);
+    for (var n = 0; n < otherNotes; n++) {
+      final other = await Note.db.insertRow(
+        phone,
+        Note(title: 'other$n', folderId: folder.id),
       );
-      final pushWatch = Stopwatch()..start();
-      await sync(phone);
-      pushWatch.stop();
-      final pullWatch = Stopwatch()..start();
-      await sync(tablet);
-      pullWatch.stop();
-      if (push == null || pushWatch.elapsed < push) push = pushWatch.elapsed;
-      if (pull == null || pullWatch.elapsed < pull) pull = pullWatch.elapsed;
+      await Stroke.db.insert(phone, [
+        for (var i = 0; i < strokesPerOtherNote; i++)
+          Stroke(seq: 's$i', payload: payload(n * 1000 + i), noteId: other.id!),
+      ]);
     }
-
-    final expected = siblings + _attempts;
-    for (final replica in [server, phone, tablet]) {
-      expect(await Stroke.db.count(replica), expected);
-    }
-    return (push: push!, pull: pull!);
+    await fixture.sync(phone);
+    await fixture.sync(fixture.tablet);
+    return fixture;
   }
 
-  group('Given a note with $siblingsMany stored strokes,', () {
+  group('Given a note with stored strokes,', () {
     test(
-      'should_merge_one_new_stroke_about_as_fast_as_next_to_one_when_pushed_and_pulled',
+      'should_not_read_the_siblings_payload_or_plain_columns_when_a_new_stroke_is_pushed_and_pulled',
+      () async {
+        final fixture = await seed(siblings: 20);
+        final reads = <(String, Set<UuidValue>, List<String>)>[];
+        OfflineSyncProjectionDebug.onClosureColumnsRead =
+            (tableName, rowIds, columnNames) =>
+                reads.add((tableName, {...rowIds}, [...columnNames]));
+
+        await Stroke.db.insertRow(
+          fixture.phone,
+          Stroke(
+            seq: 'new',
+            legacyId: 'mine',
+            payload: payload(-1),
+            noteId: fixture.noteId,
+          ),
+        );
+        for (final (label, device) in [
+          ('push', fixture.phone),
+          ('pull', fixture.tablet),
+        ]) {
+          reads.clear();
+          await fixture.sync(device);
+
+          final siblingReads = [
+            for (final (table, rowIds, columns) in reads)
+              if (table == 'stroke' &&
+                  rowIds.intersection(fixture.siblingIds).isNotEmpty)
+                (rowIds, columns),
+          ];
+          expect(
+            siblingReads,
+            isNotEmpty,
+            reason: '$label: the merge must reach the siblings, else vacuous',
+          );
+          for (final (rowIds, columns) in siblingReads) {
+            expect(
+              columns,
+              isNot(anyOf(contains('payload'), contains('legacyId'))),
+              reason:
+                  '$label: siblings ${rowIds.length} read with the merged '
+                  "child's columns",
+            );
+            expect(
+              columns,
+              containsAll(<String>['noteId', 'seq']),
+              reason:
+                  '$label: a reached sibling must read its foreign key and '
+                  'unique columns, the ones projection decides',
+            );
+          }
+        }
+      },
+      timeout: const Timeout(Duration(minutes: 2)),
+    );
+
+    test(
+      'should_cost_little_per_reached_row_when_merging_next_to_500_siblings_and_a_folder_of_notes',
       () async {
         // Warm up the code paths so the first measurement is not the compile.
-        await mergeOneChild(1);
-        final one = await mergeOneChild(1);
-        final many = await mergeOneChild(siblingsMany);
+        await _mergeTime(await seed(siblings: 1), payload);
+        final one = await _mergeTime(await seed(siblings: 1), payload);
+        const siblingsMany = 500;
+        const otherNotes = 4;
+        const strokesPerOtherNote = 50;
+        final many = await _mergeTime(
+          await seed(
+            siblings: siblingsMany,
+            otherNotes: otherNotes,
+            strokesPerOtherNote: strokesPerOtherNote,
+          ),
+          payload,
+        );
+        const addedRows =
+            siblingsMany - 1 + otherNotes * (1 + strokesPerOtherNote);
 
-        printOnFailure(
-          'push ${one.push.inMilliseconds} ms → ${many.push.inMilliseconds} ms, '
-          'pull ${one.pull.inMilliseconds} ms → ${many.pull.inMilliseconds} ms',
+        final report =
+            'merge passes: push ${one.push.inMicroseconds / 1000} ms → '
+            '${many.push.inMicroseconds / 1000} ms, pull '
+            '${one.pull.inMicroseconds / 1000} ms → '
+            '${many.pull.inMicroseconds / 1000} ms, over $addedRows added rows';
+        printOnFailure(report);
+        expect(
+          many.push - one.push,
+          lessThanOrEqualTo(_perRowBudget * addedRows),
+          reason: 'server merge of a pushed child: $report',
         );
         expect(
-          many.push,
-          lessThanOrEqualTo(_bound(one.push)),
-          reason:
-              'server merge of a pushed child next to $siblingsMany siblings',
-        );
-        expect(
-          many.pull,
-          lessThanOrEqualTo(_bound(one.pull)),
-          reason:
-              'device merge of a pulled child next to $siblingsMany siblings',
+          many.pull - one.pull,
+          lessThanOrEqualTo(_perRowBudget * addedRows),
+          reason: 'device merge of a pulled child: $report',
         );
       },
       timeout: const Timeout(Duration(minutes: 5)),
@@ -137,19 +215,77 @@ void main() {
   });
 }
 
+final class _Fixture {
+  _Fixture({
+    required this.server,
+    required this.phone,
+    required this.tablet,
+    required this.sessionTimeout,
+  });
+
+  final OfflineSyncDatabaseSession server;
+  final OfflineSyncDatabaseSession phone;
+  final OfflineSyncDatabaseSession tablet;
+  final Duration sessionTimeout;
+  late final UuidValue noteId;
+  final siblingIds = <UuidValue>{};
+
+  Future<void> sync(OfflineSyncDatabaseSession device) =>
+      peerOf(server).syncOnce(device).timeout(sessionTimeout);
+}
+
+/// The time the merge passes of the round pushing one child from the phone
+/// took (the server's merge of it), and of the round pulling it to the tablet
+/// (the tablet's), the fastest of [_attempts] runs each.
+Future<({Duration push, Duration pull})> _mergeTime(
+  _Fixture fixture,
+  ByteData Function(int seed) payload,
+) async {
+  var total = Duration.zero;
+  OfflineSyncProjectionDebug.onPass =
+      ({required elapsed, required rowCount, required seeded}) {
+        // The projection rebuild a fresh replica runs is not the merge's cost.
+        if (seeded) total += elapsed;
+      };
+  Duration? push;
+  Duration? pull;
+  try {
+    for (var attempt = 0; attempt < _attempts; attempt++) {
+      await Stroke.db.insertRow(
+        fixture.phone,
+        Stroke(
+          seq: 'new$attempt',
+          payload: payload(-attempt),
+          noteId: fixture.noteId,
+        ),
+      );
+      total = Duration.zero;
+      await fixture.sync(fixture.phone);
+      if (push == null || total < push) push = total;
+      total = Duration.zero;
+      await fixture.sync(fixture.tablet);
+      if (pull == null || total < pull) pull = total;
+    }
+  } finally {
+    OfflineSyncProjectionDebug.onPass = null;
+  }
+  final expected = fixture.siblingIds.length + _attempts;
+  for (final replica in [fixture.server, fixture.phone, fixture.tablet]) {
+    expect(
+      await Stroke.db.count(
+        replica,
+        where: (t) => t.noteId.equals(fixture.noteId),
+      ),
+      expected,
+    );
+  }
+  return (push: push!, pull: pull!);
+}
+
 const _attempts = 3;
 
-/// How many times the one-sibling time the merge next to many may take.
+/// How long the merge passes may take per row the component grows by.
 ///
-/// Measured after the fix: about 1.3x (SQLite, M-series). Before it: about
-/// 190x.
-const _maxRatio = 6;
-
-/// A floor under the bound, so a one-sibling run too fast to measure does not
-/// make the bound meaningless.
-const _minBound = Duration(milliseconds: 400);
-
-Duration _bound(Duration one) {
-  final scaled = one * _maxRatio;
-  return scaled > _minBound ? scaled : _minBound;
-}
+/// Measured after the fix: about 0.1 ms (SQLite, M-series, both passes).
+/// Before it: about 50 ms per 2 KB sibling.
+const _perRowBudget = Duration(microseconds: 1000);

@@ -2,9 +2,9 @@
 /// Merging: resolve registry conflicts the same as migration_registry.txt.
 part of '../migration_registry.dart';
 
-class _Migration20260928050933519 implements MigrationVersionSql {
+class _Migration20260928053840242 implements MigrationVersionSql {
   @override
-  String get version => '20260928050933519';
+  String get version => '20260928053840242';
 
   @override
   String get moduleName => 'offline_sync_watch_test';
@@ -25,6 +25,9 @@ CREATE TABLE "stroke" (
     CONSTRAINT "stroke_fk_0" FOREIGN KEY ("spaceId") REFERENCES "offline_sync_spaces" ("id") ON DELETE CASCADE ON UPDATE NO ACTION,
     CONSTRAINT "stroke_fk_1" FOREIGN KEY ("noteId") REFERENCES "note" ("id") ON DELETE CASCADE ON UPDATE NO ACTION DEFERRABLE INITIALLY DEFERRED
 ) STRICT;
+
+-- Indexes
+CREATE UNIQUE INDEX "stroke_note_seq_idx" ON "stroke" ("spaceId", "noteId", "seq");
 
 --
 -- STORE COLUMN TYPES FOR MIGRATIONS
@@ -95,9 +98,9 @@ INSERT INTO "serverpod_sqlite_schema" VALUES
 -- MIGRATION VERSION FOR offline_sync_watch_test
 --
 INSERT INTO "serverpod_migrations" ("module", "version", "timestamp")
-    VALUES ('offline_sync_watch_test', '20260928050933519', (unixepoch('now', 'subsecond') * 1000))
+    VALUES ('offline_sync_watch_test', '20260928053840242', (unixepoch('now', 'subsecond') * 1000))
     ON CONFLICT ("module")
-    DO UPDATE SET "version" = '20260928050933519', "timestamp" = (unixepoch('now', 'subsecond') * 1000);
+    DO UPDATE SET "version" = '20260928053840242', "timestamp" = (unixepoch('now', 'subsecond') * 1000);
 
 --
 -- MIGRATION VERSION FOR serverpod
@@ -182,6 +185,9 @@ CREATE TABLE "stroke" (
     CONSTRAINT "stroke_fk_0" FOREIGN KEY ("spaceId") REFERENCES "offline_sync_spaces" ("id") ON DELETE CASCADE ON UPDATE NO ACTION,
     CONSTRAINT "stroke_fk_1" FOREIGN KEY ("noteId") REFERENCES "note" ("id") ON DELETE CASCADE ON UPDATE NO ACTION DEFERRABLE INITIALLY DEFERRED
 ) STRICT;
+
+-- Indexes
+CREATE UNIQUE INDEX "stroke_note_seq_idx" ON "stroke" ("spaceId", "noteId", "seq");
 
 
 --
@@ -711,9 +717,9 @@ INSERT INTO "serverpod_sqlite_schema" VALUES
 -- MIGRATION VERSION FOR offline_sync_watch_test
 --
 INSERT INTO "serverpod_migrations" ("module", "version", "timestamp")
-    VALUES ('offline_sync_watch_test', '20260928050933519', (unixepoch('now', 'subsecond') * 1000))
+    VALUES ('offline_sync_watch_test', '20260928053840242', (unixepoch('now', 'subsecond') * 1000))
     ON CONFLICT ("module")
-    DO UPDATE SET "version" = '20260928050933519', "timestamp" = (unixepoch('now', 'subsecond') * 1000);
+    DO UPDATE SET "version" = '20260928053840242', "timestamp" = (unixepoch('now', 'subsecond') * 1000);
 
 --
 -- MIGRATION VERSION FOR serverpod

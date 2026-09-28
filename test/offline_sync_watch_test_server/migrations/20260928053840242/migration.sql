@@ -41,6 +41,9 @@ CREATE TABLE "stroke" (
     "noteId" uuid NOT NULL
 );
 
+-- Indexes
+CREATE UNIQUE INDEX "stroke_note_seq_idx" ON "stroke" USING btree ("spaceId", "noteId", "seq");
+
 --
 -- ACTION CREATE FOREIGN KEY
 --
@@ -63,9 +66,9 @@ ALTER TABLE ONLY "stroke"
 -- MIGRATION VERSION FOR offline_sync_watch_test
 --
 INSERT INTO "serverpod_migrations" ("module", "version", "timestamp")
-    VALUES ('offline_sync_watch_test', '20260928050933519', now())
+    VALUES ('offline_sync_watch_test', '20260928053840242', now())
     ON CONFLICT ("module")
-    DO UPDATE SET "version" = '20260928050933519', "timestamp" = now();
+    DO UPDATE SET "version" = '20260928053840242', "timestamp" = now();
 
 --
 -- MIGRATION VERSION FOR serverpod

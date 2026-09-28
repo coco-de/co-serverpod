@@ -11,3 +11,10 @@ fields:
   legacyId: String?
   payload: ByteData
   noteId: UuidValue, relation(parent=note, onDelete=Cascade, deferred)
+indexes:
+  ### Unique with the foreign key (co-serverpod#41): a stored sibling reached
+  ### through the note holds a claim an incoming stroke can contest, so a pass
+  ### has to read this index's columns on rows it only reaches.
+  stroke_note_seq_idx:
+    fields: spaceId, noteId, seq
+    unique: true

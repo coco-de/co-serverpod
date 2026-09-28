@@ -290,7 +290,29 @@ class Protocol extends _isd.DatabaseSerializationManager {
           deferrable: _isd.DeferrableConstraint.initiallyDeferred,
         ),
       ],
-      indexes: [],
+      indexes: [
+        _isd.IndexDefinition(
+          indexName: 'stroke_note_seq_idx',
+          tableSpace: null,
+          elements: [
+            _isd.IndexElementDefinition(
+              type: _isd.IndexElementDefinitionType.column,
+              definition: 'spaceId',
+            ),
+            _isd.IndexElementDefinition(
+              type: _isd.IndexElementDefinitionType.column,
+              definition: 'noteId',
+            ),
+            _isd.IndexElementDefinition(
+              type: _isd.IndexElementDefinitionType.column,
+              definition: 'seq',
+            ),
+          ],
+          type: 'btree',
+          isUnique: true,
+          isPrimary: false,
+        ),
+      ],
       managed: true,
     ),
     ..._ipulbpi2.Protocol() is _isd.DatabaseSerializationManager
