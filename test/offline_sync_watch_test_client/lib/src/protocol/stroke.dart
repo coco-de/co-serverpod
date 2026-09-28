@@ -24,6 +24,7 @@ abstract class Stroke
     this.id,
     this.spaceId,
     required this.seq,
+    this.legacyId,
     required this.payload,
     required this.noteId,
   });
@@ -32,6 +33,7 @@ abstract class Stroke
     _isc.UuidValue? id,
     int? spaceId,
     required String seq,
+    String? legacyId,
     required _idt.ByteData payload,
     required _isc.UuidValue noteId,
   }) = _StrokeImpl;
@@ -43,6 +45,7 @@ abstract class Stroke
           : _isc.UuidValueJsonExtension.fromJson(jsonSerialization['id']),
       spaceId: jsonSerialization['spaceId'] as int?,
       seq: jsonSerialization['seq'] as String,
+      legacyId: jsonSerialization['legacyId'] as String?,
       payload: _isc.ByteDataJsonExtension.fromJson(
         jsonSerialization['payload'],
       ),
@@ -62,6 +65,10 @@ abstract class Stroke
 
   String seq;
 
+  /// Nullable plain column: an update clearing it rides a projection pass when
+  /// its batch also holds an insert.
+  String? legacyId;
+
   _idt.ByteData payload;
 
   _isc.UuidValue noteId;
@@ -76,6 +83,7 @@ abstract class Stroke
     _isc.UuidValue? id,
     int? spaceId,
     String? seq,
+    String? legacyId,
     _idt.ByteData? payload,
     _isc.UuidValue? noteId,
   });
@@ -86,6 +94,7 @@ abstract class Stroke
       if (id != null) 'id': id?.toJson(),
       if (spaceId != null) 'spaceId': spaceId,
       'seq': seq,
+      if (legacyId != null) 'legacyId': legacyId,
       'payload': payload.toJson(),
       'noteId': noteId.toJson(),
     };
@@ -98,6 +107,7 @@ abstract class Stroke
       if (id != null) 'id': id?.toJson(),
       if (spaceId != null) 'spaceId': spaceId,
       'seq': seq,
+      if (legacyId != null) 'legacyId': legacyId,
       'payload': payload.toJson(),
       'noteId': noteId.toJson(),
     };
@@ -138,12 +148,14 @@ class _StrokeImpl extends Stroke {
     _isc.UuidValue? id,
     int? spaceId,
     required String seq,
+    String? legacyId,
     required _idt.ByteData payload,
     required _isc.UuidValue noteId,
   }) : super._(
          id: id,
          spaceId: spaceId,
          seq: seq,
+         legacyId: legacyId,
          payload: payload,
          noteId: noteId,
        );
@@ -156,6 +168,7 @@ class _StrokeImpl extends Stroke {
     Object? id = _Undefined,
     Object? spaceId = _Undefined,
     String? seq,
+    Object? legacyId = _Undefined,
     _idt.ByteData? payload,
     _isc.UuidValue? noteId,
   }) {
@@ -163,6 +176,7 @@ class _StrokeImpl extends Stroke {
       id: id is _isc.UuidValue? ? id : this.id,
       spaceId: spaceId is int? ? spaceId : this.spaceId,
       seq: seq ?? this.seq,
+      legacyId: legacyId is String? ? legacyId : this.legacyId,
       payload: payload ?? this.payload.clone(),
       noteId: noteId ?? this.noteId,
     );
@@ -178,6 +192,9 @@ class StrokeUpdateTable extends _isd.UpdateTable<StrokeTable> {
   _isd.ColumnValue<String, String> seq(String value) =>
       _isd.ColumnValue(table.seq, value);
 
+  _isd.ColumnValue<String, String> legacyId(String? value) =>
+      _isd.ColumnValue(table.legacyId, value);
+
   _isd.ColumnValue<_idt.ByteData, _idt.ByteData> payload(_idt.ByteData value) =>
       _isd.ColumnValue(table.payload, value);
 
@@ -191,6 +208,7 @@ class StrokeTable extends _isd.Table<_isc.UuidValue?> {
     updateTable = StrokeUpdateTable(this);
     spaceId = _isd.ColumnInt('spaceId', this);
     seq = _isd.ColumnString('seq', this);
+    legacyId = _isd.ColumnString('legacyId', this);
     payload = _isd.ColumnByteData('payload', this);
     noteId = _isd.ColumnUuid('noteId', this);
   }
@@ -202,12 +220,23 @@ class StrokeTable extends _isd.Table<_isc.UuidValue?> {
 
   late final _isd.ColumnString seq;
 
+  /// Nullable plain column: an update clearing it rides a projection pass when
+  /// its batch also holds an insert.
+  late final _isd.ColumnString legacyId;
+
   late final _isd.ColumnByteData payload;
 
   late final _isd.ColumnUuid noteId;
 
   @override
-  List<_isd.Column> get columns => [id, spaceId, seq, payload, noteId];
+  List<_isd.Column> get columns => [
+    id,
+    spaceId,
+    seq,
+    legacyId,
+    payload,
+    noteId,
+  ];
 }
 
 class StrokeInclude extends _isd.IncludeObject {

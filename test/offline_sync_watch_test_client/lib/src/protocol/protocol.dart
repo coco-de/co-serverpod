@@ -249,6 +249,12 @@ class Protocol extends _isd.DatabaseSerializationManager {
           dartType: 'String',
         ),
         _isd.ColumnDefinition(
+          name: 'legacyId',
+          columnType: _isd.ColumnType.text,
+          isNullable: true,
+          dartType: 'String?',
+        ),
+        _isd.ColumnDefinition(
           name: 'payload',
           columnType: _isd.ColumnType.bytea,
           isNullable: false,

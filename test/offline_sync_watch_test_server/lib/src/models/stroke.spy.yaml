@@ -6,5 +6,8 @@ table: stroke
 database: sync
 fields:
   seq: String
+  ### Nullable plain column: an update clearing it rides a projection pass when
+  ### its batch also holds an insert.
+  legacyId: String?
   payload: ByteData
   noteId: UuidValue, relation(parent=note, onDelete=Cascade, deferred)

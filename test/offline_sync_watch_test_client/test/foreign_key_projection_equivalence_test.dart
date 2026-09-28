@@ -28,6 +28,7 @@ import 'support/sync_harness.dart';
 /// | Parent delete with a concurrent child insert, then restore | cascade hiding, restore |
 /// | Folder delete racing a note move, then restore | set-null projection, attempted value kept and cleared |
 /// | Attempted value on a sibling's plain column | the only state a sibling's unread column could change |
+/// | Plain column cleared in a batch that also inserts | an update written by the projection pass |
 /// | Random writes on a server and two devices, 8 seeds | everything above interleaved |
 ///
 /// Hlcs are compared by rank and nodes by creation order, so the golden does
@@ -303,6 +304,65 @@ void main() {
     );
   });
 
+  group('Given a batch that clears a plain column and inserts a sibling,', () {
+    test(
+      'should_write_what_the_projector_wrote_before_when_the_update_rides_the_projection_pass',
+      () async {
+        final ids = _Ids(4);
+        final userId = ids.next();
+        final server = await openReplica(userId);
+        final a = await openReplica(userId);
+        final b = await openReplica(userId);
+        final replicas = {'server': server, 'a': a, 'b': b};
+        Future<void> sync(OfflineSyncDatabaseSession device) =>
+            peerOf(server).syncOnce(device).timeout(sessionTimeout);
+
+        final note = await Note.db.insertRow(
+          a,
+          Note(id: ids.next(), title: 'n'),
+        );
+        final strokes = await Stroke.db.insert(a, [
+          for (var i = 0; i < 3; i++)
+            Stroke(
+              id: ids.next(),
+              seq: 's$i',
+              legacyId: i == 2 ? null : 'x$i',
+              payload: _payload(i, 32),
+              noteId: note.id!,
+            ),
+        ]);
+        await sync(a);
+        await sync(b);
+
+        // The insert makes the batch need projection, so the updates are
+        // written by the pass, as overlays, not straight to their rows.
+        await apart();
+        await Stroke.db.updateRow(
+          a,
+          strokes[1].copyWith(legacyId: null),
+          columns: (t) => [t.legacyId],
+        );
+        await Stroke.db.updateRow(
+          a,
+          strokes[2].copyWith(legacyId: 'y2'),
+          columns: (t) => [t.legacyId],
+        );
+        await Stroke.db.insertRow(
+          a,
+          Stroke(
+            id: ids.next(),
+            seq: 'new',
+            payload: _payload(9, 32),
+            noteId: note.id!,
+          ),
+        );
+        await sync(a);
+        await sync(b);
+        await checkpoint('overlay/cleared_with_insert', replicas);
+      },
+    );
+  });
+
   group('Given random writes on a server and two devices,', () {
     for (var seed = 1; seed <= 8; seed++) {
       test(
@@ -445,6 +505,7 @@ Future<void> _runRandomWrites(
           Stroke(
             id: id,
             seq: 's$step',
+            legacyId: random.nextBool() ? null : 'l$step',
             payload: _payload(step, 16 + random.nextInt(48)),
             noteId: note.id!,
           ),
@@ -454,7 +515,11 @@ Future<void> _runRandomWrites(
         if (stroke == null) continue;
         await Stroke.db.updateRow(
           replica,
-          stroke.copyWith(payload: _payload(step, 24), seq: 'u$step'),
+          stroke.copyWith(
+            payload: _payload(step, 24),
+            seq: 'u$step',
+            legacyId: random.nextBool() ? null : 'u$step',
+          ),
         );
       case 6:
         final note = pick(notes);
@@ -649,21 +714,24 @@ Future<_RawState> _readState(OfflineSyncDatabaseSession replica) async {
     );
     for (final row in result) {
       final columns = row.toColumnMap();
-      final id = columns.remove('id');
+      final id = _uuid(columns.remove('id'));
       for (final MapEntry(key: column, value: value)
           in (columns.entries.toList()
             ..sort((l, r) => l.key.compareTo(r.key)))) {
-        state.lines.add([
-          'domain',
-          table,
-          _value(id),
-          '$column=${_value(value)}',
-        ]);
+        final rendered = column.endsWith('Id') ? _uuid(value) : _value(value);
+        state.lines.add(['domain', table, id, '$column=$rendered']);
       }
     }
   }
   return state;
 }
+
+/// A UUID column as SQLite returns it (16 bytes) or as text.
+String _uuid(Object? value) => switch (value) {
+  null => 'null',
+  Uint8List() when value.length == 16 => UuidValue.fromByteList(value).uuid,
+  _ => _value(value),
+};
 
 /// A stable rendering of a domain or attempted value.
 String _value(Object? value) => switch (value) {

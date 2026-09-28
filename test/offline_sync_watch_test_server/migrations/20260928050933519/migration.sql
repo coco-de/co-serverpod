@@ -36,6 +36,7 @@ CREATE TABLE "stroke" (
     "id" uuid PRIMARY KEY DEFAULT gen_random_uuid_v7(),
     "spaceId" bigint,
     "seq" text NOT NULL,
+    "legacyId" text,
     "payload" bytea NOT NULL,
     "noteId" uuid NOT NULL
 );
@@ -62,9 +63,9 @@ ALTER TABLE ONLY "stroke"
 -- MIGRATION VERSION FOR offline_sync_watch_test
 --
 INSERT INTO "serverpod_migrations" ("module", "version", "timestamp")
-    VALUES ('offline_sync_watch_test', '20260928043944798', now())
+    VALUES ('offline_sync_watch_test', '20260928050933519', now())
     ON CONFLICT ("module")
-    DO UPDATE SET "version" = '20260928043944798', "timestamp" = now();
+    DO UPDATE SET "version" = '20260928050933519', "timestamp" = now();
 
 --
 -- MIGRATION VERSION FOR serverpod

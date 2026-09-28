@@ -247,6 +247,14 @@
         },
         {
           "__className__": "serverpod.ColumnDefinition",
+          "name": "legacyId",
+          "fieldName": "legacyId",
+          "columnType": 0,
+          "isNullable": true,
+          "dartType": "String?"
+        },
+        {
+          "__className__": "serverpod.ColumnDefinition",
           "name": "payload",
           "fieldName": "payload",
           "columnType": 5,
