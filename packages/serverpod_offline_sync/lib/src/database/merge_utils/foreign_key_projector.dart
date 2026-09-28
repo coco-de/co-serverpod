@@ -916,6 +916,11 @@ class CrdtForeignKeyProjector {
         pendingInserts: pendingInserts,
         authoredOverlays: authoredOverlays,
         columnsByTable: columnsByTable,
+        projectionColumnsByTable: _columnsToLoad(
+          tablesToLoad: tablesToLoad,
+          pendingInserts: const [],
+          authoredOverlays: const {},
+        ),
         rows: rows,
         fieldIds: fieldIds,
         attemptedValues: attemptedValues,
@@ -1107,6 +1112,15 @@ class CrdtForeignKeyProjector {
 
   /// Loads [rowIds] of [tableName], or every row of it when [rowIds] is null.
   ///
+  /// Every row reads [columnNames], unless [projectionColumnNames] is given:
+  /// then only [allColumnRowIds] read all of them and every other row reads
+  /// [projectionColumnNames] alone. A column outside those is on a reached
+  /// row only because an unwritten row names it, and projection neither
+  /// decides nor changes it, so its domain value is what it is and there is
+  /// nothing to write. The exception is an attempted value on such a column,
+  /// which the pass would rewrite or delete: a row holding one reads all
+  /// [columnNames], as it did before (co-serverpod#41).
+  ///
   /// Returns the row ids that exist, so a closure pass can expand from them.
   Future<Set<UuidValue>> _loadTableRowsInto({
     required String tableName,
@@ -1117,6 +1131,8 @@ class CrdtForeignKeyProjector {
     required Map<MergeFieldKey, CrdtDataAttemptedValue> attemptedValues,
     required Map<MergeFieldKey, Hlc> fieldHlcs,
     required Transaction transaction,
+    Set<String>? projectionColumnNames,
+    Set<UuidValue> allColumnRowIds = const {},
   }) async {
     if (rowIds != null && rowIds.isEmpty) return const {};
 
@@ -1138,14 +1154,26 @@ class CrdtForeignKeyProjector {
     if (crdtRows.isEmpty) return const {};
 
     final loadedIds = {for (final row in crdtRows) row.uuidRowId};
-    final valuesByRowId = columnNames.isEmpty
-        ? <UuidValue, Map<String, Object?>>{}
-        : await _context.readDomainColumnValues(
-            tableName,
-            loadedIds,
-            columnNames.toList(),
-            transaction,
-          );
+    final readSets = await _columnReadSets(
+      tableName: tableName,
+      loadedIds: loadedIds,
+      columnNames: columnNames,
+      projectionColumnNames: projectionColumnNames,
+      allColumnRowIds: allColumnRowIds,
+      transaction: transaction,
+    );
+    final valuesByRowId = <UuidValue, Map<String, Object?>>{};
+    for (final (ids, columns) in readSets) {
+      if (columns.isEmpty) continue;
+      valuesByRowId.addAll(
+        await _context.readDomainColumnValues(
+          tableName,
+          ids,
+          columns,
+          transaction,
+        ),
+      );
+    }
 
     for (final row in crdtRows) {
       final key = (tableName, row.uuidRowId);
@@ -1156,11 +1184,12 @@ class CrdtForeignKeyProjector {
       );
     }
 
-    if (columnNames.isNotEmpty) {
+    for (final (ids, columns) in readSets) {
+      if (columns.isEmpty) continue;
       final loadedFields = await _loadFields(
         tableName: tableName,
-        rowIds: loadedIds,
-        columnNames: columnNames,
+        rowIds: ids,
+        columnNames: columns.toSet(),
         transaction: transaction,
       );
       for (final field in loadedFields) {
@@ -1175,6 +1204,78 @@ class CrdtForeignKeyProjector {
     }
 
     return loadedIds;
+  }
+
+  /// The row ids of [loadedIds] paired with the columns each reads, in the
+  /// order of [columnNames].
+  ///
+  /// One set reading every column when [projectionColumnNames] is null;
+  /// otherwise the rows that read every column, then the rest reading the
+  /// projection columns (see [_loadTableRowsInto]). Empty sets are left out.
+  Future<List<(Set<UuidValue>, List<String>)>> _columnReadSets({
+    required String tableName,
+    required Set<UuidValue> loadedIds,
+    required Set<String> columnNames,
+    required Set<String>? projectionColumnNames,
+    required Set<UuidValue> allColumnRowIds,
+    required Transaction transaction,
+  }) async {
+    if (projectionColumnNames == null) {
+      return [(loadedIds, columnNames.toList())];
+    }
+
+    final allColumnIds = loadedIds.intersection(allColumnRowIds);
+    var projectionIds = loadedIds.difference(allColumnIds);
+    final unreadColumns = columnNames.difference(projectionColumnNames);
+    if (unreadColumns.isNotEmpty && projectionIds.isNotEmpty) {
+      final holding = await _rowsWithAttemptedValues(
+        tableName: tableName,
+        rowIds: projectionIds,
+        columnNames: unreadColumns,
+        transaction: transaction,
+      );
+      allColumnIds.addAll(holding);
+      projectionIds = projectionIds.difference(holding);
+    }
+
+    return [
+      if (allColumnIds.isNotEmpty) (allColumnIds, columnNames.toList()),
+      if (projectionIds.isNotEmpty)
+        (
+          projectionIds,
+          [
+            for (final columnName in columnNames)
+              if (projectionColumnNames.contains(columnName)) columnName,
+          ],
+        ),
+    ];
+  }
+
+  /// The rows of [rowIds] holding an attempted value on any of [columnNames].
+  ///
+  /// Attempted values are sparse, so this asks their table instead of reading
+  /// the fields of every row.
+  Future<Set<UuidValue>> _rowsWithAttemptedValues({
+    required String tableName,
+    required Set<UuidValue> rowIds,
+    required Set<String> columnNames,
+    required Transaction transaction,
+  }) async {
+    final (tableId, _) = _context.schema[tableName]!;
+    final userId = _context.hlcManagerFor(transaction).normalizedSpaceId;
+    final attempted = await CrdtDataAttemptedValue.db.find(
+      _context.databaseSession,
+      where: (t) =>
+          t.field.row.spaceId.equals(userId) &
+          t.field.row.tblId.equals(tableId) &
+          t.field.row.uuidRowId.inSet(rowIds) &
+          t.field.column.name.inSet(columnNames),
+      include: CrdtDataAttemptedValue.include(
+        field: CrdtDataField.include(row: CrdtDataRow.include()),
+      ),
+      transaction: transaction,
+    );
+    return {for (final value in attempted) value.field!.row!.uuidRowId};
   }
 
   /// Loads the rows the seeds can reach instead of every row of their tables.
@@ -1193,12 +1294,23 @@ class CrdtForeignKeyProjector {
   ///
   /// Rows contesting a unique claim join the same walk, found through the
   /// table's own unique index rather than by loading the table.
+  ///
+  /// Only the seeds and the rows this pass writes read every column of
+  /// [columnsByTable]. A row the walk merely reaches reads its
+  /// [projectionColumnsByTable]: the foreign key and unique columns, the only
+  /// ones projection decides or changes. The other columns of
+  /// [columnsByTable] are there because an unwritten row names them, and on a
+  /// reached row nothing can differ from what it already holds (see
+  /// [_loadTableRowsInto]). Reading them was what made merging one child cost
+  /// in proportion to its stored siblings and their payloads
+  /// (co-serverpod#41).
   Future<void> _loadRowClosureInto({
     required Set<String> tablesToLoad,
     required Set<MergeRowKey> seedRows,
     required List<PendingProjectionRow> pendingInserts,
     required Map<MergeFieldKey, Object?> authoredOverlays,
     required Map<String, Set<String>> columnsByTable,
+    required Map<String, Set<String>> projectionColumnsByTable,
     required Map<MergeRowKey, _ProjectedForeignKeyRow> rows,
     required Map<MergeFieldKey, int> fieldIds,
     required Map<MergeFieldKey, CrdtDataAttemptedValue> attemptedValues,
@@ -1206,6 +1318,10 @@ class CrdtForeignKeyProjector {
     required Transaction transaction,
   }) async {
     final unwrittenValues = _unwrittenValues(pendingInserts, authoredOverlays);
+    final allColumnRowIds = <String, Set<UuidValue>>{};
+    for (final rowKey in {...seedRows, ...unwrittenValues.keys}) {
+      allColumnRowIds.putIfAbsent(rowKey.$1, () => <UuidValue>{}).add(rowKey.$2);
+    }
 
     final requested = <String, Set<UuidValue>>{};
     var queued = <String, Set<UuidValue>>{};
@@ -1251,6 +1367,9 @@ class CrdtForeignKeyProjector {
             tableName: tableName,
             rowIds: ids,
             columnNames: columnsByTable[tableName] ?? const <String>{},
+            projectionColumnNames:
+                projectionColumnsByTable[tableName] ?? const <String>{},
+            allColumnRowIds: allColumnRowIds[tableName] ?? const <UuidValue>{},
             rows: rows,
             fieldIds: fieldIds,
             attemptedValues: attemptedValues,
