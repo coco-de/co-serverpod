@@ -93,11 +93,13 @@ jobs:
           dart format --output=none --set-exit-if-changed .
           dart analyze --fatal-infos
           dart test --concurrency=1
-      - name: Watch fixture generator input
+      - name: Watch fixture server (PostgreSQL integration tests)
         working-directory: test/offline_sync_watch_test_server
         run: |
           dart pub get
+          dart format --output=none --set-exit-if-changed test
           dart analyze --fatal-infos
+          dart test --concurrency=1
       - name: Model.db.watch tests
         working-directory: test/offline_sync_watch_test_client
         run: |

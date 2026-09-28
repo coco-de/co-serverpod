@@ -7,3 +7,4 @@ experimental_features:
 
 modules:
   serverpod_offline_sync:
+server_test_tools_path: test/integration/test_tools
