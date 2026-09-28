@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:meta/meta.dart';
 import 'package:serverpod_database/serverpod_database.dart' show ColumnType;
 import 'package:serverpod_serialization/serverpod_serialization.dart';
@@ -349,6 +351,10 @@ String canonicalProjectionValue(Object? value) {
 bool projectionValuesEqual(Object? left, Object? right) {
   if (left == null || right == null) return left == right;
   if (left is String && right is String) return left == right;
+  // A binary value would otherwise take the list branch below and compare
+  // byte by byte through this function. A byte is an int, which is never a
+  // UUID, so its comparison is plain equality (co-serverpod#41).
+  if (left is Uint8List && right is Uint8List) return _bytesEqual(left, right);
   if (left is Map && right is Map) {
     return left.length == right.length &&
         left.entries.every(
@@ -372,9 +378,24 @@ bool projectionValuesEqual(Object? left, Object? right) {
   return left == right;
 }
 
+bool _bytesEqual(Uint8List left, Uint8List right) {
+  if (left.length != right.length) return false;
+  for (var index = 0; index < left.length; index++) {
+    if (left[index] != right[index]) return false;
+  }
+  return true;
+}
+
 /// Parses [value] as a UUID when it is one, otherwise null.
 @internal
 UuidValue? tryUuidValue(Object? value) {
+  // `UuidValueJsonExtension.fromJson` accepts only these three and fails the
+  // cast of anything else to `String`. Answering those without the throw keeps
+  // the result and drops the cost: a thrown error per value, which made
+  // comparing one binary column cost a throw per byte (co-serverpod#41).
+  if (value is! String && value is! UuidValue && value is! Uint8List) {
+    return null;
+  }
   try {
     return value.toUuidValue();
   } on Object {

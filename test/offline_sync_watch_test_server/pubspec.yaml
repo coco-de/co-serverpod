@@ -1,7 +1,7 @@
 name: offline_sync_watch_test_server
 description: >-
-  Generator input for the serverpod_offline_sync watch test fixture. It only
-  holds model definitions and is never started.
+  Generator input for the serverpod_offline_sync watch test fixture, with the
+  PostgreSQL tests that run its server against SQLite devices.
 publish_to: none
 
 environment:
@@ -16,4 +16,11 @@ dependencies:
 
 dev_dependencies:
   lints: ^5.0.0
+  offline_sync_watch_test_client:
+    path: ../offline_sync_watch_test_client
+  path: ^1.9.1
   serverpod_cli: ^4.1.0-beta.1
+  serverpod_database: ^4.1.0-beta.1
+  serverpod_embedded_postgres: ^4.1.0-beta.1
+  serverpod_test: ^4.1.0-beta.1
+  test: ^1.25.5

@@ -1,0 +1,20 @@
+### A note's stroke with a binary payload (fork, co-serverpod#41,
+### unibook#14371): merging one child under a parent that already has many
+### stored children must not cost in proportion to those siblings' payloads.
+class: Stroke
+table: stroke
+database: sync
+fields:
+  seq: String
+  ### Nullable plain column: an update clearing it rides a projection pass when
+  ### its batch also holds an insert.
+  legacyId: String?
+  payload: ByteData
+  noteId: UuidValue, relation(parent=note, onDelete=Cascade, deferred)
+indexes:
+  ### Unique with the foreign key (co-serverpod#41): a stored sibling reached
+  ### through the note holds a claim an incoming stroke can contest, so a pass
+  ### has to read this index's columns on rows it only reaches.
+  stroke_note_seq_idx:
+    fields: spaceId, noteId, seq
+    unique: true
