@@ -35,7 +35,9 @@ import 'support/sync_harness.dart';
 /// `FK41_WRITE_GOLDEN=1` to record it again, which is only valid on a
 /// projector known to be correct.
 void main() {
-  final goldenFile = File('test/goldens/foreign_key_projection_equivalence.json');
+  final goldenFile = File(
+    'test/goldens/foreign_key_projection_equivalence.json',
+  );
   final writeGolden = Platform.environment['FK41_WRITE_GOLDEN'] == '1';
   final recorded = <String, Object?>{};
   final golden = writeGolden
@@ -514,13 +516,12 @@ Future<Map<String, Object?>> _normalizedState(
     for (final MapEntry(key: name, value: replica) in replicas.entries)
       name: await _readState(replica),
   };
-  final hlcs = <(DateTime, int)>{
-    for (final state in raw.values) ...state.hlcs,
-  }.toList()
-    ..sort((l, r) {
-      final byTime = l.$1.compareTo(r.$1);
-      return byTime != 0 ? byTime : l.$2.compareTo(r.$2);
-    });
+  final hlcs =
+      <(DateTime, int)>{for (final state in raw.values) ...state.hlcs}.toList()
+        ..sort((l, r) {
+          final byTime = l.$1.compareTo(r.$1);
+          return byTime != 0 ? byTime : l.$2.compareTo(r.$2);
+        });
   final rank = {for (final (index, hlc) in hlcs.indexed) hlc: index};
   final nodeNames = <String, String>{};
   for (final state in raw.values) {
@@ -650,8 +651,14 @@ Future<_RawState> _readState(OfflineSyncDatabaseSession replica) async {
       final columns = row.toColumnMap();
       final id = columns.remove('id');
       for (final MapEntry(key: column, value: value)
-          in (columns.entries.toList()..sort((l, r) => l.key.compareTo(r.key)))) {
-        state.lines.add(['domain', table, _value(id), '$column=${_value(value)}']);
+          in (columns.entries.toList()
+            ..sort((l, r) => l.key.compareTo(r.key)))) {
+        state.lines.add([
+          'domain',
+          table,
+          _value(id),
+          '$column=${_value(value)}',
+        ]);
       }
     }
   }
@@ -662,8 +669,9 @@ Future<_RawState> _readState(OfflineSyncDatabaseSession replica) async {
 String _value(Object? value) => switch (value) {
   null => 'null',
   Uint8List() => 'bytes${value.length}:${_hash(value)}',
-  ByteData() => 'bytes${value.lengthInBytes}:'
-      '${_hash(value.buffer.asUint8List(value.offsetInBytes, value.lengthInBytes))}',
+  ByteData() =>
+    'bytes${value.lengthInBytes}:'
+        '${_hash(value.buffer.asUint8List(value.offsetInBytes, value.lengthInBytes))}',
   UuidValue() => value.uuid,
   _ => '$value',
 };
