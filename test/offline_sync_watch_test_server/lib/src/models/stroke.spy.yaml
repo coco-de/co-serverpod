@@ -1,0 +1,10 @@
+### A note's stroke with a binary payload (fork, co-serverpod#41,
+### unibook#14371): merging one child under a parent that already has many
+### stored children must not cost in proportion to those siblings' payloads.
+class: Stroke
+table: stroke
+database: sync
+fields:
+  seq: String
+  payload: ByteData
+  noteId: UuidValue, relation(parent=note, onDelete=Cascade, deferred)

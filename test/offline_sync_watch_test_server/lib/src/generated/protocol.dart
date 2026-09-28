@@ -19,10 +19,12 @@ import 'attachment.dart' as _i6v7uii8;
 import 'folder.dart' as _ij200e11;
 import 'local_draft.dart' as _icz3qgao;
 import 'note.dart' as _io8vvye9;
+import 'stroke.dart' as _ikjj7mbr;
 export 'attachment.dart';
 export 'folder.dart';
 export 'local_draft.dart';
 export 'note.dart';
+export 'stroke.dart';
 export 'sync_tables.dart';
 
 class Protocol extends _is.DatabaseSerializationManager {
@@ -196,6 +198,70 @@ class Protocol extends _is.DatabaseSerializationManager {
       indexes: [],
       managed: true,
     ),
+    _isp.TableDefinition(
+      name: 'stroke',
+      dartName: 'Stroke',
+      schema: 'public',
+      module: 'offline_sync_watch_test',
+      columns: [
+        _isp.ColumnDefinition(
+          name: 'id',
+          columnType: _isp.ColumnType.uuid,
+          isNullable: false,
+          dartType: 'UuidValue?',
+          columnDefault: 'random_v7',
+        ),
+        _isp.ColumnDefinition(
+          name: 'spaceId',
+          columnType: _isp.ColumnType.bigint,
+          isNullable: true,
+          dartType: 'int?',
+        ),
+        _isp.ColumnDefinition(
+          name: 'seq',
+          columnType: _isp.ColumnType.text,
+          isNullable: false,
+          dartType: 'String',
+        ),
+        _isp.ColumnDefinition(
+          name: 'payload',
+          columnType: _isp.ColumnType.bytea,
+          isNullable: false,
+          dartType: 'dart:typed_data:ByteData',
+        ),
+        _isp.ColumnDefinition(
+          name: 'noteId',
+          columnType: _isp.ColumnType.uuid,
+          isNullable: false,
+          dartType: 'UuidValue',
+        ),
+      ],
+      foreignKeys: [
+        _isp.ForeignKeyDefinition(
+          constraintName: 'stroke_fk_0',
+          columns: ['spaceId'],
+          referenceTable: 'offline_sync_spaces',
+          referenceTableSchema: 'public',
+          referenceColumns: ['id'],
+          onUpdate: _isp.ForeignKeyAction.noAction,
+          onDelete: _isp.ForeignKeyAction.cascade,
+          matchType: null,
+        ),
+        _isp.ForeignKeyDefinition(
+          constraintName: 'stroke_fk_1',
+          columns: ['noteId'],
+          referenceTable: 'note',
+          referenceTableSchema: 'public',
+          referenceColumns: ['id'],
+          onUpdate: _isp.ForeignKeyAction.noAction,
+          onDelete: _isp.ForeignKeyAction.cascade,
+          matchType: null,
+          deferrable: _isp.DeferrableConstraint.initiallyDeferred,
+        ),
+      ],
+      indexes: [],
+      managed: true,
+    ),
     ..._izehhkf5.Protocol.targetTableDefinitions,
     ..._isp.Protocol.targetTableDefinitions,
   ];
@@ -236,6 +302,9 @@ class Protocol extends _is.DatabaseSerializationManager {
     if (t == _io8vvye9.Note) {
       return _io8vvye9.Note.fromJson(data) as T;
     }
+    if (t == _ikjj7mbr.Stroke) {
+      return _ikjj7mbr.Stroke.fromJson(data) as T;
+    }
     if (t == _is.getType<_i6v7uii8.Attachment?>()) {
       return (data != null ? _i6v7uii8.Attachment.fromJson(data) : null) as T;
     }
@@ -247,6 +316,9 @@ class Protocol extends _is.DatabaseSerializationManager {
     }
     if (t == _is.getType<_io8vvye9.Note?>()) {
       return (data != null ? _io8vvye9.Note.fromJson(data) : null) as T;
+    }
+    if (t == _is.getType<_ikjj7mbr.Stroke?>()) {
+      return (data != null ? _ikjj7mbr.Stroke.fromJson(data) : null) as T;
     }
     if (t == List<_io8vvye9.Note>) {
       return (data as List).map((e) => deserialize<_io8vvye9.Note>(e)).toList()
@@ -275,6 +347,7 @@ class Protocol extends _is.DatabaseSerializationManager {
       _ij200e11.Folder => 'Folder',
       _icz3qgao.LocalDraft => 'LocalDraft',
       _io8vvye9.Note => 'Note',
+      _ikjj7mbr.Stroke => 'Stroke',
       _ => null,
     };
   }
@@ -300,6 +373,8 @@ class Protocol extends _is.DatabaseSerializationManager {
         return 'LocalDraft';
       case _io8vvye9.Note():
         return 'Note';
+      case _ikjj7mbr.Stroke():
+        return 'Stroke';
     }
     className = _izehhkf5.Protocol().getClassNameForObject(data);
     if (className != null) {
@@ -331,6 +406,9 @@ class Protocol extends _is.DatabaseSerializationManager {
     }
     if (dataClassName == 'Note') {
       return deserialize<_io8vvye9.Note>(data['data']);
+    }
+    if (dataClassName == 'Stroke') {
+      return deserialize<_ikjj7mbr.Stroke>(data['data']);
     }
     if (dataClassName.startsWith('serverpod_offline_sync.')) {
       data['className'] = dataClassName.substring(23);
@@ -368,6 +446,8 @@ class Protocol extends _is.DatabaseSerializationManager {
         return _ij200e11.Folder.t;
       case _io8vvye9.Note:
         return _io8vvye9.Note.t;
+      case _ikjj7mbr.Stroke:
+        return _ikjj7mbr.Stroke.t;
     }
     return null;
   }
