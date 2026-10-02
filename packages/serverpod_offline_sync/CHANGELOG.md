@@ -1,5 +1,26 @@
 ## Unreleased (co-serverpod fork)
 
+- feat: `OfflineSyncSchema.fromTables` derives immutable table names and the
+  existing handshake hash from generated metadata, without a copied schema
+  constant, counter or DB connection. `comparePeerHash` reports compatible,
+  mismatch or unknown; `requirePeerHash` preserves strict stream validation.
+  `engine.schema` and `db.syncSchema` expose the same description. Hashes and
+  wire models are unchanged; different hashes are not automatically compatible
+  and do not establish which schema is newer.
+- feat: `OfflineSyncSettings` groups all engine settings, validates them and
+  supports `copyWith`. Opt-in paired `boundedServer` / `boundedClient` presets
+  bound outbound JSON batches and retain server/client clock-drift headroom.
+  `OfflineSyncEngine.withSettings` and
+  `OfflineSyncDatabaseSession.wrapsWithSettings` apply the complete value.
+  The new wrapper rejects conflicting existing settings, schema, identity or
+  isolation rather than silently ignoring them. Legacy defaults are unchanged.
+- feat: `OfflineSyncBatchBudget.json` uses the shared protocol JSON measure
+  `measureJsonPayload`, including the change envelope and typed data. This is
+  UTF-16 string length, not UTF-8 bytes, and does not enforce inbound limits.
+  `engine.settings` and `db.syncSettings` expose effective settings.
+- Breaking only for classes implementing `OfflineSyncEngine` or
+  `OfflineSyncDatabase`: implement the new schema/settings getters as well.
+
 - fix: A read in a transaction reads the space membership in that transaction
   (unibook#14256). `find`, `findFirstRow`, `findById` and `count` first read
   the reader's spaces (`offline_sync_spaces`, `offline_sync_space_members`) to

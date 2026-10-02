@@ -1,5 +1,11 @@
 ## Unreleased (co-serverpod fork)
 
+- feat: Re-exports `OfflineSyncSchema` / `OfflineSyncSchemaCompatibility` and
+  `OfflineSyncSettings` from the shared engine. The new
+  `OfflineSyncDatabaseSession.wrapsWithSettings` defaults to the paired bounded
+  client preset and preserves raw-session close ownership. Generated clients,
+  transport methods and wire models are unchanged.
+
 - docs: The batch budget and row isolation (unibook#14251) are set on the
   session (`OfflineSyncDatabaseSession.wraps(batchBudget:, rowIsolation:)`),
   not on `OfflineSyncClient` or `OfflineSyncStatusTracker`; both packages

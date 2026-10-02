@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:meta/meta.dart';
+import 'package:serverpod_serialization/serverpod_serialization.dart'
+    show SerializationManager;
 import 'package:uuid/uuid.dart';
 
 import '../generated/protocol.dart';
@@ -84,6 +86,23 @@ final class OfflineSyncBatchBudget {
     this.maxPayloadChars,
     this.measurePayload,
   });
+
+  /// A JSON-measured budget needing no application-specific payload callback.
+  ///
+  /// Measures each complete change with Serverpod's protocol encoder, including
+  /// its envelope and typed model data. The unit is Dart string length (UTF-16
+  /// code units), not UTF-8 bytes or the size of a WebSocket frame. Receivers
+  /// using this measure must still enforce their own inbound limits.
+  factory OfflineSyncBatchBudget.json({int? maxChanges, int? maxPayloadChars}) =>
+      OfflineSyncBatchBudget(
+        maxChanges: maxChanges,
+        maxPayloadChars: maxPayloadChars,
+        measurePayload: measureJsonPayload,
+      );
+
+  /// The common measure used by [OfflineSyncBatchBudget.json].
+  static int measureJsonPayload(CrdtMergeChange change) =>
+      SerializationManager.encodeForProtocol(change).length;
 
   /// No limit: one batch per round with every pending change, as upstream.
   static const OfflineSyncBatchBudget unlimited = OfflineSyncBatchBudget._();

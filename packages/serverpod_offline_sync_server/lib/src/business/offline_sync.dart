@@ -99,6 +99,24 @@ extension OfflineSyncInitialize on Serverpod {
       batchBudget: batchBudget,
     );
   }
+
+  /// Applies every setting at once. Defaults to the opt-in paired bounded
+  /// server preset, so applications do not copy engine constants into a shared
+  /// rules package. Call during startup, after the generated pod constructor.
+  void initializeOfflineSyncWithSettings({
+    required List<Table> syncTables,
+    OfflineSyncSettings? settings,
+  }) {
+    final effective = settings ?? OfflineSyncSettings.boundedServer;
+    initializeOfflineSync(
+      syncTables: syncTables,
+      syncBatchSize: effective.syncBatchSize,
+      continuousSyncInterval: effective.continuousSyncInterval,
+      maxContinuousSyncInterval: effective.maxContinuousSyncInterval,
+      maxClockDrift: effective.maxClockDrift,
+      batchBudget: effective.batchBudget,
+    );
+  }
 }
 
 /// Session-bound CRDT services configured for a [Serverpod] instance.
@@ -122,6 +140,12 @@ class OfflineSyncSession {
   /// The outbound batch budget configured by
   /// [OfflineSyncInitialize.initializeOfflineSync] (fork, unibook#14251).
   OfflineSyncBatchBudget get batchBudget => _sync.batchBudget;
+
+  /// Schema metadata derived from this server's generated protocol.
+  OfflineSyncSchema get schema => _sync.schema;
+
+  /// All effective settings, including the settings used by the interceptor.
+  OfflineSyncSettings get settings => _sync.settings;
 
   /// Runs a CRDT sync session with this [OfflineSyncSession]'s [Session] bound.
   ///

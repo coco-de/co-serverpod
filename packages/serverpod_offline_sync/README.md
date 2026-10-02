@@ -156,6 +156,113 @@ BLoC에서는 `emit.forEach(Note.db.watch(session, ...), onData: ...)`로, 위�
 연결합니다. 스트림은 `build`에서 매번 만들지 말고 한 번 만들어 보관하세요. `include`,
 `limit`/`offset`, `database: client` 전용 테이블도 같은 방식으로 동작합니다.
 
+## 스키마 · 설정을 프로젝트별 공유 상수 없이 사용하기
+
+모델을 바꿀 때마다 테이블 목록·해시 상수·동기화 버전 숫자를 직접 갱신할 필요는 없습니다.
+`OfflineSyncSchema`는 생성된 `syncTables`와 `Protocol`의 메타데이터에서 **엔진 핸드셰이크와
+동일한 해시** 및 테이블 목록을 계산합니다. DB를 열거나 네트워크에 연결하지 않고 사용할 수 있습니다.
+
+```dart
+final schema = OfflineSyncSchema.fromTables(
+  syncTables,
+  tableDefinitions: Protocol().getTargetTableDefinitions(),
+);
+
+schema.hash;                         // 현재 생성 모델의 동기화 해시
+schema.tableNames;                   // 변경할 수 없는 동기화 테이블 집합
+schema.containsTable(Note.t.tableName);
+schema.comparePeerHash(serverHash);  // compatible / mismatch / unknown
+```
+
+앱의 열린 DB는 `session.db.syncSchema`로, 서버는 `session.offlineSync.schema`로 같은 정보를
+읽습니다. 서버의 기존 조회 endpoint가 `schema.hash`를 돌려주면 앱은 자신의 생성 모델로 계산한
+해시와 비교하면 됩니다. 별도 공유 패키지에 해시 문자열이나 `SyncTableNames.all`을 복사하지 않습니다.
+개별 모델의 테이블 이름도 `Note.t.tableName`처럼 생성된 값으로 참조합니다.
+
+해시는 스키마의 **정체성**이며 나이를 나타내지 않습니다. `mismatch`만으로 "앱이 낡았다" 또는
+"서버가 뒤처졌다"라고 판단하지 않습니다. 그 구분이 제품 요구사항이면 배포 이력·마이그레이션
+계보 같은 추가 정보가 필요합니다. `unknown`은 조회 실패·미확인이라는 뜻이며, 실제 스트림은
+빈 해시나 다른 해시를 계속 거부합니다. 컬럼 추가 등으로 해시가 바뀌었다면 DB 마이그레이션 및
+같은 스키마의 앱·서버 배포는 여전히 필요합니다. 다른 스키마 사이의 자동 동기화를 의미하지 않습니다.
+
+### 서버 · 앱의 일괄 설정
+
+`OfflineSyncSettings`는 청크 크기·연속 간격·최대 요청 간격·시계 오차·배치 예산을 한 값으로
+묶습니다. 새 진입점은 설정을 빠짐없이 전달하므로, 일부만 넘겨 다른 설정이 기본값으로 돌아가는
+문제를 줄입니다. 기존 생성자와 `initializeOfflineSync`의 기본값은 그대로입니다.
+
+```dart
+// 서버: 생성된 Serverpod 생성자 이후, 첫 요청 이전에 한 번 구성합니다.
+pod.initializeOfflineSyncWithSettings(syncTables: syncTables);
+
+// 앱: 생성 클라이언트로 일반 세션을 열고, 공용 클라이언트 프리셋으로 감쌉니다.
+final raw = await client.createSession(databasePath);
+final session = OfflineSyncDatabaseSession.wrapsWithSettings(
+  raw,
+  syncTables: syncTables,
+  persistentUserId: userId,
+);
+await session.db.initialize();
+// 사용이 끝났을 때 await session.close();
+```
+
+| 옵트인 프리셋 | 서버 `boundedServer` | 앱 `boundedClient` |
+|---|---|---|
+| 시계 오차 | 30분 | 1시간 — 같은 space의 기기 사이에 여유 확보 |
+| 연속 간격 | 1초 | 기존 200ms |
+| 최대 요청 간격 | 30초 | 30초 |
+| 청크 | 변경 100건 | 변경 100건 |
+| 배치 예산 | 변경 5,000건 · 프로토콜 JSON 7 Mi 문자 | 동일 |
+
+예산의 문자 단위는 **UTF-16 코드 유닛 수**이며 UTF-8 바이트 수가 아닙니다. 분리할 수 없는 변경
+묶음 하나가 예산을 넘으면 기존 계획기 규칙대로 그 묶음을 보내 진행합니다. 프리셋은 송신 예산을
+정할 뿐, 상대의 수신 한도를 협상하거나 강제하지 않습니다. 서버의 수신 검증은 계속 둡니다.
+
+필요한 설정만 바꾸려면 `copyWith`를 사용합니다.
+
+```dart
+pod.initializeOfflineSyncWithSettings(
+  syncTables: syncTables,
+  settings: OfflineSyncSettings.boundedServer.copyWith(
+    continuousSyncInterval: const Duration(seconds: 2),
+  ),
+);
+```
+
+직접 만든 엔진은 `OfflineSyncEngine.withSettings`로 동일한 설정 객체를 받습니다. 실제 적용값은
+`engine.settings`, `session.db.syncSettings`, 서버 `session.offlineSync.settings`로 조회합니다.
+새 세션 진입점에 이미 감싼 DB를 주면 모든 설정·스키마가 일치해야 합니다. 다른 설정이나 신원을
+조용히 무시하지 않고 거부하므로, 설정을 바꿀 때는 `createSyncSession` 대신 일반 `createSession`에서
+시작합니다. 설정이 같은 중첩 래퍼의 `close()`는 기존처럼 원래 DB까지 전달됩니다.
+
+### 페이로드 측정 콜백도 공용화
+
+```dart
+final budget = OfflineSyncBatchBudget.json(
+  maxChanges: 5000,
+  maxPayloadChars: 7 * 1024 * 1024,
+);
+// 수신 측이 같은 척도로 검증할 때:
+final chars = OfflineSyncBatchBudget.measureJsonPayload(change);
+```
+
+Serverpod의 프로토콜 인코더로 **변경 메시지 전체**를 측정합니다. 모델 데이터·날짜·UUID·타입
+정보와 변경의 메타데이터를 포함합니다. 기존 앱의 "insert data / update value만 측정"하던 콜백과는
+다른 척도이므로, 양쪽 예산·수신 검증을 같이 이관합니다. 기존 사용자 정의 콜백은 계속 쓸 수 있습니다.
+
+### 제품 규칙과의 경계
+
+이 API로 스키마 해시 사본·전체 테이블 목록·일반 엔진 설정·JSON 측정 함수는 공용 규칙 패키지에서
+제거할 수 있습니다. 다음은 모델만 보고 엔진이 추론할 수 없으므로 제품이 선언합니다.
+
+- 병원별 사용자 신원, "내원 × 역할" 같은 결정적 키의 구성과 기존 UUID 이름공간
+- 진료기록 확정 이후 수정 금지, 직원 권한, 병원 소속, 데이터별 삭제 정책
+- 문서 본문과 메모의 서로 다른 길이 제한, 화면별 동기화·재시도 타이밍
+
+기존 결정적 키를 다른 생성식으로 바꾸면 같은 업무 행이 다른 UUID로 갈립니다. 패키지 이관 때도
+키·권한 검증을 지우지 않습니다. 제품별 코드 공유 방식은 별도로 선택할 수 있으며, 동기화 엔진이
+특정 `shared/*_sync_rules` 패키지를 요구하는 것은 아닙니다.
+
 ## 시계 오차 허용치와 동기화 실패 분류
 
 업스트림은 HLC 시계 오차 한도를 **1분**으로 고정했습니다. 포크는 기본값을 `co_offline_sync` 와 같은

@@ -24,3 +24,6 @@ export 'src/sync/outbound_batch.dart'
         OfflineSyncChangePayloadMeasure,
         OfflineSyncRowIsolation,
         OfflineSyncRowKey;
+export 'src/sync/schema.dart';
+export 'src/sync/schema_compatibility.dart';
+export 'src/sync/settings.dart';
