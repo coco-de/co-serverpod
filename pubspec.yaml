@@ -18,14 +18,6 @@ dev_dependencies:
 
 melos:
   scripts:
-    offline-sync:analyze:
-      run: cd packages/co_offline_sync && dart analyze --fatal-infos && cd ../co_sync && flutter analyze --fatal-infos
-      description: 독립 동기화 패키지 분석 (각 패키지 pub get 선행)
-
-    offline-sync:test:
-      run: cd packages/co_offline_sync && dart test && cd ../co_sync && flutter test test example
-      description: 순수 Dart 코어와 Flutter 어댑터 테스트
-
     serverpod-offline-sync:analyze:
       run: cd packages/serverpod_offline_sync && dart analyze --fatal-infos && cd ../serverpod_offline_sync_client && dart analyze --fatal-infos && cd ../serverpod_offline_sync_server && dart analyze --fatal-infos && cd ../../test/offline_sync_watch_test_server && dart analyze --fatal-infos && cd ../offline_sync_watch_test_client && dart analyze --fatal-infos
       description: serverpod_offline_sync 포크와 watch fixture 분석 (각 패키지 pub get 선행)

@@ -58,9 +58,6 @@
     }
   ],
   "packages": {
-    "packages/co_offline_sync": {
-      "component": "co_offline_sync"
-    },
     "packages/serverpod_auth_idp_apple_client": {
       "component": "serverpod_auth_idp_apple_client"
     },
@@ -84,9 +81,6 @@
     },
     "packages/serverpod_auth_idp_naver_server": {
       "component": "serverpod_auth_idp_naver_server"
-    },
-    "packages/co_sync": {
-      "component": "co_sync"
     }
   }
 }
