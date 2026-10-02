@@ -19,6 +19,8 @@ import '../sync/engine.dart';
 import '../sync/exceptions.dart';
 import '../sync/integrity_violation.dart';
 import '../sync/outbound_batch.dart';
+import '../sync/schema.dart';
+import '../sync/settings.dart';
 import 'merge_utils/database_helpers.dart';
 import 'recorder.dart';
 import 'session.dart';
@@ -166,6 +168,12 @@ class OfflineSyncDatabase implements Database {
 
   /// The hash describing the synchronized schema configured for this database.
   String get syncTablesHash => _sync.currentSyncTablesHash;
+
+  /// Generated schema metadata. Reading this does not initialize or query the DB.
+  OfflineSyncSchema get syncSchema => _sync.schema;
+
+  /// Every effective engine setting of this database.
+  OfflineSyncSettings get syncSettings => _sync.settings;
 
   /// Returns the current node identifier for the effective user.
   ///

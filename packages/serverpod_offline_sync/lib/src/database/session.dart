@@ -4,6 +4,8 @@ import 'package:uuid/uuid.dart';
 
 import '../sync/engine.dart';
 import '../sync/outbound_batch.dart';
+import '../sync/schema.dart';
+import '../sync/settings.dart';
 import 'database.dart';
 import 'recorder.dart';
 
@@ -135,6 +137,63 @@ class OfflineSyncDatabaseSession implements DatabaseSession {
     batchBudget: batchBudget,
     rowIsolation: rowIsolation,
   ).._wrappedSession = session;
+
+  /// Wraps a raw generated client's session with a complete settings value.
+  ///
+  /// Defaults to the opt-in [OfflineSyncSettings.boundedClient] preset. Open a
+  /// raw `client.createSession` first, then initialize `result.db`. This does
+  /// not query the DB or require application-maintained schema constants.
+  ///
+  /// An already wrapped DB must match every setting, schema and row-isolation
+  /// implementation; conflicting requests throw instead of being ignored.
+  /// For a nested wrapper, omit [context] and [persistentUserId]; this factory
+  /// cannot replace or verify the existing wrapper's context or identity.
+  factory OfflineSyncDatabaseSession.wrapsWithSettings(
+    DatabaseSession session, {
+    required List<Table> syncTables,
+    OfflineSyncSettings? settings,
+    OfflineSyncDatabaseContext? context,
+    UuidValue? persistentUserId,
+    OfflineSyncRowIsolation? rowIsolation,
+  }) {
+    final effective = settings ?? OfflineSyncSettings.boundedClient;
+    final db = session.db;
+    if (db is OfflineSyncDatabase) {
+      effective.requireMatches(db.syncSettings);
+      final requestedSchema = OfflineSyncSchema.fromTables(
+        syncTables,
+        tableDefinitions: db.serializationManager.getTargetTableDefinitions(),
+      );
+      db.syncSchema.requirePeerHash(requestedSchema.hash);
+      if (rowIsolation != null && !identical(rowIsolation, db.rowIsolation)) {
+        throw ArgumentError(
+          'rowIsolation conflicts with the already wrapped OfflineSyncDatabase.',
+        );
+      }
+      if (context != null) {
+        throw ArgumentError(
+          'context cannot be replaced on an already wrapped OfflineSyncDatabase.',
+        );
+      }
+      if (persistentUserId != null) {
+        throw ArgumentError(
+          'persistentUserId cannot be replaced on an already wrapped OfflineSyncDatabase.',
+        );
+      }
+    }
+    return OfflineSyncDatabaseSession.wraps(
+      session,
+      syncTables: syncTables,
+      context: context,
+      persistentUserId: persistentUserId,
+      syncBatchSize: effective.syncBatchSize,
+      continuousSyncInterval: effective.continuousSyncInterval,
+      maxContinuousSyncInterval: effective.maxContinuousSyncInterval,
+      maxClockDrift: effective.maxClockDrift,
+      batchBudget: effective.batchBudget,
+      rowIsolation: rowIsolation,
+    );
+  }
 
   static OfflineSyncDatabase _checkWrappedMaxClockDrift(
     OfflineSyncDatabase db,

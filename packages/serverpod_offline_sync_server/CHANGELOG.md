@@ -1,5 +1,12 @@
 ## Unreleased (co-serverpod fork)
 
+- feat: `initializeOfflineSyncWithSettings` applies a complete
+  `OfflineSyncSettings` value, defaulting to the opt-in bounded server preset.
+  `OfflineSyncSession.schema` exposes generated metadata and `.settings`
+  exposes the settings shared by the stream and DB interceptor. Existing
+  initialization defaults and wire models are unchanged. Breaking only for
+  classes implementing `OfflineSyncSession`: add both getters.
+
 - feat: `initializeOfflineSync(batchBudget:)` bounds what the server sends a
   device in one batch (unibook#14251), and `OfflineSyncSession.batchBudget`
   reads it. Unlimited by default, as upstream: a device syncing for the first

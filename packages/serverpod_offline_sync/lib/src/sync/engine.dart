@@ -13,7 +13,6 @@ import '../database/database.dart';
 import '../database/merge_utils/database_helpers.dart';
 import '../database/merge_utils/foreign_key_graph.dart';
 import '../database/recorder.dart';
-import '../database/unique_index_utils.dart';
 import '../generated/protocol.dart';
 import '../hlc/hlc.dart';
 import '../managers/space.dart';
@@ -22,6 +21,8 @@ import '../utils/case_when.dart' show Case;
 import 'exceptions.dart';
 import 'integrity_violation.dart';
 import 'outbound_batch.dart';
+import 'schema.dart';
+import 'settings.dart';
 import 'space_state.dart';
 
 export 'space_state.dart' show OfflineSyncPeerMode;
@@ -94,11 +95,33 @@ class OfflineSyncEngine {
     }
   }
 
+  /// Configures every setting at once, without spreading shared constants
+  /// across the server and client. [settings] is explicit to preserve the
+  /// existing constructor's defaults.
+  factory OfflineSyncEngine.withSettings({
+    required List<Table> syncTables,
+    required DatabaseSerializationManager serializationManager,
+    required OfflineSyncSettings settings,
+    OfflineSyncDatabaseContext? databaseContext,
+    OfflineSyncRowIsolation? rowIsolation,
+  }) => OfflineSyncEngine(
+    syncTables: syncTables,
+    serializationManager: serializationManager,
+    databaseContext: databaseContext,
+    syncBatchSize: settings.syncBatchSize,
+    continuousSyncInterval: settings.continuousSyncInterval,
+    maxContinuousSyncInterval: settings.maxContinuousSyncInterval,
+    maxClockDrift: settings.maxClockDrift,
+    batchBudget: settings.batchBudget,
+    rowIsolation: rowIsolation,
+  );
+
   /// Default maximum number of merge changes sent in one stream message.
-  static const defaultSyncBatchSize = 100;
+  static const defaultSyncBatchSize = OfflineSyncSettings.defaultSyncBatchSize;
 
   /// Default delay between continuous sync rounds.
-  static const defaultContinuousSyncInterval = Duration(milliseconds: 200);
+  static const defaultContinuousSyncInterval =
+      OfflineSyncSettings.defaultContinuousSyncInterval;
 
   /// Default longest delay between continuous sync rounds a session can ask
   /// for (fork, unibook#14207).
@@ -106,7 +129,8 @@ class OfflineSyncEngine {
   /// While it waits, a peer does not read the other side, so a session whose
   /// device left ends only after up to this long. A session that needs updates
   /// less often than this should not run continuously.
-  static const defaultMaxContinuousSyncInterval = Duration(seconds: 30);
+  static const defaultMaxContinuousSyncInterval =
+      OfflineSyncSettings.defaultMaxContinuousSyncInterval;
 
   /// The longest delay between continuous sync rounds a session can ask for,
   /// given [continuousSyncInterval] and the configured maximum (fork,
@@ -120,21 +144,19 @@ class OfflineSyncEngine {
   static Duration resolveMaxContinuousSyncInterval(
     Duration continuousSyncInterval,
     Duration? maxContinuousSyncInterval,
-  ) {
-    if (maxContinuousSyncInterval == null) {
-      return continuousSyncInterval > defaultMaxContinuousSyncInterval
-          ? continuousSyncInterval
-          : defaultMaxContinuousSyncInterval;
-    }
-    if (maxContinuousSyncInterval < continuousSyncInterval) {
-      throw ArgumentError.value(
-        maxContinuousSyncInterval,
-        'maxContinuousSyncInterval',
-        'Must be >= continuousSyncInterval ($continuousSyncInterval)',
-      );
-    }
-    return maxContinuousSyncInterval;
-  }
+  ) => OfflineSyncSettings.resolveMaxContinuousSyncInterval(
+    continuousSyncInterval,
+    maxContinuousSyncInterval,
+  );
+
+  /// The complete effective settings of this engine.
+  OfflineSyncSettings get settings => OfflineSyncSettings(
+    syncBatchSize: _syncBatchSize,
+    continuousSyncInterval: _continuousSyncInterval,
+    maxContinuousSyncInterval: _maxContinuousSyncInterval,
+    maxClockDrift: maxClockDrift,
+    batchBudget: batchBudget,
+  );
 
   final List<Table> _syncTables;
   final DatabaseSerializationManager _serializationManager;
@@ -210,11 +232,14 @@ class OfflineSyncEngine {
       if (definition.dartName != null) definition.name: definition.dartName!,
   };
 
-  /// The deterministic hash representing the current synchronized schema.
-  late final String currentSyncTablesHash = computeSyncTablesHash(
+  /// Generated schema metadata, computed once without a database query.
+  late final OfflineSyncSchema schema = OfflineSyncSchema.fromTables(
     _syncTables,
     tableDefinitions: _serializationManager.getTargetTableDefinitions(),
   );
+
+  /// The deterministic hash representing the current synchronized schema.
+  String get currentSyncTablesHash => schema.hash;
 
   /// Computes a deterministic fixed-size hash of the synchronized schema.
   ///
@@ -223,17 +248,10 @@ class OfflineSyncEngine {
   static String computeSyncTablesHash(
     List<Table> syncTables, {
     required List<TableDefinition> tableDefinitions,
-  }) {
-    final canonicalSignature = _computeCanonicalSyncTablesSignature(
-      syncTables,
-      tableDefinitions: tableDefinitions,
-    );
-    // Use two deterministic namespace-based UUIDv5 hashes to keep the payload
-    // fixed-size while substantially reducing the practical collision risk.
-    const uuid = Uuid();
-    return '${uuid.v5(Namespace.url.value, canonicalSignature)}:'
-        '${uuid.v5(Namespace.oid.value, canonicalSignature)}';
-  }
+  }) => OfflineSyncSchema.fromTables(
+    syncTables,
+    tableDefinitions: tableDefinitions,
+  ).hash;
 
   /// Streams pending changes for every space in [checkpointsBySpaceUuid].
   ///
@@ -1441,14 +1459,8 @@ class OfflineSyncEngine {
     }
   }
 
-  void _validateSyncTablesHash(String syncTablesHash) {
-    if (syncTablesHash != currentSyncTablesHash) {
-      throw OfflineSyncTablesHashMismatchException(
-        received: syncTablesHash,
-        expected: currentSyncTablesHash,
-      );
-    }
-  }
+  void _validateSyncTablesHash(String syncTablesHash) =>
+      schema.requirePeerHash(syncTablesHash);
 
   OfflineSyncDatabase _openOfflineSyncDatabase(DatabaseSession session) {
     final db = session.db;
@@ -2178,83 +2190,6 @@ class OfflineSyncEngine {
       (column) => column.columnName == columnName,
     );
     return _serializationManager.deserialize<dynamic>(value, column.type);
-  }
-
-  static String _computeCanonicalSyncTablesSignature(
-    List<Table> syncTables, {
-    required List<TableDefinition> tableDefinitions,
-  }) {
-    final tableDefinitionsByName = {
-      for (final definition in tableDefinitions) definition.name: definition,
-    };
-
-    final sortedTables = syncTables.toList()
-      ..sort((left, right) => left.tableName.compareTo(right.tableName));
-
-    return sortedTables
-        .map((table) {
-          final definition = tableDefinitionsByName[table.tableName];
-          final columns = [
-            if (definition != null)
-              for (final column in definition.columns)
-                if (column.name != 'spaceId')
-                  _canonicalColumnIdentity(definition, column)
-                else
-                  for (final column in table.columns)
-                    if (column.columnName != 'spaceId') column.columnName,
-          ]..sort();
-          final foreignKeys = _canonicalForeignKeys(definition);
-          final uniqueIndexes = _canonicalUniqueIndexes(definition);
-          return '${table.tableName}:'
-              '${columns.join(',')}|'
-              'fk[${foreignKeys.join(';')}]|'
-              'uq[${uniqueIndexes.join(';')}]';
-        })
-        .join(';');
-  }
-
-  static String _canonicalColumnIdentity(
-    TableDefinition table,
-    ColumnDefinition column,
-  ) {
-    final releaseKind = crdtUniqueConflictReleaseKindForColumn(table, column);
-    return '${column.name}:${column.columnType.name}:${column.dartType}:'
-        '${column.isNullable}:${releaseKind?.name ?? '-'}';
-  }
-
-  static List<String> _canonicalForeignKeys(TableDefinition? definition) {
-    if (definition == null) return const [];
-    final entries = <String>[
-      for (final fk in definition.foreignKeys)
-        // Each foreign key must map all parameters.
-        // ignore: no_adjacent_strings_in_list
-        '${(fk.columns.toList()..sort()).join(',')}->'
-            '${fk.referenceTableSchema}.${fk.referenceTable}'
-            '(${(fk.referenceColumns.toList()..sort()).join(',')})'
-            '|u:${fk.onUpdate?.toString() ?? '-'}'
-            '|d:${fk.onDelete?.toString() ?? '-'}'
-            '|m:${fk.matchType?.toString() ?? '-'}',
-    ]..sort();
-
-    return entries;
-  }
-
-  static List<String> _canonicalUniqueIndexes(TableDefinition? definition) {
-    if (definition == null) return const [];
-
-    final entries = <String>[
-      for (final index in definition.indexes)
-        if (index.isUnique && !index.isPrimary)
-          () {
-            final sortedElements = [
-              for (final element in index.elements)
-                '${element.type}:${element.definition}',
-            ]..sort();
-            return sortedElements.join(',');
-          }(),
-    ]..sort();
-
-    return entries;
   }
 }
 
