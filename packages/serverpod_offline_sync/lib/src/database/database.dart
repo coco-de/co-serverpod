@@ -7,7 +7,7 @@ import 'dart:async';
 import 'package:meta/meta.dart' show internal;
 import 'package:serverpod_database/serverpod_database.dart';
 import 'package:serverpod_serialization/serverpod_serialization.dart'
-    show SerializationManager;
+    show ByteDataJsonExtension, SerializationManager;
 import 'package:uuid/uuid.dart';
 
 import '../crdt/extensions.dart';
@@ -1001,9 +1001,20 @@ class OfflineSyncDatabase implements Database {
     List<Column>? columns,
   }) async {
     final values = row.toJsonForDatabase() as Map<String, dynamic>;
-    final columnValues = (columns ?? row.table.managedColumns).crdtSyncableColumns
-        .map((c) => ColumnValue(c, values[c.columnName]))
-        .toList();
+    final columnValues = (columns ?? row.table.managedColumns).crdtSyncableColumns.map((
+      c,
+    ) {
+      final value = values[c.columnName];
+      // ColumnValue takes model values. The binary database JSON is a
+      // decode(..., 'base64') string, which PostgreSQL otherwise stores as
+      // literal text bytes. SQLite accepts the decoded ByteData as well.
+      return ColumnValue(
+        c,
+        c is ColumnByteData && value != null
+            ? ByteDataJsonExtension.fromJson(value)
+            : value,
+      );
+    }).toList();
 
     final where = row.table.id.equals(row.id);
     final updatedRows = await _delegate.updateWhere<T>(

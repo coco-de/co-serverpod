@@ -1,5 +1,9 @@
 ## Unreleased (co-serverpod fork)
 
+- fix: Tracked `update` / `updateRow` pass decoded `ByteData` column values to
+  the delegate (unibook#14684). PostgreSQL previously stored the database JSON
+  `decode(..., 'base64')` string as literal bytes. Empty values and byte views
+  retain their exact payload; selected columns and transactions are unchanged.
 - feat: `OfflineSyncSchema.fromTables` derives immutable table names and the
   existing handshake hash from generated metadata, without a copied schema
   constant, counter or DB connection. `comparePeerHash` reports compatible,
