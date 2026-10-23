@@ -68,7 +68,7 @@ abstract class OfflineSyncConnect extends _icw2tu00.OfflineSyncStreamEvent
   OfflineSyncConnect copyWith({
     _iss.UuidValue? localNodeId,
     String? syncTablesHash,
-    Duration? continuousSyncInterval,
+    Duration? continuousSyncInterval = const _iss.$UndefinedDuration(),
   });
   @override
   Map<String, dynamic> toJson() {
@@ -116,14 +116,14 @@ class _OfflineSyncConnectImpl extends OfflineSyncConnect {
   OfflineSyncConnect copyWith({
     _iss.UuidValue? localNodeId,
     String? syncTablesHash,
-    Object? continuousSyncInterval = _Undefined,
+    Duration? continuousSyncInterval = const _iss.$UndefinedDuration(),
   }) {
     return OfflineSyncConnect(
       localNodeId: localNodeId ?? this.localNodeId,
       syncTablesHash: syncTablesHash ?? this.syncTablesHash,
-      continuousSyncInterval: continuousSyncInterval is Duration?
-          ? continuousSyncInterval
-          : this.continuousSyncInterval,
+      continuousSyncInterval: continuousSyncInterval is _iss.UndefinedSentinel
+          ? this.continuousSyncInterval
+          : continuousSyncInterval,
     );
   }
 }

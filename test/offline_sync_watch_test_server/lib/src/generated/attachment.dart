@@ -64,7 +64,7 @@ abstract class Attachment
   /// with some or all fields replaced by the given arguments.
   @_is.useResult
   Attachment copyWith({
-    _is.UuidValue? id,
+    _is.UuidValue? id = const _is.$UndefinedUuidValue(),
     int? spaceId,
     String? name,
     _is.UuidValue? noteId,
@@ -134,13 +134,13 @@ class _AttachmentImpl extends Attachment {
   @_is.useResult
   @override
   Attachment copyWith({
-    Object? id = _Undefined,
+    _is.UuidValue? id = const _is.$UndefinedUuidValue(),
     Object? spaceId = _Undefined,
     String? name,
     _is.UuidValue? noteId,
   }) {
     return Attachment(
-      id: id is _is.UuidValue? ? id : this.id,
+      id: id is _is.UndefinedSentinel ? this.id : id,
       spaceId: spaceId is int? ? spaceId : this.spaceId,
       name: name ?? this.name,
       noteId: noteId ?? this.noteId,

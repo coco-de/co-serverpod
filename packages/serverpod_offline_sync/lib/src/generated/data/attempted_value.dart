@@ -87,7 +87,8 @@ abstract class CrdtDataAttemptedValue
   CrdtDataAttemptedValue copyWith({
     int? id,
     int? fieldId,
-    _icw2tu00.CrdtDataField? field,
+    _icw2tu00.CrdtDataField? field =
+        const _UndefinedCrdtDataAttemptedValue$field(),
     dynamic value,
     _icw2tu00.CrdtProjectionReason? projectionReason,
   });
@@ -150,6 +151,11 @@ abstract class CrdtDataAttemptedValue
 
 class _Undefined {}
 
+class _UndefinedCrdtDataAttemptedValue$field extends _iss.UndefinedSentinel
+    implements _icw2tu00.CrdtDataField {
+  const _UndefinedCrdtDataAttemptedValue$field();
+}
+
 class _CrdtDataAttemptedValueImpl extends CrdtDataAttemptedValue {
   _CrdtDataAttemptedValueImpl({
     int? id,
@@ -172,14 +178,15 @@ class _CrdtDataAttemptedValueImpl extends CrdtDataAttemptedValue {
   CrdtDataAttemptedValue copyWith({
     Object? id = _Undefined,
     int? fieldId,
-    Object? field = _Undefined,
+    _icw2tu00.CrdtDataField? field =
+        const _UndefinedCrdtDataAttemptedValue$field(),
     Object? value = _Undefined,
     _icw2tu00.CrdtProjectionReason? projectionReason,
   }) {
     return CrdtDataAttemptedValue(
       id: id is int? ? id : this.id,
       fieldId: fieldId ?? this.fieldId,
-      field: field is _icw2tu00.CrdtDataField? ? field : this.field?.copyWith(),
+      field: field is _iss.UndefinedSentinel ? this.field?.copyWith() : field,
       value: value != _Undefined ? value : this.value,
       projectionReason: projectionReason ?? this.projectionReason,
     );

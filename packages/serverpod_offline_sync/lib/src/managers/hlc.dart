@@ -16,10 +16,12 @@ class HlcManager {
 
   /// Creates a new [HlcManager] for the current node of [space].
   ///
+  /// [currentNode] uses a refreshed node without copying the space's relations.
   /// [maxDrift] bounds [increment] (and [peekNext]), [merge] and [adoptOwn],
   /// so a timestamp [merge] accepts never blocks the next local write.
   factory HlcManager.forSpace(
     OfflineSyncSpace space, {
+    CrdtNode? currentNode,
     Duration maxDrift = Hlc.defaultMaxDrift,
   }) {
     if (maxDrift <= Duration.zero) {
@@ -28,8 +30,8 @@ class HlcManager {
     return HlcManager._(
       space.uuidSpaceId,
       space.id!,
-      space.currentNodeId!,
-      space.currentNode!,
+      (currentNode ?? space.currentNode!).id!,
+      currentNode ?? space.currentNode!,
       maxDrift,
     );
   }

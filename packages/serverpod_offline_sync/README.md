@@ -11,18 +11,15 @@ drift의 `watch()`처럼 로컬 쓰기와 동기화 병합을 화면에 자동�
 | [`serverpod_offline_sync_server`](../serverpod_offline_sync_server/README.md) | Serverpod 서버 모듈 |
 
 엔진 자체의 개념(space, 충돌 처리, 모델링 제약, 예약 값)은 기준 커밋의
-[업스트림 README](https://github.com/marcelomendoncasoares/serverpod_offline_sync/blob/96271a25ab22c44dd3d94c6cd3fe910f63354609/README.md)와
-[설계 문서](https://github.com/marcelomendoncasoares/serverpod_offline_sync/tree/96271a25ab22c44dd3d94c6cd3fe910f63354609/docs)를 따릅니다.
+[업스트림 README](https://github.com/marcelomendoncasoares/serverpod_offline_sync/blob/e0598c1577db2d55c9af7d0d165be6332256910d/README.md)와
+[설계 문서](https://github.com/marcelomendoncasoares/serverpod_offline_sync/tree/e0598c1577db2d55c9af7d0d165be6332256910d/docs)를 따릅니다.
 업스트림 README에는 "not yet ready for production use"라고 적혀 있습니다.
 
 ## 왜 포크인가
 
-- 업스트림 0.0.8은 Serverpod `4.0.0`을 정확히 고정합니다. 4.1.0-beta.1에서 `Database`에 추가된
-  `watch`/`unsafeWatch`를 구현하지 않아서, 4.1에서는 **컴파일되지 않습니다**
-  (`OfflineSyncDatabase implements Database`).
-- `watch`를 내부 DB에 그대로 넘기면 **삭제가 화면에 반영되지 않습니다.** 로컬 삭제와 병합된 tombstone은
-  도메인 행을 건드리지 않고 `crdt_data_rows`·`crdt_data_tombstone`에만 씁니다. 가시성 필터는 raw SQL
-  `Expression`이라 Serverpod가 트리거 테이블로 수집하지도 않습니다.
+- 업스트림 `0.0.11`도 Serverpod 4.1과 CRDT 가시성을 반영하는 `watch`를 지원합니다.
+  이번 업데이트는 그 구현을 사용합니다. SQL에서 멤버십을 매번 평가하고, 호출자의 include 그래프는
+  복사해 사용하므로 여러 조회·구독에서 같은 include를 재사용할 수 있습니다.
 
 - 앱이 의존하는 **포크 전용 API·동작**이 늘었습니다(업스트림에 없음). 시계 오차 허용치 설정(`maxClockDrift`,
   unibook#14182), 와이어 실패 코드와 분류기(`OfflineSyncRemoteException`·`offlineSyncWireErrors`·
@@ -38,15 +35,26 @@ drift의 `watch()`처럼 로컬 쓰기와 동기화 병합을 화면에 자동�
 
 ## 업스트림 기준과 변경점
 
-기준 커밋은 [`96271a2`](https://github.com/marcelomendoncasoares/serverpod_offline_sync/commit/96271a25ab22c44dd3d94c6cd3fe910f63354609)입니다.
-0.0.8 이후 미릴리스 수정(#147·#148·#151·#152)을 포함합니다. 라이선스는 업스트림 BSD-3-Clause
-(`LICENSE`)를 그대로 유지합니다. 업스트림 대비 변경은 다음이 전부입니다.
+기준은 최신 배포 버전 `0.0.11`의
+[`e0598c1`](https://github.com/marcelomendoncasoares/serverpod_offline_sync/commit/e0598c1577db2d55c9af7d0d165be6332256910d)입니다.
+세 패키지 버전은 `0.0.11+co.1`, Serverpod 의존성은 `^4.1.0-beta.3`입니다.
+`0.0.9`~`0.0.11`의 체크포인트 복구·upsert 기본값·병합 배치·watch/include 수정을 반영했습니다.
+포크의 공간별 서버 노드, 시계 허용치, 실패 분류, 상태, 배치 예산·행 격리, 스키마·설정 API,
+ByteData 보존과 FK 도달 행의 payload 읽기 축소를 유지합니다. 도메인 값과 외래 키 의존을 포함한
+전송 배치 전체를 한 스냅샷에서 캡처한 뒤 트랜잭션을 닫고 내보냅니다. 제한 없는 수집도 동일합니다.
+
+2026-10-23 확인한 `main` 최신 커밋은
+[`ebf9385`](https://github.com/marcelomendoncasoares/serverpod_offline_sync/commit/ebf93852c73477ebd057f39fe6227071e38f7680)입니다.
+릴리스 이후 #168의 사용자별 시계·기존 시계 초기화·모델/마이그레이션 변경과 #169·#170은 포함하지
+않습니다. #168은 포크의 공간별 서버 노드 정책과 함께 별도 이관이 필요합니다. 이번 업데이트는
+기존 DB 스키마와 시계를 유지하므로 마이그레이션을 추가하지 않습니다.
+라이선스는 업스트림 BSD-3-Clause (`LICENSE`)를 그대로 유지합니다. 주요 포크 변경은 다음과 같습니다.
 
 | 대상 | 변경 |
 |---|---|
-| `lib/src/database/database.dart` | `watch`·`unsafeWatch` 구현, 트리거 테이블 수집·include 복원 헬퍼 |
-| `lib/src/generated/**` | CLI 4.1.0-beta.1로 재생성. 테이블 저장소마다 `watch`가 추가되고 삭제된 줄은 없음. 아래 새 모델 2개(`sync/failure_code.dart`·`sync/remote_exception.dart`)와 그 `protocol.dart` 등록(import·export·역직렬화 분기)도 재생성 산출물 |
-| 세 패키지 `pubspec.yaml` | Serverpod `^4.1.0-beta.1`, 형제 path 의존, 워크스페이스 해제, `publish_to: none` |
+| `lib/src/database/database.dart`·`watch.dart`·`includes.dart` | watch·include 처리는 업스트림 0.0.11 구현을 사용. 직렬화 결과가 같은 발행은 구독별로 걸러 기존 포크 동작을 유지. 아래 포크 API·설정과 함께 연결 |
+| `lib/src/generated/**` | CLI 4.1.0-beta.3로 재생성. 아래 새 모델 2개(`sync/failure_code.dart`·`sync/remote_exception.dart`)와 그 `protocol.dart` 등록(import·export·역직렬화 분기)도 재생성 산출물 |
+| 세 패키지 `pubspec.yaml` | Serverpod `^4.1.0-beta.3`, 형제 path 의존, 워크스페이스 해제, `publish_to: none` |
 | 세 패키지 `analysis_options.yaml` | 업스트림 루트 린트를 `analysis_options.upstream.yaml`로 옮겨 include |
 | `README.md`·`CHANGELOG.md` | 업스트림 루트를 가리키던 심볼릭 링크를 실제 파일로 교체 |
 | `lib/src/hlc/hlc.dart` | 시계 오차 허용치: 업스트림의 1분 고정(`_maxDrift` + `increment` 의 `Duration(minutes: 1)` 리터럴)을 `Hlc.defaultMaxDrift`(**1시간**)와 `increment`·`merge` 의 `maxDrift` 인자로 교체. 검사 구조(로컬 역행 검사 포함)는 그대로. 자기 노드 스탬프를 같은 한도로 받는 `adoptOwn` 신설 ([시계 오차](#시계-오차-허용치와-동기화-실패-분류)) |
@@ -56,7 +64,7 @@ drift의 `watch()`처럼 로컬 쓰기와 동기화 병합을 화면에 자동�
 | `lib/src/database/recorder.dart`·`merge_utils/recorder_context.dart` | `OfflineSyncDatabaseContext.maxClockDrift`(0 이하 `ArgumentError`)·`resolve`, `hlcManagerFor` 가 그 값을 전달 |
 | `lib/src/database/database.dart`·`session.dart`·`lib/src/sync/engine.dart` | `maxClockDrift` named 인자(공유 context 와 다르면 `ArgumentError`)와 getter. 이 항목은 동기화 루프·프로토콜을 바꾸지 않음 |
 | `lib/src/sync/engine.dart`·`space_state.dart` | 미전송 건수의 근거(unibook#14183): 기기(follower)가 서버 핸드셰이크의 자기 노드 체크포인트로 (space, 자기 노드) `offline_sync_space_nodes.lastReceivedHlc` 를 **덮어쓰고**(A), `once` 세션에서 서버 `OfflineSyncClose` 를 받은 뒤에만 보낸 변경의 최대값을 기록한다(B). 동기화 루프에 기기 쪽 DB 쓰기가 늘었고, 와이어 프로토콜·스키마·권위 피어 동작은 무변경. 이 쓰기는 새 `OfflineSyncDatabase` 래퍼가 아니라 plain DB 위의 recorder 로 한다(래퍼의 첫 작업은 레지스트리가 바뀐 프로세스에서 전 space 를 재투영한다). `countUnsentRows`(수집 필터를 자기 노드로 좁힌 3쿼리, 행을 읽은 뒤 체크포인트를 다시 읽어 내려갔으면 다시 셈), 테스트 훅 `@visibleForTesting debugOnUnsentRowCheckpointsRead`, `OfflineSyncSpaceState.checkpointOf`·`handshakenSpaceIds` ([동기화 상태](#동기화-상태와-미전송-건수)) |
-| `lib/src/sync/engine.dart` (`_readPendingChanges`) | 보낼 변경 수집의 **유실 수정**(unibook#14183): 업스트림은 삽입·갱신·삭제 쿼리를 각 스트림이 시작할 때 따로 돌려, 그 사이 커밋된 쓰기를 뒤 쿼리만 봤다. 뒤에 읽힌 갱신이 먼저 놓친 삽입보다 높은 HLC 로 체크포인트를 올려 그 삽입은 다음 세션에도 보내지지 않았다. 세 쿼리를 첫 변경을 내기 전에 **한 스냅샷**(PostgreSQL repeatable read · SQLite 쓰기 잠금 트랜잭션)에서 읽는다. 와이어·스키마 무변경. 테스트 훅 `@visibleForTesting debugOnPendingRowsRead`(삽입과 갱신 조회 사이) |
+| `lib/src/sync/engine.dart` (`_readPendingChanges`) | 업스트림의 일관된 전송 스냅샷을 포크 배치 계획에도 적용: 메타데이터·attempted value·외래 키 의존·도메인 값을 같은 repeatable-read/SQLite 쓰기 트랜잭션으로 읽고, 수신자에게 yield하기 전에 닫는다. `debugOnPendingRowsRead` 테스트 훅 유지 |
 | `lib/src/database/database.dart`·`recorder.dart`·`unsent_row_count.dart` (신규, 배럴 미export) | `unsentRowCount`·`watchUnsentRowCount`(파이프라인 `countOnEachTrigger`)·`watchUnsentRowCountTriggers`, `@internal replaceSyncCheckpoint`(단조 증가가 아닌 덮어쓰기), 테스트 훅 `@visibleForTesting CrdtMutationRecorder.debugProjectionRebuildCount` |
 | `lib/src/sync/failure_code.spy.yaml`·`remote_exception.spy.yaml`·`failure_mapping.dart` (신규) | 와이어 예외 `OfflineSyncRemoteException`·`OfflineSyncFailureCode`(`unknown` + `default: unknown`), 매퍼 `toOfflineSyncWireError`(`driftMs` 올림, 무결성 위반은 식별자 없는 고정 문구)·`offlineSyncWireErrors(onMapped:)`. 생성 코드 2개 추가 |
 | `lib/serverpod_offline_sync.dart` (배럴) | `src/sync/failure_mapping.dart` export 추가 — 공개 API 가 늘어남 |
@@ -75,18 +83,18 @@ drift의 `watch()`처럼 로컬 쓰기와 동기화 병합을 화면에 자동�
 | `lib/src/sync/engine.dart` (배치 예산·행 격리) | 생성자 `batchBudget`(기본 `unlimited`)·`rowIsolation`, getter, `wrapDatabase` 전달. 루프: 둘 다 기본값이면 **종전 `collectPendingChanges` 그대로**, 아니면 `_collectPlannedBatch`(같은 스냅샷을 HLC 순으로 계획해 예산 안에서 멈추고 `hasMore`. 변경 수 한도로 받을 유닛을 먼저 정하고(`_planOutboundUnits` — 그 안의 외래 키 후보만 읽어 복원된 부모 insert 와 묶을 때까지 다시 계획, `debugOnForeignKeysRead`), 그 insert 의 attempted value 만 읽고(`debugOnAttemptedValuesRead`), 혼자 넘치는 유닛은 그룹 단위로 보낸다). `EndOfBatch(hasMore:)`. `once` 는 두 플래그 중 하나라도 `true` 면 회차를 더 돈다(상대가 null 이면 닫음). 상대 `Close` 로 끝난·다 보낸 `once` 세션이 `onReleasedRowsConfirmed`, 그것이 돌아온 **뒤** 컨텍스트에 알려 미전송 건수 watch 가 다시 센다(`OfflineSyncDatabaseContext.notifyUnsentRowCountInputsChanged`, `@internal`). `_readPendingChanges(releasedRows:)` — 해제 행의 변경 전부를 같은 스냅샷에서(없으면 쿼리 무추가). 스트림 3종을 판정 `_sendsInsert/Update/Delete` 와 해석 `_resolveInsert/Update/Delete` 로 나눔(업스트림 경로 동작 무변경). `countUnsentRows` 가 두 집합의 로컬 행을 더함 ([배치 예산과 행 격리](#배치-예산과-행-격리)) |
 | `lib/src/database/database.dart`·`session.dart`·`unsent_row_count.dart` (배치 예산·행 격리) | `OfflineSyncDatabase(batchBudget:, rowIsolation:)`·getter, `OfflineSyncDatabaseSession(...)`·`.wraps(...)` 도 받아 전달(이미 감싼 db 면 무시). 생성 `createSyncSession` 은 전달하지 않음. `watchUnsentRowCountTriggers` = SQLite 커밋 watch ⊕ 컨텍스트 알림(`mergeTriggers`) |
 | `serverpod_offline_sync_server` `business/offline_sync.dart` (배치 예산) | `initializeOfflineSync(batchBudget:)`(기본 `unlimited`)·`OfflineSyncSession.batchBudget` getter(unibook#14251). 행 격리는 서버에 두지 않는다 |
-| `lib/src/database/database.dart` (`_spaceIdsForQueries`) | 트랜잭션 조회의 **멤버십 조회에 호출자 트랜잭션 전달**(unibook#14256): 읽기 API(`find`·`findFirstRow`·`findById`·`count`)가 공간 조건을 만들려고 먼저 읽는 `offline_sync_spaces`·`offline_sync_space_members` 조회 2건에 `transaction:` 추가. 업스트림은 트랜잭션 밖에서 읽어, SQLite 에서 다른 트랜잭션 뒤에 대기했던 트랜잭션 안의 조회가 `LockError`(어댑터의 부모 zone 기록을 먼저 끝난 트랜잭션이 지운다)로 실패했고, 같은 트랜잭션에서 앞서 쓴 멤버십을 보지 못했다. 쓰기 경로(acting space, 메모리)·와이어·스키마 무변경. 회귀 fixture `test/offline_sync_watch_test_client/test/transaction_read_test.dart` |
+| `lib/src/database/database.dart` (`_spaceIdsForQueries`) | 멤버십 조회의 호출자 트랜잭션 전달은 업스트림 #161에 포함. 기존 SQLite 잠금·같은 트랜잭션의 권한 변경 회귀 fixture `transaction_read_test.dart` 유지 |
 | **포크 전용 테스트** (업스트림에 없음) | 엔진 `test/hlc/hlc_max_drift_test.dart`·`test/managers/hlc_manager_test.dart`·`test/sync/failure_mapping_test.dart`·`test/sync/max_clock_drift_config_test.dart`·`test/database/unsent_row_count_test.dart`·`test/sync/continuous_sync_interval_policy_test.dart`·`test/sync/outbound_batch_plan_test.dart`, 클라이언트 `test/failure_test.dart`·`test/sync_status_test.dart`, 서버 모듈 `test/integration/failure_mapping_test.dart`·`test/integration/continuous_sync_interval_test.dart`·`test/integration/batch_budget_test.dart`. 업스트림을 새로 풀면 **지워진다** — [업스트림 따라가기](#업스트림-따라가기) 1단계 |
 
 ## 설치
 
-앱 서버와 클라이언트 모두 Serverpod와 CLI를 **4.1.0-beta.1**로 맞춥니다. `ref`는 검증한 커밋 SHA로
+앱 서버와 클라이언트 모두 Serverpod와 CLI를 **4.1.0-beta.3**로 맞춥니다. `ref`는 검증한 커밋 SHA로
 고정하세요. 형제 패키지 `serverpod_offline_sync`는 같은 저장소·커밋에서 path 의존으로 따라옵니다.
 
 ```yaml
 # my_app_server/pubspec.yaml
 dependencies:
-  serverpod: ^4.1.0-beta.1
+  serverpod: ^4.1.0-beta.3
   serverpod_offline_sync_server:
     git:
       url: https://github.com/coco-de/co-serverpod.git
@@ -97,7 +105,7 @@ dependencies:
 ```yaml
 # my_app_client/pubspec.yaml
 dependencies:
-  serverpod_client: ^4.1.0-beta.1
+  serverpod_client: ^4.1.0-beta.3
   serverpod_offline_sync_client:
     git:
       url: https://github.com/coco-de/co-serverpod.git
@@ -127,7 +135,7 @@ fields:
   archived: bool, default=false
 ```
 
-CLI 4.1.0-beta.1로 `serverpod generate`를 실행하면 모든 테이블 모델에 `watch`가 생깁니다.
+CLI 4.1.0-beta.3로 `serverpod generate`를 실행하면 모든 테이블 모델에 `watch`가 생깁니다.
 
 ## 사용법
 
@@ -365,7 +373,7 @@ await session.db.initialize();
   서버는 `unknown` 을 보내지 않습니다.
 - ⚠️ **`unknown` 은 모르는 코드만 막습니다 — 모르는 클래스는 못 막습니다.** `OfflineSyncRemoteException` 이 생기기
   전의 포크로 빌드한 앱은 이 클래스 자체를 복호하지 못해 같은 `UnknownMessageException` 이 나고 연결 전체가
-  닫힙니다(`serverpod_client` 4.1.0-beta.1 `client_method_stream_manager.dart` 의 `UnknownMessageException`
+  닫힙니다(`serverpod_client` 4.1.0-beta.3 `client_method_stream_manager.dart` 의 `UnknownMessageException`
   catch → rethrow → 연결 종료). 이 포크에 의존해 배포된 앱이 없으면 영향이 없습니다(unibook 은 2026-09-24
   기준 의존하지 않음). 앞으로 기기로 보내는 **새 직렬화 클래스**(예외든 이벤트든)를 더할 때는 그 클래스를 아는
   앱을 먼저 배포하고 서버가 나중에 보내기 시작하게 하거나, 핸드셰이크에서 기기가 아는지 확인해 게이트하세요.
@@ -656,11 +664,12 @@ await store.release((tableName: 'note', rowId: noteId)); // 격리에서 빼고 
 - **재조회 범위**: CRDT 테이블은 모든 동기화 테이블이 공유하므로, 어느 동기화 테이블에 쓰든 모든 watch가
   다시 조회합니다. 동기화 기록 같은 부수 쓰기도 마찬가지입니다. 그래서 직렬화 결과가 직전 emit과 같으면
   내보내지 않습니다. 생성 모델에는 `==`가 없어서 앱에서 거르기 어렵기 때문입니다.
-- **가시성 필터 재생성**: 재조회할 때마다 가시성 필터와 space 목록을 새로 만듭니다. 공유 space 권한
-  변경 시나리오는 아직 테스트하지 않았습니다.
+- **가시성과 include**: SQL이 실행될 때마다 커밋된 멤버십과 가시성을 평가합니다. 중첩 include도
+  조회별로 복사하므로 호출자의 필터를 변경하지 않습니다. watch 전에 `initialize()`를 호출하세요
+  (`createSyncSession`은 초기화를 수행합니다).
 - **SQLite 전용**: 서버(Postgres)에서 호출하면 `UnsupportedError`입니다. 커밋된 상태만 읽고, 롤백된
   트랜잭션은 내보내지 않습니다.
-- **버전 범위**: Serverpod CLI는 `^4.1.0-beta.1` 같은 범위보다 정확한 버전 고정을 권장한다고 경고합니다.
+- **버전 범위**: Serverpod CLI는 `^4.1.0-beta.3` 같은 범위보다 정확한 버전 고정을 권장한다고 경고합니다.
   4.1 정식 이후 버전 차이로 생성 코드가 어긋나면 정확한 버전으로 고정하세요.
 - **웹**: 웹 빌드는 검증하지 않았습니다.
 
@@ -717,7 +726,7 @@ dart run serverpod_cli create-migration
 
 ## 포크 제거
 
-업스트림이 Serverpod 4.1과 `watch`를 지원하는 버전을 내고, [왜 포크인가](#왜-포크인가)의 포크 전용 API·동작에
+업스트림은 Serverpod 4.1과 `watch`를 지원합니다. [왜 포크인가](#왜-포크인가)의 포크 전용 API·동작에
 대응물이 생기면 다음 순서로 돌아갑니다.
 
 1. [변경점 표](#업스트림-기준과-변경점)의 포크 전용 항목마다 업스트림 대응물을 찾고, 앱 호출부를 그쪽으로 옮깁니다.

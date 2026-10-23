@@ -28,7 +28,7 @@ melos:
 
     serverpod-offline-sync:generate:
       run: cd packages/serverpod_offline_sync_server && dart run serverpod_cli generate && cd ../../test/offline_sync_watch_test_server && dart run serverpod_cli generate
-      description: 포크 모듈과 watch fixture 코드 재생성 (의존성의 CLI 4.1.0-beta.1 사용)
+      description: 포크 모듈과 watch fixture 코드 재생성 (의존성의 CLI 4.1.0-beta.3 사용)
 
     analyze:
       run: melos exec -- dart analyze --fatal-infos

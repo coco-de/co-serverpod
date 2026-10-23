@@ -64,10 +64,10 @@ abstract class Folder
   /// with some or all fields replaced by the given arguments.
   @_is.useResult
   Folder copyWith({
-    _is.UuidValue? id,
+    _is.UuidValue? id = const _is.$UndefinedUuidValue(),
     int? spaceId,
     String? name,
-    List<_io8vvye9.Note>? notes,
+    List<_io8vvye9.Note>? notes = const _is.$UndefinedList<_io8vvye9.Note>(),
   });
   @override
   Map<String, dynamic> toJson() {
@@ -135,18 +135,18 @@ class _FolderImpl extends Folder {
   @_is.useResult
   @override
   Folder copyWith({
-    Object? id = _Undefined,
+    _is.UuidValue? id = const _is.$UndefinedUuidValue(),
     Object? spaceId = _Undefined,
     String? name,
-    Object? notes = _Undefined,
+    List<_io8vvye9.Note>? notes = const _is.$UndefinedList<_io8vvye9.Note>(),
   }) {
     return Folder(
-      id: id is _is.UuidValue? ? id : this.id,
+      id: id is _is.UndefinedSentinel ? this.id : id,
       spaceId: spaceId is int? ? spaceId : this.spaceId,
       name: name ?? this.name,
-      notes: notes is List<_io8vvye9.Note>?
-          ? notes
-          : this.notes?.map((e0) => e0.copyWith()).toList(),
+      notes: notes is _is.UndefinedSentinel
+          ? this.notes?.map((e0) => e0.copyWith()).toList()
+          : notes,
     );
   }
 }

@@ -98,7 +98,7 @@ abstract class CrdtSchemaColumn
   CrdtSchemaColumn copyWith({
     int? id,
     int? tblId,
-    _icw2tu00.CrdtSchemaTable? tbl,
+    _icw2tu00.CrdtSchemaTable? tbl = const _UndefinedCrdtSchemaColumn$tbl(),
     String? name,
     String? columnType,
     String? dartType,
@@ -164,6 +164,11 @@ abstract class CrdtSchemaColumn
 
 class _Undefined {}
 
+class _UndefinedCrdtSchemaColumn$tbl extends _iss.UndefinedSentinel
+    implements _icw2tu00.CrdtSchemaTable {
+  const _UndefinedCrdtSchemaColumn$tbl();
+}
+
 class _CrdtSchemaColumnImpl extends CrdtSchemaColumn {
   _CrdtSchemaColumnImpl({
     int? id,
@@ -190,7 +195,7 @@ class _CrdtSchemaColumnImpl extends CrdtSchemaColumn {
   CrdtSchemaColumn copyWith({
     Object? id = _Undefined,
     int? tblId,
-    Object? tbl = _Undefined,
+    _icw2tu00.CrdtSchemaTable? tbl = const _UndefinedCrdtSchemaColumn$tbl(),
     String? name,
     String? columnType,
     String? dartType,
@@ -199,7 +204,7 @@ class _CrdtSchemaColumnImpl extends CrdtSchemaColumn {
     return CrdtSchemaColumn(
       id: id is int? ? id : this.id,
       tblId: tblId ?? this.tblId,
-      tbl: tbl is _icw2tu00.CrdtSchemaTable? ? tbl : this.tbl?.copyWith(),
+      tbl: tbl is _iss.UndefinedSentinel ? this.tbl?.copyWith() : tbl,
       name: name ?? this.name,
       columnType: columnType ?? this.columnType,
       dartType: dartType ?? this.dartType,

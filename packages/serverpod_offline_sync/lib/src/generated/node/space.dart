@@ -90,8 +90,10 @@ abstract class OfflineSyncSpace
     int? id,
     _iss.UuidValue? uuidSpaceId,
     int? currentNodeId,
-    _icw2tu00.CrdtNode? currentNode,
-    List<_icw2tu00.OfflineSyncSpaceNode>? nodes,
+    _icw2tu00.CrdtNode? currentNode =
+        const _UndefinedOfflineSyncSpace$currentNode(),
+    List<_icw2tu00.OfflineSyncSpaceNode>? nodes =
+        const _iss.$UndefinedList<_icw2tu00.OfflineSyncSpaceNode>(),
   });
   @override
   Map<String, dynamic> toJson() {
@@ -154,6 +156,11 @@ abstract class OfflineSyncSpace
 
 class _Undefined {}
 
+class _UndefinedOfflineSyncSpace$currentNode extends _iss.UndefinedSentinel
+    implements _icw2tu00.CrdtNode {
+  const _UndefinedOfflineSyncSpace$currentNode();
+}
+
 class _OfflineSyncSpaceImpl extends OfflineSyncSpace {
   _OfflineSyncSpaceImpl({
     int? id,
@@ -177,19 +184,21 @@ class _OfflineSyncSpaceImpl extends OfflineSyncSpace {
     Object? id = _Undefined,
     _iss.UuidValue? uuidSpaceId,
     Object? currentNodeId = _Undefined,
-    Object? currentNode = _Undefined,
-    Object? nodes = _Undefined,
+    _icw2tu00.CrdtNode? currentNode =
+        const _UndefinedOfflineSyncSpace$currentNode(),
+    List<_icw2tu00.OfflineSyncSpaceNode>? nodes =
+        const _iss.$UndefinedList<_icw2tu00.OfflineSyncSpaceNode>(),
   }) {
     return OfflineSyncSpace(
       id: id is int? ? id : this.id,
       uuidSpaceId: uuidSpaceId ?? this.uuidSpaceId,
       currentNodeId: currentNodeId is int? ? currentNodeId : this.currentNodeId,
-      currentNode: currentNode is _icw2tu00.CrdtNode?
-          ? currentNode
-          : this.currentNode?.copyWith(),
-      nodes: nodes is List<_icw2tu00.OfflineSyncSpaceNode>?
-          ? nodes
-          : this.nodes?.map((e0) => e0.copyWith()).toList(),
+      currentNode: currentNode is _iss.UndefinedSentinel
+          ? this.currentNode?.copyWith()
+          : currentNode,
+      nodes: nodes is _iss.UndefinedSentinel
+          ? this.nodes?.map((e0) => e0.copyWith()).toList()
+          : nodes,
     );
   }
 }

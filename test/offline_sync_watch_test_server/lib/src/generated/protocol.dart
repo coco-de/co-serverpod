@@ -27,12 +27,34 @@ export 'note.dart';
 export 'stroke.dart';
 export 'sync_tables.dart';
 
-class Protocol extends _is.DatabaseSerializationManager {
+class Protocol extends _is.DatabaseSerializationManager
+    implements _is.DatabaseProtocolDeserializationProvider {
   Protocol._();
 
   factory Protocol() => _instance;
 
   static final Protocol _instance = Protocol._().._registerHostProtocols();
+
+  @override
+  _is.ProtocolDeserialization get deserializationMetadata =>
+      _is.ProtocolDeserialization.cached(
+        this,
+        types: const [
+          _is.getType<_i6v7uii8.Attachment>,
+          _is.getType<_ij200e11.Folder>,
+          _is.getType<_icz3qgao.LocalDraft>,
+          _is.getType<_io8vvye9.Note>,
+          _is.getType<_ikjj7mbr.Stroke>,
+          _is.getType<_i6v7uii8.Attachment?>,
+          _is.getType<_ij200e11.Folder?>,
+          _is.getType<_icz3qgao.LocalDraft?>,
+          _is.getType<_io8vvye9.Note?>,
+          _is.getType<_ikjj7mbr.Stroke?>,
+          _is.getType<List<_io8vvye9.Note>>,
+          _is.getType<List<_io8vvye9.Note>?>,
+        ],
+        modules: const [_izehhkf5.Protocol.new, _isp.Protocol.new],
+      );
 
   static List<_isp.TableDefinition> get targetTableDefinitions => [
     _isp.TableDefinition(
@@ -360,12 +382,15 @@ class Protocol extends _is.DatabaseSerializationManager {
               : null)
           as T;
     }
-    try {
-      return _izehhkf5.Protocol().deserialize<T>(data, t);
-    } on _is.DeserializationTypeNotFoundException catch (_) {}
-    try {
-      return _isp.Protocol().deserialize<T>(data, t);
-    } on _is.DeserializationTypeNotFoundException catch (_) {}
+    final modules = dataClassName == null
+        ? deserializationMetadata.modulesForType(t)
+        : deserializationMetadata.modules;
+    for (final module in modules) {
+      try {
+        return module.deserialize<T>(data, t);
+      } on _is.DeserializationTypeNotFoundException catch (_) {}
+    }
+
     return super.deserialize<T>(data, t);
   }
 

@@ -202,10 +202,13 @@ void main() {
         'inbox': ['b'],
       });
 
-      // Every re-run restores the caller's include predicate before find()
-      // adds the visibility filter, so it never accumulates.
+      // Query predicates belong to a copied graph. The same include can be
+      // reused by a read or another subscription without retaining visibility SQL.
       final notesWhere = (include.includes['notes']! as IncludeList).where;
-      expect('NOT EXISTS'.allMatches('$notesWhere'), hasLength(1));
+      expect(notesWhere, isNull);
+      final reread = await Folder.db.find(session, include: include);
+      expect(reread.single.notes!.map((note) => note.title), ['b']);
+      expect((include.includes['notes']! as IncludeList).where, isNull);
     });
 
     test('should_watch_local_only_client_tables', () async {

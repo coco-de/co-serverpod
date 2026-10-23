@@ -28,12 +28,34 @@ export 'stroke.dart';
 export 'client.dart';
 export 'sync_tables.dart';
 
-class Protocol extends _isd.DatabaseSerializationManager {
+class Protocol extends _isd.DatabaseSerializationManager
+    implements _isd.DatabaseProtocolDeserializationProvider {
   Protocol._();
 
   factory Protocol() => _instance;
 
   static final Protocol _instance = Protocol._().._registerHostProtocols();
+
+  @override
+  _isc.ProtocolDeserialization get deserializationMetadata =>
+      _isc.ProtocolDeserialization.cached(
+        this,
+        types: const [
+          _isc.getType<_i6v7uii8.Attachment>,
+          _isc.getType<_ij200e11.Folder>,
+          _isc.getType<_icz3qgao.LocalDraft>,
+          _isc.getType<_io8vvye9.Note>,
+          _isc.getType<_ikjj7mbr.Stroke>,
+          _isc.getType<_i6v7uii8.Attachment?>,
+          _isc.getType<_ij200e11.Folder?>,
+          _isc.getType<_icz3qgao.LocalDraft?>,
+          _isc.getType<_io8vvye9.Note?>,
+          _isc.getType<_ikjj7mbr.Stroke?>,
+          _isc.getType<List<_io8vvye9.Note>>,
+          _isc.getType<List<_io8vvye9.Note>?>,
+        ],
+        modules: const [_ipulbpi2.Protocol.new],
+      );
 
   static List<_isd.TableDefinition> get targetTableDefinitions => [
     _isd.TableDefinition(
@@ -387,9 +409,15 @@ class Protocol extends _isd.DatabaseSerializationManager {
               : null)
           as T;
     }
-    try {
-      return _ipulbpi2.Protocol().deserialize<T>(data, t);
-    } on _isc.DeserializationTypeNotFoundException catch (_) {}
+    final modules = dataClassName == null
+        ? deserializationMetadata.modulesForType(t)
+        : deserializationMetadata.modules;
+    for (final module in modules) {
+      try {
+        return module.deserialize<T>(data, t);
+      } on _isc.DeserializationTypeNotFoundException catch (_) {}
+    }
+
     return super.deserialize<T>(data, t);
   }
 
