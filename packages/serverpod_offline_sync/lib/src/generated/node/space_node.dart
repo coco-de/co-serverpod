@@ -90,9 +90,10 @@ abstract class OfflineSyncSpaceNode
   OfflineSyncSpaceNode copyWith({
     int? id,
     int? spaceId,
-    _icw2tu00.OfflineSyncSpace? space,
+    _icw2tu00.OfflineSyncSpace? space =
+        const _UndefinedOfflineSyncSpaceNode$space(),
     int? nodeId,
-    _icw2tu00.CrdtNode? node,
+    _icw2tu00.CrdtNode? node = const _UndefinedOfflineSyncSpaceNode$node(),
     _icw2tu00.Hlc? lastReceivedHlc,
   });
   @override
@@ -165,6 +166,16 @@ abstract class OfflineSyncSpaceNode
 
 class _Undefined {}
 
+class _UndefinedOfflineSyncSpaceNode$space extends _iss.UndefinedSentinel
+    implements _icw2tu00.OfflineSyncSpace {
+  const _UndefinedOfflineSyncSpaceNode$space();
+}
+
+class _UndefinedOfflineSyncSpaceNode$node extends _iss.UndefinedSentinel
+    implements _icw2tu00.CrdtNode {
+  const _UndefinedOfflineSyncSpaceNode$node();
+}
+
 class _OfflineSyncSpaceNodeImpl extends OfflineSyncSpaceNode {
   _OfflineSyncSpaceNodeImpl({
     int? id,
@@ -189,19 +200,18 @@ class _OfflineSyncSpaceNodeImpl extends OfflineSyncSpaceNode {
   OfflineSyncSpaceNode copyWith({
     Object? id = _Undefined,
     int? spaceId,
-    Object? space = _Undefined,
+    _icw2tu00.OfflineSyncSpace? space =
+        const _UndefinedOfflineSyncSpaceNode$space(),
     int? nodeId,
-    Object? node = _Undefined,
+    _icw2tu00.CrdtNode? node = const _UndefinedOfflineSyncSpaceNode$node(),
     Object? lastReceivedHlc = _Undefined,
   }) {
     return OfflineSyncSpaceNode(
       id: id is int? ? id : this.id,
       spaceId: spaceId ?? this.spaceId,
-      space: space is _icw2tu00.OfflineSyncSpace?
-          ? space
-          : this.space?.copyWith(),
+      space: space is _iss.UndefinedSentinel ? this.space?.copyWith() : space,
       nodeId: nodeId ?? this.nodeId,
-      node: node is _icw2tu00.CrdtNode? ? node : this.node?.copyWith(),
+      node: node is _iss.UndefinedSentinel ? this.node?.copyWith() : node,
       lastReceivedHlc: lastReceivedHlc is _icw2tu00.Hlc?
           ? lastReceivedHlc
           : this.lastReceivedHlc?.copyWith(),

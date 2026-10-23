@@ -1,5 +1,5 @@
 name: serverpod_offline_sync_client
-version: 0.0.8+co.1
+version: 0.0.11+co.1
 description: >-
   co-serverpod fork of the Serverpod Offline Sync client transport adapter,
   built for Serverpod 4.1.
@@ -13,8 +13,8 @@ environment:
 dependencies:
   clock: ^1.1.2
   meta: ^1.18.0
-  serverpod_client: ^4.1.0-beta.1
-  serverpod_database: ^4.1.0-beta.1
+  serverpod_client: ^4.1.0-beta.3
+  serverpod_database: ^4.1.0-beta.3
   serverpod_offline_sync:
     path: ../serverpod_offline_sync
 

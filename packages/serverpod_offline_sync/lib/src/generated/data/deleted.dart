@@ -107,10 +107,10 @@ abstract class CrdtDataDeleted extends _icw2tu00.BaseHlc
     int? id,
     DateTime? hlcDatetime,
     int? hlcCounter,
-    _icw2tu00.CrdtDataRow? row,
+    _icw2tu00.CrdtDataRow? row = const _UndefinedCrdtDataDeleted$row(),
     int? rowId,
     int? nodeId,
-    _icw2tu00.CrdtNode? node,
+    _icw2tu00.CrdtNode? node = const _UndefinedCrdtDataDeleted$node(),
     int? clFlag,
     _icw2tu00.CrdtDataDeletedReason? reason,
   });
@@ -182,6 +182,16 @@ abstract class CrdtDataDeleted extends _icw2tu00.BaseHlc
 
 class _Undefined {}
 
+class _UndefinedCrdtDataDeleted$row extends _iss.UndefinedSentinel
+    implements _icw2tu00.CrdtDataRow {
+  const _UndefinedCrdtDataDeleted$row();
+}
+
+class _UndefinedCrdtDataDeleted$node extends _iss.UndefinedSentinel
+    implements _icw2tu00.CrdtNode {
+  const _UndefinedCrdtDataDeleted$node();
+}
+
 class _CrdtDataDeletedImpl extends CrdtDataDeleted {
   _CrdtDataDeletedImpl({
     int? id,
@@ -213,10 +223,10 @@ class _CrdtDataDeletedImpl extends CrdtDataDeleted {
     Object? id = _Undefined,
     DateTime? hlcDatetime,
     int? hlcCounter,
-    Object? row = _Undefined,
+    _icw2tu00.CrdtDataRow? row = const _UndefinedCrdtDataDeleted$row(),
     int? rowId,
     int? nodeId,
-    Object? node = _Undefined,
+    _icw2tu00.CrdtNode? node = const _UndefinedCrdtDataDeleted$node(),
     int? clFlag,
     _icw2tu00.CrdtDataDeletedReason? reason,
   }) {
@@ -224,10 +234,10 @@ class _CrdtDataDeletedImpl extends CrdtDataDeleted {
       id: id is int? ? id : this.id,
       hlcDatetime: hlcDatetime ?? this.hlcDatetime,
       hlcCounter: hlcCounter ?? this.hlcCounter,
-      row: row is _icw2tu00.CrdtDataRow? ? row : this.row?.copyWith(),
+      row: row is _iss.UndefinedSentinel ? this.row?.copyWith() : row,
       rowId: rowId ?? this.rowId,
       nodeId: nodeId ?? this.nodeId,
-      node: node is _icw2tu00.CrdtNode? ? node : this.node?.copyWith(),
+      node: node is _iss.UndefinedSentinel ? this.node?.copyWith() : node,
       clFlag: clFlag ?? this.clFlag,
       reason: reason ?? this.reason,
     );

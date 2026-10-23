@@ -156,15 +156,16 @@ abstract class CrdtDataRow extends _icw2tu00.BaseHlc
     DateTime? hlcDatetime,
     int? hlcCounter,
     int? spaceId,
-    _icw2tu00.OfflineSyncSpace? space,
+    _icw2tu00.OfflineSyncSpace? space = const _UndefinedCrdtDataRow$space(),
     int? tblId,
-    _icw2tu00.CrdtSchemaTable? tbl,
+    _icw2tu00.CrdtSchemaTable? tbl = const _UndefinedCrdtDataRow$tbl(),
     _iss.UuidValue? uuidRowId,
     int? nodeId,
-    _icw2tu00.CrdtNode? node,
+    _icw2tu00.CrdtNode? node = const _UndefinedCrdtDataRow$node(),
     _icw2tu00.CrdtDataRowVisibility? visibility,
-    _icw2tu00.CrdtDataDeleted? deleted,
-    List<_icw2tu00.CrdtDataField>? fields,
+    _icw2tu00.CrdtDataDeleted? deleted = const _UndefinedCrdtDataRow$deleted(),
+    List<_icw2tu00.CrdtDataField>? fields =
+        const _iss.$UndefinedList<_icw2tu00.CrdtDataField>(),
   });
   @override
   Map<String, dynamic> toJson() {
@@ -250,6 +251,26 @@ abstract class CrdtDataRow extends _icw2tu00.BaseHlc
 
 class _Undefined {}
 
+class _UndefinedCrdtDataRow$space extends _iss.UndefinedSentinel
+    implements _icw2tu00.OfflineSyncSpace {
+  const _UndefinedCrdtDataRow$space();
+}
+
+class _UndefinedCrdtDataRow$tbl extends _iss.UndefinedSentinel
+    implements _icw2tu00.CrdtSchemaTable {
+  const _UndefinedCrdtDataRow$tbl();
+}
+
+class _UndefinedCrdtDataRow$node extends _iss.UndefinedSentinel
+    implements _icw2tu00.CrdtNode {
+  const _UndefinedCrdtDataRow$node();
+}
+
+class _UndefinedCrdtDataRow$deleted extends _iss.UndefinedSentinel
+    implements _icw2tu00.CrdtDataDeleted {
+  const _UndefinedCrdtDataRow$deleted();
+}
+
 class _CrdtDataRowImpl extends CrdtDataRow {
   _CrdtDataRowImpl({
     int? id,
@@ -290,36 +311,35 @@ class _CrdtDataRowImpl extends CrdtDataRow {
     DateTime? hlcDatetime,
     int? hlcCounter,
     int? spaceId,
-    Object? space = _Undefined,
+    _icw2tu00.OfflineSyncSpace? space = const _UndefinedCrdtDataRow$space(),
     int? tblId,
-    Object? tbl = _Undefined,
+    _icw2tu00.CrdtSchemaTable? tbl = const _UndefinedCrdtDataRow$tbl(),
     _iss.UuidValue? uuidRowId,
     int? nodeId,
-    Object? node = _Undefined,
+    _icw2tu00.CrdtNode? node = const _UndefinedCrdtDataRow$node(),
     _icw2tu00.CrdtDataRowVisibility? visibility,
-    Object? deleted = _Undefined,
-    Object? fields = _Undefined,
+    _icw2tu00.CrdtDataDeleted? deleted = const _UndefinedCrdtDataRow$deleted(),
+    List<_icw2tu00.CrdtDataField>? fields =
+        const _iss.$UndefinedList<_icw2tu00.CrdtDataField>(),
   }) {
     return CrdtDataRow(
       id: id is int? ? id : this.id,
       hlcDatetime: hlcDatetime ?? this.hlcDatetime,
       hlcCounter: hlcCounter ?? this.hlcCounter,
       spaceId: spaceId ?? this.spaceId,
-      space: space is _icw2tu00.OfflineSyncSpace?
-          ? space
-          : this.space?.copyWith(),
+      space: space is _iss.UndefinedSentinel ? this.space?.copyWith() : space,
       tblId: tblId ?? this.tblId,
-      tbl: tbl is _icw2tu00.CrdtSchemaTable? ? tbl : this.tbl?.copyWith(),
+      tbl: tbl is _iss.UndefinedSentinel ? this.tbl?.copyWith() : tbl,
       uuidRowId: uuidRowId ?? this.uuidRowId,
       nodeId: nodeId ?? this.nodeId,
-      node: node is _icw2tu00.CrdtNode? ? node : this.node?.copyWith(),
+      node: node is _iss.UndefinedSentinel ? this.node?.copyWith() : node,
       visibility: visibility ?? this.visibility,
-      deleted: deleted is _icw2tu00.CrdtDataDeleted?
-          ? deleted
-          : this.deleted?.copyWith(),
-      fields: fields is List<_icw2tu00.CrdtDataField>?
-          ? fields
-          : this.fields?.map((e0) => e0.copyWith()).toList(),
+      deleted: deleted is _iss.UndefinedSentinel
+          ? this.deleted?.copyWith()
+          : deleted,
+      fields: fields is _iss.UndefinedSentinel
+          ? this.fields?.map((e0) => e0.copyWith()).toList()
+          : fields,
     );
   }
 }

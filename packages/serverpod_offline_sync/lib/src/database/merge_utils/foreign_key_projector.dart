@@ -12,6 +12,8 @@ import 'recorder_context.dart';
 import 'types.dart';
 import 'unique_resolver.dart';
 
+part 'projection_reads.dart';
+
 typedef _ProjectedForeignKeyRow = ({
   MergeRowKey key,
   CrdtDataRow crdtRow,
@@ -539,13 +541,11 @@ class CrdtForeignKeyProjector {
 
       switch (edge.action) {
         case ForeignKeyAction.setNull:
-          if (edge.childNullable) {
-            safeData[edge.childColumn] = null;
-            attempts[fieldKey] = (
-              value: attemptedValue,
-              reason: CrdtProjectionReason.foreignKeySetNull,
-            );
-          }
+          safeData[edge.childColumn] = null;
+          attempts[fieldKey] = (
+            value: attemptedValue,
+            reason: CrdtProjectionReason.foreignKeySetNull,
+          );
         case ForeignKeyAction.setDefault:
           final defaultProjection = await _defaultProjectionValueFromDatabase(
             edge,
@@ -927,10 +927,11 @@ class CrdtForeignKeyProjector {
     Set<String>? seedTables,
     Set<MergeRowKey>? seedRows,
   }) async {
-    final rows = <MergeRowKey, _ProjectedForeignKeyRow>{};
-    final fieldIds = <MergeFieldKey, int>{};
-    final attemptedValues = <MergeFieldKey, CrdtDataAttemptedValue>{};
-    final fieldHlcs = <MergeFieldKey, Hlc>{};
+    final reader = _ProjectionReader(_context, transaction);
+    final rows = reader.rows;
+    final fieldIds = reader.fieldIds;
+    final attemptedValues = reader.attemptedValues;
+    final fieldHlcs = reader.fieldHlcs;
 
     final tablesToLoad = _tablesToLoad(
       seedTables: seedTables,
@@ -944,18 +945,10 @@ class CrdtForeignKeyProjector {
     );
 
     if (seedRows == null) {
-      for (final tableName in tablesToLoad) {
-        await _loadTableRowsInto(
-          tableName: tableName,
-          rowIds: null,
-          columnNames: columnsByTable[tableName] ?? const <String>{},
-          rows: rows,
-          fieldIds: fieldIds,
-          attemptedValues: attemptedValues,
-          fieldHlcs: fieldHlcs,
-          transaction: transaction,
-        );
-      }
+      await reader.loadRows(
+        requestedRows: {for (final table in tablesToLoad) table: null},
+        columnsByTable: columnsByTable,
+      );
     } else {
       await _loadRowClosureInto(
         tablesToLoad: tablesToLoad,
@@ -968,11 +961,7 @@ class CrdtForeignKeyProjector {
           pendingInserts: const [],
           authoredOverlays: const {},
         ),
-        rows: rows,
-        fieldIds: fieldIds,
-        attemptedValues: attemptedValues,
-        fieldHlcs: fieldHlcs,
-        transaction: transaction,
+        reader: reader,
       );
     }
 
@@ -1157,181 +1146,6 @@ class CrdtForeignKeyProjector {
     return childRowsByAttempt;
   }
 
-  /// Loads [rowIds] of [tableName], or every row of it when [rowIds] is null.
-  ///
-  /// Every row reads [columnNames], unless [projectionColumnNames] is given:
-  /// then only [allColumnRowIds] read all of them and every other row reads
-  /// [projectionColumnNames] alone. A column outside those is on a reached
-  /// row only because an unwritten row names it, and projection neither
-  /// decides nor changes it, so its domain value is what it is and there is
-  /// nothing to write. The exception is an attempted value on such a column,
-  /// which the pass would rewrite or delete: a row holding one reads all
-  /// [columnNames], as it did before (co-serverpod#41).
-  ///
-  /// Returns the row ids that exist, so a closure pass can expand from them.
-  Future<Set<UuidValue>> _loadTableRowsInto({
-    required String tableName,
-    required Set<UuidValue>? rowIds,
-    required Set<String> columnNames,
-    required Map<MergeRowKey, _ProjectedForeignKeyRow> rows,
-    required Map<MergeFieldKey, int> fieldIds,
-    required Map<MergeFieldKey, CrdtDataAttemptedValue> attemptedValues,
-    required Map<MergeFieldKey, Hlc> fieldHlcs,
-    required Transaction transaction,
-    Set<String>? projectionColumnNames,
-    Set<UuidValue> allColumnRowIds = const {},
-  }) async {
-    if (rowIds != null && rowIds.isEmpty) return const {};
-
-    final (tableId, _) = _context.schema[tableName]!;
-    final userId = _context.hlcManagerFor(transaction).normalizedSpaceId;
-    final crdtRows = await CrdtDataRow.db.find(
-      _context.databaseSession,
-      where: (t) {
-        final inSpace = t.spaceId.equals(userId) & t.tblId.equals(tableId);
-        return rowIds == null ? inSpace : inSpace & t.uuidRowId.inSet(rowIds);
-      },
-      include: CrdtDataRow.include(
-        node: CrdtNode.include(),
-        deleted: CrdtDataDeleted.include(node: CrdtNode.include()),
-      ),
-      orderBy: (t) => t.uuidRowId,
-      transaction: transaction,
-    );
-    if (crdtRows.isEmpty) return const {};
-
-    final loadedIds = {for (final row in crdtRows) row.uuidRowId};
-    final readSets = await _columnReadSets(
-      tableName: tableName,
-      loadedIds: loadedIds,
-      columnNames: columnNames,
-      projectionColumnNames: projectionColumnNames,
-      allColumnRowIds: allColumnRowIds,
-      transaction: transaction,
-    );
-    final valuesByRowId = <UuidValue, Map<String, Object?>>{};
-    for (final (ids, columns) in readSets) {
-      if (projectionColumnNames != null) {
-        OfflineSyncProjectionDebug.onClosureColumnsRead?.call(
-          tableName,
-          ids,
-          columns,
-        );
-      }
-      if (columns.isEmpty) continue;
-      valuesByRowId.addAll(
-        await _context.readDomainColumnValues(
-          tableName,
-          ids,
-          columns,
-          transaction,
-        ),
-      );
-    }
-
-    for (final row in crdtRows) {
-      final key = (tableName, row.uuidRowId);
-      rows[key] = (
-        key: key,
-        crdtRow: row,
-        values: Map<String, Object?>.from(valuesByRowId[row.uuidRowId] ?? const {}),
-      );
-    }
-
-    for (final (ids, columns) in readSets) {
-      if (columns.isEmpty) continue;
-      final loadedFields = await _loadFields(
-        tableName: tableName,
-        rowIds: ids,
-        columnNames: columns.toSet(),
-        transaction: transaction,
-      );
-      for (final field in loadedFields) {
-        final fieldKey = (tableName, field.row!.uuidRowId, field.column!.name);
-        fieldIds[fieldKey] = field.id!;
-        fieldHlcs[fieldKey] = field.hlc;
-        final attempted = field.attemptedValue;
-        if (attempted != null) {
-          attemptedValues[fieldKey] = attempted;
-        }
-      }
-    }
-
-    return loadedIds;
-  }
-
-  /// The row ids of [loadedIds] paired with the columns each reads, in the
-  /// order of [columnNames].
-  ///
-  /// One set reading every column when [projectionColumnNames] is null;
-  /// otherwise the rows that read every column, then the rest reading the
-  /// projection columns (see [_loadTableRowsInto]). Empty sets are left out.
-  Future<List<(Set<UuidValue>, List<String>)>> _columnReadSets({
-    required String tableName,
-    required Set<UuidValue> loadedIds,
-    required Set<String> columnNames,
-    required Set<String>? projectionColumnNames,
-    required Set<UuidValue> allColumnRowIds,
-    required Transaction transaction,
-  }) async {
-    if (projectionColumnNames == null) {
-      return [(loadedIds, columnNames.toList())];
-    }
-
-    final allColumnIds = loadedIds.intersection(allColumnRowIds);
-    var projectionIds = loadedIds.difference(allColumnIds);
-    final unreadColumns = columnNames.difference(projectionColumnNames);
-    if (unreadColumns.isNotEmpty && projectionIds.isNotEmpty) {
-      final holding = await _rowsWithAttemptedValues(
-        tableName: tableName,
-        rowIds: projectionIds,
-        columnNames: unreadColumns,
-        transaction: transaction,
-      );
-      allColumnIds.addAll(holding);
-      projectionIds = projectionIds.difference(holding);
-    }
-
-    return [
-      if (allColumnIds.isNotEmpty) (allColumnIds, columnNames.toList()),
-      if (projectionIds.isNotEmpty)
-        (
-          projectionIds,
-          [
-            for (final columnName in columnNames)
-              if (projectionColumnNames.contains(columnName)) columnName,
-          ],
-        ),
-    ];
-  }
-
-  /// The rows of [rowIds] holding an attempted value on any of [columnNames].
-  ///
-  /// Attempted values are sparse, so this asks their table instead of reading
-  /// the fields of every row.
-  Future<Set<UuidValue>> _rowsWithAttemptedValues({
-    required String tableName,
-    required Set<UuidValue> rowIds,
-    required Set<String> columnNames,
-    required Transaction transaction,
-  }) async {
-    final (tableId, _) = _context.schema[tableName]!;
-    final userId = _context.hlcManagerFor(transaction).normalizedSpaceId;
-    final attempted = await CrdtDataAttemptedValue.db.find(
-      _context.databaseSession,
-      where: (t) =>
-          t.field.row.spaceId.equals(userId) &
-          t.field.row.tblId.equals(tableId) &
-          t.field.row.uuidRowId.inSet(rowIds) &
-          t.field.column.name.inSet(columnNames),
-      include: CrdtDataAttemptedValue.include(
-        field: CrdtDataField.include(row: CrdtDataRow.include()),
-      ),
-      transaction: transaction,
-    );
-    return {for (final value in attempted) value.field!.row!.uuidRowId};
-  }
-
   /// Loads the rows the seeds can reach instead of every row of their tables.
   ///
   /// Defaults are loaded as evaluation context. Their implicit dependents join
@@ -1355,7 +1169,7 @@ class CrdtForeignKeyProjector {
   /// ones projection decides or changes. The other columns of
   /// [columnsByTable] are there because an unwritten row names them, and on a
   /// reached row nothing can differ from what it already holds (see
-  /// [_loadTableRowsInto]). Reading them was what made merging one child cost
+  /// [_ProjectionReader.loadRows]). Reading them was what made merging one child cost
   /// in proportion to its stored siblings and their payloads
   /// (co-serverpod#41).
   ///
@@ -1374,12 +1188,13 @@ class CrdtForeignKeyProjector {
     required Map<MergeFieldKey, Object?> authoredOverlays,
     required Map<String, Set<String>> columnsByTable,
     required Map<String, Set<String>> projectionColumnsByTable,
-    required Map<MergeRowKey, _ProjectedForeignKeyRow> rows,
-    required Map<MergeFieldKey, int> fieldIds,
-    required Map<MergeFieldKey, CrdtDataAttemptedValue> attemptedValues,
-    required Map<MergeFieldKey, Hlc> fieldHlcs,
-    required Transaction transaction,
+    required _ProjectionReader reader,
   }) async {
+    final transaction = reader._transaction;
+    final rows = reader.rows;
+    final attemptedValues = reader.attemptedValues;
+    final hasAttemptedClaims = await reader.hasAttemptedClaims(tablesToLoad);
+
     final unwrittenValues = _unwrittenValues(pendingInserts, authoredOverlays);
     final allColumnRowIds = <String, Set<UuidValue>>{};
     for (final rowKey in {...seedRows, ...unwrittenValues.keys}) {
@@ -1424,23 +1239,12 @@ class CrdtForeignKeyProjector {
         final wave = queued;
         queued = <String, Set<UuidValue>>{};
 
-        final loadedNow = <String, Set<UuidValue>>{};
-        for (final MapEntry(key: tableName, value: ids) in wave.entries) {
-          final loaded = await _loadTableRowsInto(
-            tableName: tableName,
-            rowIds: ids,
-            columnNames: columnsByTable[tableName] ?? const <String>{},
-            projectionColumnNames:
-                projectionColumnsByTable[tableName] ?? const <String>{},
-            allColumnRowIds: allColumnRowIds[tableName] ?? const <UuidValue>{},
-            rows: rows,
-            fieldIds: fieldIds,
-            attemptedValues: attemptedValues,
-            fieldHlcs: fieldHlcs,
-            transaction: transaction,
-          );
-          if (loaded.isNotEmpty) loadedNow[tableName] = loaded;
-        }
+        final loadedNow = await reader.loadRows(
+          requestedRows: wave,
+          columnsByTable: columnsByTable,
+          projectionColumnsByTable: projectionColumnsByTable,
+          allColumnRowIds: allColumnRowIds,
+        );
 
         for (final MapEntry(key: tableName, value: ids) in frontier.entries) {
           (loadedNow[tableName] ??= <UuidValue>{}).addAll(ids);
@@ -1450,6 +1254,7 @@ class CrdtForeignKeyProjector {
 
         await _expandRowClosure(
           loadedNow: loadedNow,
+          hasAttemptedClaims: hasAttemptedClaims,
           tablesToLoad: tablesToLoad,
           rows: rows,
           unwrittenValues: unwrittenValues,
@@ -1717,6 +1522,7 @@ class CrdtForeignKeyProjector {
     required Map<MergeRowKey, Map<String, Object?>> unwrittenValues,
     required Map<MergeFieldKey, CrdtDataAttemptedValue> attemptedValues,
     required void Function(String tableName, Iterable<UuidValue> ids) enqueue,
+    required bool hasAttemptedClaims,
     required Transaction transaction,
   }) async {
     // Both the stored and the unwritten value matter: the walk has to reach the
@@ -1735,14 +1541,19 @@ class CrdtForeignKeyProjector {
       }..remove(null);
     }
 
+    final claims = _ProjectionClaimReads(
+      _context,
+      transaction,
+      includeAttemptedClaims: hasAttemptedClaims,
+    );
+
     for (final edge in _foreignKeys.edges) {
-      await _expandToChildren(
+      _expandToChildren(
         edge: edge,
         loadedNow: loadedNow,
         tablesToLoad: tablesToLoad,
         valuesFor: valuesFor,
-        enqueue: enqueue,
-        transaction: transaction,
+        collectClaims: claims.add,
       );
       await _expandToParents(
         edge: edge,
@@ -1756,27 +1567,27 @@ class CrdtForeignKeyProjector {
       );
     }
 
-    await _expandUniqueClaimants(
+    _expandUniqueClaimants(
       loadedNow: loadedNow,
       attemptedValues: attemptedValues,
       valuesFor: valuesFor,
-      enqueue: enqueue,
-      transaction: transaction,
+      collectClaims: claims.add,
     );
+
+    await claims.enqueueMatches(enqueue);
   }
 
   /// Enqueues the children of the parents loaded in this wave.
   ///
   /// Hiding or restoring a parent decides its children's fate, so they join the
   /// walk whether they still name it or only remember it as an attempt.
-  Future<void> _expandToChildren({
+  void _expandToChildren({
     required ForeignKeyEdge edge,
     required Map<String, Set<UuidValue>> loadedNow,
     required Set<String> tablesToLoad,
     required Set<Object?> Function(MergeRowKey, String) valuesFor,
-    required void Function(String tableName, Iterable<UuidValue> ids) enqueue,
-    required Transaction transaction,
-  }) async {
+    required void Function(String, Map<String, Set<Object?>>) collectClaims,
+  }) {
     final parentIds = loadedNow[edge.parentTableName];
     if (parentIds == null || parentIds.isEmpty) return;
     if (!tablesToLoad.contains(edge.childTableName)) return;
@@ -1793,12 +1604,7 @@ class CrdtForeignKeyProjector {
     }
     if (references.isEmpty) return;
 
-    await _enqueueRowsClaiming(
-      tableName: edge.childTableName,
-      valuesByColumn: {edge.childColumn: references},
-      enqueue: enqueue,
-      transaction: transaction,
-    );
+    collectClaims(edge.childTableName, {edge.childColumn: references});
   }
 
   /// Enqueues the parents of the children loaded in this wave.
@@ -1868,13 +1674,12 @@ class CrdtForeignKeyProjector {
   /// own unique index for it. A row that wants a value it does not hold is
   /// already loaded, because holding a projection means holding an attempted
   /// value.
-  Future<void> _expandUniqueClaimants({
+  void _expandUniqueClaimants({
     required Map<String, Set<UuidValue>> loadedNow,
     required Map<MergeFieldKey, CrdtDataAttemptedValue> attemptedValues,
     required Set<Object?> Function(MergeRowKey, String) valuesFor,
-    required void Function(String tableName, Iterable<UuidValue> ids) enqueue,
-    required Transaction transaction,
-  }) async {
+    required void Function(String, Map<String, Set<Object?>>) collectClaims,
+  }) {
     for (final MapEntry(key: tableName, value: rowIds) in loadedNow.entries) {
       for (final uniqueIndex in _uniqueResolver.uniqueIndexesFor(tableName)) {
         final claimedByColumn = <String, Set<Object?>>{};
@@ -1895,44 +1700,9 @@ class CrdtForeignKeyProjector {
           continue;
         }
 
-        await _enqueueRowsClaiming(
-          tableName: tableName,
-          valuesByColumn: claimedByColumn,
-          enqueue: enqueue,
-          transaction: transaction,
-        );
+        collectClaims(tableName, claimedByColumn);
       }
     }
-  }
-
-  /// Enqueues every row of [tableName] that holds, or is owed, these values.
-  ///
-  /// A row that was repaired or released away from a value no longer names it
-  /// in the domain column, so the attempted value is the only record left of
-  /// the claim it is waiting to take back.
-  Future<void> _enqueueRowsClaiming({
-    required String tableName,
-    required Map<String, Set<Object?>> valuesByColumn,
-    required void Function(String tableName, Iterable<UuidValue> ids) enqueue,
-    required Transaction transaction,
-  }) async {
-    enqueue(
-      tableName,
-      await _context.findDomainRowIdsWhereColumnsIn(
-        tableName: tableName,
-        valuesByColumn: valuesByColumn,
-        transaction: transaction,
-      ),
-    );
-    enqueue(
-      tableName,
-      await _context.findRowIdsHoldingAttemptedValues(
-        tableName: tableName,
-        columnNames: valuesByColumn.keys.toSet(),
-        values: {for (final values in valuesByColumn.values) ...values},
-        transaction: transaction,
-      ),
-    );
   }
 
   Future<List<CrdtDataField>> _loadFields({
@@ -2114,7 +1884,7 @@ class CrdtForeignKeyProjector {
   ) {
     switch (edge.action) {
       case ForeignKeyAction.setNull:
-        return edge.childNullable;
+        return true;
       case ForeignKeyAction.setDefault:
         final defaultValue = edge.defaultValue.toUuidValue();
         if (defaultValue == null) return edge.childNullable;
@@ -2199,7 +1969,7 @@ class CrdtForeignKeyProjector {
             case ForeignKeyAction.noAction:
               return true;
             case ForeignKeyAction.setNull:
-              if (!edge.childNullable) return true;
+              break;
             case ForeignKeyAction.setDefault:
               if (!_defaultProjectionValue(edge, state, finalHidden).valid) {
                 return true;
@@ -2430,10 +2200,8 @@ class CrdtForeignKeyProjector {
             _targetHiddenOrMissing(edge, attemptedValue, state, finalHidden)) {
           switch (edge.action) {
             case ForeignKeyAction.setNull:
-              if (edge.childNullable) {
-                desiredVisibleValue = null;
-                overrideReason = CrdtProjectionReason.foreignKeySetNull;
-              }
+              desiredVisibleValue = null;
+              overrideReason = CrdtProjectionReason.foreignKeySetNull;
             case ForeignKeyAction.setDefault:
               final defaultProjection = _defaultProjectionValue(
                 edge,

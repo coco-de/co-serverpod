@@ -162,12 +162,12 @@ abstract class OfflineSyncIntegrityViolation
     _icw2tu00.OfflineSyncViolationType? type,
     String? domainTableName,
     _iss.UuidValue? uuidRowId,
-    _iss.UuidValue? ownerSpaceUuid,
+    _iss.UuidValue? ownerSpaceUuid = const _iss.$UndefinedUuidValue(),
     _iss.UuidValue? incomingSpaceUuid,
     _icw2tu00.OfflineSyncViolationOperation? operation,
-    _iss.UuidValue? uuidNodeId,
+    _iss.UuidValue? uuidNodeId = const _iss.$UndefinedUuidValue(),
     int? crdtDataRowId,
-    DateTime? hlcDatetime,
+    DateTime? hlcDatetime = const _iss.$UndefinedDateTime(),
     int? hlcCounter,
     DateTime? firstSeenAt,
     DateTime? lastSeenAt,
@@ -287,12 +287,12 @@ class _OfflineSyncIntegrityViolationImpl extends OfflineSyncIntegrityViolation {
     _icw2tu00.OfflineSyncViolationType? type,
     String? domainTableName,
     _iss.UuidValue? uuidRowId,
-    Object? ownerSpaceUuid = _Undefined,
+    _iss.UuidValue? ownerSpaceUuid = const _iss.$UndefinedUuidValue(),
     _iss.UuidValue? incomingSpaceUuid,
     _icw2tu00.OfflineSyncViolationOperation? operation,
-    Object? uuidNodeId = _Undefined,
+    _iss.UuidValue? uuidNodeId = const _iss.$UndefinedUuidValue(),
     Object? crdtDataRowId = _Undefined,
-    Object? hlcDatetime = _Undefined,
+    DateTime? hlcDatetime = const _iss.$UndefinedDateTime(),
     Object? hlcCounter = _Undefined,
     DateTime? firstSeenAt,
     DateTime? lastSeenAt,
@@ -303,14 +303,18 @@ class _OfflineSyncIntegrityViolationImpl extends OfflineSyncIntegrityViolation {
       type: type ?? this.type,
       domainTableName: domainTableName ?? this.domainTableName,
       uuidRowId: uuidRowId ?? this.uuidRowId,
-      ownerSpaceUuid: ownerSpaceUuid is _iss.UuidValue?
-          ? ownerSpaceUuid
-          : this.ownerSpaceUuid,
+      ownerSpaceUuid: ownerSpaceUuid is _iss.UndefinedSentinel
+          ? this.ownerSpaceUuid
+          : ownerSpaceUuid,
       incomingSpaceUuid: incomingSpaceUuid ?? this.incomingSpaceUuid,
       operation: operation ?? this.operation,
-      uuidNodeId: uuidNodeId is _iss.UuidValue? ? uuidNodeId : this.uuidNodeId,
+      uuidNodeId: uuidNodeId is _iss.UndefinedSentinel
+          ? this.uuidNodeId
+          : uuidNodeId,
       crdtDataRowId: crdtDataRowId is int? ? crdtDataRowId : this.crdtDataRowId,
-      hlcDatetime: hlcDatetime is DateTime? ? hlcDatetime : this.hlcDatetime,
+      hlcDatetime: hlcDatetime is _iss.UndefinedSentinel
+          ? this.hlcDatetime
+          : hlcDatetime,
       hlcCounter: hlcCounter is int? ? hlcCounter : this.hlcCounter,
       firstSeenAt: firstSeenAt ?? this.firstSeenAt,
       lastSeenAt: lastSeenAt ?? this.lastSeenAt,

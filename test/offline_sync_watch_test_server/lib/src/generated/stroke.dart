@@ -77,7 +77,7 @@ abstract class Stroke
   /// with some or all fields replaced by the given arguments.
   @_is.useResult
   Stroke copyWith({
-    _is.UuidValue? id,
+    _is.UuidValue? id = const _is.$UndefinedUuidValue(),
     int? spaceId,
     String? seq,
     String? legacyId,
@@ -162,7 +162,7 @@ class _StrokeImpl extends Stroke {
   @_is.useResult
   @override
   Stroke copyWith({
-    Object? id = _Undefined,
+    _is.UuidValue? id = const _is.$UndefinedUuidValue(),
     Object? spaceId = _Undefined,
     String? seq,
     Object? legacyId = _Undefined,
@@ -170,7 +170,7 @@ class _StrokeImpl extends Stroke {
     _is.UuidValue? noteId,
   }) {
     return Stroke(
-      id: id is _is.UuidValue? ? id : this.id,
+      id: id is _is.UndefinedSentinel ? this.id : id,
       spaceId: spaceId is int? ? spaceId : this.spaceId,
       seq: seq ?? this.seq,
       legacyId: legacyId is String? ? legacyId : this.legacyId,

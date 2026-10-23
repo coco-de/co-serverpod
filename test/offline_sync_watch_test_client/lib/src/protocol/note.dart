@@ -84,12 +84,12 @@ abstract class Note
   /// with some or all fields replaced by the given arguments.
   @_isc.useResult
   Note copyWith({
-    _isc.UuidValue? id,
+    _isc.UuidValue? id = const _isc.$UndefinedUuidValue(),
     int? spaceId,
     String? title,
     bool? archived,
-    _isc.UuidValue? folderId,
-    _ij200e11.Folder? folder,
+    _isc.UuidValue? folderId = const _isc.$UndefinedUuidValue(),
+    _ij200e11.Folder? folder = const _UndefinedNote$folder(),
   });
   @override
   Map<String, dynamic> toJson() {
@@ -147,6 +147,11 @@ abstract class Note
 
 class _Undefined {}
 
+class _UndefinedNote$folder extends _isc.UndefinedSentinel
+    implements _ij200e11.Folder {
+  const _UndefinedNote$folder();
+}
+
 class _NoteImpl extends Note {
   _NoteImpl({
     _isc.UuidValue? id,
@@ -169,20 +174,22 @@ class _NoteImpl extends Note {
   @_isc.useResult
   @override
   Note copyWith({
-    Object? id = _Undefined,
+    _isc.UuidValue? id = const _isc.$UndefinedUuidValue(),
     Object? spaceId = _Undefined,
     String? title,
     bool? archived,
-    Object? folderId = _Undefined,
-    Object? folder = _Undefined,
+    _isc.UuidValue? folderId = const _isc.$UndefinedUuidValue(),
+    _ij200e11.Folder? folder = const _UndefinedNote$folder(),
   }) {
     return Note(
-      id: id is _isc.UuidValue? ? id : this.id,
+      id: id is _isc.UndefinedSentinel ? this.id : id,
       spaceId: spaceId is int? ? spaceId : this.spaceId,
       title: title ?? this.title,
       archived: archived ?? this.archived,
-      folderId: folderId is _isc.UuidValue? ? folderId : this.folderId,
-      folder: folder is _ij200e11.Folder? ? folder : this.folder?.copyWith(),
+      folderId: folderId is _isc.UndefinedSentinel ? this.folderId : folderId,
+      folder: folder is _isc.UndefinedSentinel
+          ? this.folder?.copyWith()
+          : folder,
     );
   }
 }

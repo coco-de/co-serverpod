@@ -1,4 +1,21 @@
-## Unreleased (co-serverpod fork)
+## 0.0.11+co.1 (co-serverpod fork)
+
+- chore: Update the upstream baseline to release `0.0.11` (`e0598c1`),
+  requiring Serverpod `^4.1.0-beta.3`. Preserve the fork's APIs, per-space
+  server nodes, clock-drift policy, payload decoding and projection read limits.
+  Unreleased upstream #168 (user-owned clocks and schema migration), #169 and
+  #170 remain outside this release baseline; existing clocks are not reset.
+- fix: Capture outbound metadata, domain payloads and foreign-key dependencies
+  in one consistent snapshot for both unlimited and budgeted batches. Release
+  the transaction before yielding so consumer writes cannot retain SQLite locks.
+- fix: Use upstream typed watches with SQL-evaluated live membership and copied
+  include graphs, including nested lists. Ordinary reads also preserve caller
+  include predicates. Initialize the database before watching.
+- fix: Retain valid per-author checkpoint progress, include committed logical
+  ticks in handshakes and reject checkpoints carrying another node's ID.
+- fix: Preserve authored upsert defaults and projected rows in set-based updates.
+- perf: Batch merge writes, projection metadata and claim reads while retaining
+  the fork's narrow column reads for reached siblings and ByteData values.
 
 - fix: Tracked `update` / `updateRow` pass decoded `ByteData` column values to
   the delegate (unibook#14684). PostgreSQL previously stored the database JSON

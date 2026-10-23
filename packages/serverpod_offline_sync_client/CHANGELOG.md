@@ -1,4 +1,8 @@
-## Unreleased (co-serverpod fork)
+## 0.0.11+co.1 (co-serverpod fork)
+
+- chore: Update to the shared `0.0.11+co.1` fork and Serverpod
+  `^4.1.0-beta.3`; regenerate protocol code with the matching CLI. Preserve
+  sibling path dependencies and all fork-specific public APIs.
 
 - feat: Re-exports `OfflineSyncSchema` / `OfflineSyncSchemaCompatibility` and
   `OfflineSyncSettings` from the shared engine. The new

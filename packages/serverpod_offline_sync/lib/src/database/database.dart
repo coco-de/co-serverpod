@@ -21,6 +21,7 @@ import '../sync/integrity_violation.dart';
 import '../sync/outbound_batch.dart';
 import '../sync/schema.dart';
 import '../sync/settings.dart';
+import 'includes.dart';
 import 'merge_utils/database_helpers.dart';
 import 'recorder.dart';
 import 'session.dart';
@@ -28,6 +29,7 @@ import 'tombstone.dart';
 import 'unsent_row_count.dart';
 
 part 'space.dart';
+part 'watch.dart';
 
 /// Map of transaction hashes to the space they are associated with.
 final spaceForTransaction = <Transaction, OfflineSyncSpace>{};
@@ -212,7 +214,11 @@ class OfflineSyncDatabase implements Database {
     );
   }
 
-  /// Records the latest acknowledged sync checkpoint for [otherNodeId].
+  /// Records acknowledged per-author progress for [otherNodeId].
+  ///
+  /// [syncedHlc] must carry [otherNodeId] as its author. Throws [ArgumentError]
+  /// otherwise. A correctly tagged checkpoint replaces previously stored
+  /// progress tagged with another author; valid progress advances monotonically.
   Future<void> recordSyncCheckpoint(
     UuidValue otherNodeId,
     Hlc syncedHlc, {
@@ -413,11 +419,12 @@ class OfflineSyncDatabase implements Database {
     LockMode? lockMode,
     LockBehavior? lockBehavior,
   }) async {
+    final queryInclude = copyInclude(include);
     await _ensureInitialized();
     final result = await _delegate.find<T>(
       where: await _whereVisibleWithTombstone<T>(
         where,
-        include,
+        queryInclude,
         transaction,
         membershipWide: true,
       ),
@@ -426,39 +433,25 @@ class OfflineSyncDatabase implements Database {
       orderBy: orderBy,
       orderByList: orderByList,
       transaction: transaction,
-      include: include,
+      include: queryInclude,
       lockMode: lockMode,
       lockBehavior: lockBehavior,
     );
-    return _stripSpaceIdFromSpaceScopedRead(result, include, transaction);
+    return _stripSpaceIdFromSpaceScopedRead(result, queryInclude, transaction);
   }
 
-  /// CRDT tables whose writes change a visibility-filtered read without touching
-  /// the queried domain table: deletes, restores and conflict projections only
-  /// rewrite [CrdtDataRow] visibility, and space membership decides which spaces
-  /// a read covers.
-  static final List<Table> _watchVisibilityTables = [
-    CrdtDataRow.t,
-    OfflineSyncSpace.t,
-    OfflineSyncSpaceMember.t,
-  ];
-
-  /// Emits the visible rows matching the query, then re-emits them whenever a
-  /// committed write can change the result, as if [find] was re-run.
+  /// Watches committed SQLite rows with the same visibility as [find].
   ///
-  /// Re-queries are triggered by writes to the queried table, to the tables
-  /// referenced by [where], [orderBy], [orderByList] and [include], to
-  /// [alsoTriggerOnTables], and to the CRDT visibility tables. The latter are
-  /// required because a delete or a merged tombstone only writes CRDT metadata,
-  /// never the domain row, and the visibility predicate is raw SQL that the
-  /// delegate's dependency detection does not inspect.
+  /// Call [initialize] first to reconcile schema and rebuild projections if
+  /// needed. Unlike [find], a watch does not perform initialization itself.
   ///
-  /// Every emission runs [find], so the tombstone and space predicates are
-  /// rebuilt against the current membership instead of being frozen when the
-  /// stream is created. Since every synced write touches the shared CRDT tables,
-  /// a result that serializes identically to the previous emission is skipped.
+  /// Membership is evaluated by SQL on every execution, including nested list
+  /// queries. The caller's include graph is never modified. Watches use the
+  /// persistent user, or admin visibility when no persistent user is configured;
+  /// they do not inherit a transaction's user or acting space.
   ///
-  /// Only supported on SQLite. The delegate throws [UnsupportedError] otherwise.
+  /// Like Serverpod's watch, this is unsupported on PostgreSQL. Raw SQL in caller
+  /// expressions still requires [alsoTriggerOnTables] for its dependencies.
   @override
   Stream<List<T>> watch<T extends TableRow>({
     Expression? where,
@@ -469,66 +462,31 @@ class OfflineSyncDatabase implements Database {
     Include? include,
     Duration? throttle = const Duration(milliseconds: 30),
     Iterable<Table>? alsoTriggerOnTables,
-  }) {
-    final table = serializationManager.getTableForType(T);
-    if (table == null) {
-      throw ArgumentError.value(T, 'T', 'is not a database table type');
-    }
-    final triggerTables = _watchTriggerTables(
-      table,
-      where: where,
-      orderBy: orderBy,
-      orderByList: orderByList,
-      include: include,
-      extraTables: [...?alsoTriggerOnTables, ..._watchVisibilityTables],
-    );
-    final restoreIncludeWheres = _captureIncludeWheres(include);
-    String? lastEmitted;
+  }) => _watch<T>(
+    where: where,
+    limit: limit,
+    offset: offset,
+    orderBy: orderBy,
+    orderByList: orderByList,
+    include: include,
+    throttle: throttle,
+    alsoTriggerOnTables: alsoTriggerOnTables,
+  );
 
-    // The delegate only provides the commit signal; the CRDT-aware read below
-    // is what rebuilds the visibility predicates on every change.
-    return _delegate
-        .unsafeWatch('SELECT 1', triggerOnTables: triggerTables, throttle: throttle)
-        .asyncMap((_) {
-          // find() ANDs the visibility predicate into IncludeList.where in place,
-          // so the caller's predicates are restored before every re-run.
-          for (final restore in restoreIncludeWheres) {
-            restore();
-          }
-          return find<T>(
-            where: where,
-            // SQLite requires a LIMIT before an OFFSET, and -1 means no cap.
-            limit: offset != null ? (limit ?? -1) : limit,
-            offset: offset,
-            orderBy: orderBy,
-            orderByList: orderByList,
-            include: include,
-          );
-        })
-        .where((rows) {
-          final encoded = SerializationManager.encode(rows);
-          if (encoded == lastEmitted) return false;
-          lastEmitted = encoded;
-          return true;
-        });
-  }
-
-  /// Raw SQL is not CRDT-filtered, same as [unsafeQuery], so this forwards to
-  /// the delegate unchanged.
+  /// Delegates raw watches without adding CRDT visibility or membership filters.
+  /// Callers own the SQL and its [triggerOnTables] dependencies.
   @override
   Stream<DatabaseResult> unsafeWatch(
     String query, {
     QueryParameters? parameters,
     Duration? throttle = const Duration(milliseconds: 30),
     Iterable<String>? triggerOnTables,
-  }) {
-    return _delegate.unsafeWatch(
-      query,
-      parameters: parameters,
-      throttle: throttle,
-      triggerOnTables: triggerOnTables,
-    );
-  }
+  }) => _delegate.unsafeWatch(
+    query,
+    parameters: parameters,
+    throttle: throttle,
+    triggerOnTables: triggerOnTables,
+  );
 
   @override
   Future<T?> findById<T extends TableRow>(
@@ -538,23 +496,24 @@ class OfflineSyncDatabase implements Database {
     LockMode? lockMode,
     LockBehavior? lockBehavior,
   }) async {
+    final queryInclude = copyInclude(include);
     await _ensureInitialized();
     final table = serializationManager.getTableForType(T);
     final where = table?.id.equals(id);
     final result = await _delegate.findFirstRow<T>(
       where: await _whereVisibleWithTombstone<T>(
         where,
-        include,
+        queryInclude,
         transaction,
         membershipWide: true,
       ),
       transaction: transaction,
-      include: include,
+      include: queryInclude,
       lockMode: lockMode,
       lockBehavior: lockBehavior,
     );
     if (result == null) return null;
-    return _stripSpaceIdFromSpaceScopedRead([result], include, transaction).single;
+    return _stripSpaceIdFromSpaceScopedRead([result], queryInclude, transaction).single;
   }
 
   @override
@@ -569,11 +528,12 @@ class OfflineSyncDatabase implements Database {
     LockMode? lockMode,
     LockBehavior? lockBehavior,
   }) async {
+    final queryInclude = copyInclude(include);
     await _ensureInitialized();
     final result = await _delegate.findFirstRow<T>(
       where: await _whereVisibleWithTombstone<T>(
         where,
-        include,
+        queryInclude,
         transaction,
         membershipWide: true,
       ),
@@ -581,12 +541,12 @@ class OfflineSyncDatabase implements Database {
       orderBy: orderBy,
       orderByList: orderByList,
       transaction: transaction,
-      include: include,
+      include: queryInclude,
       lockMode: lockMode,
       lockBehavior: lockBehavior,
     );
     if (result == null) return null;
-    return _stripSpaceIdFromSpaceScopedRead([result], include, transaction).single;
+    return _stripSpaceIdFromSpaceScopedRead([result], queryInclude, transaction).single;
   }
 
   Future<R> _runTrackedWrite<R>(
@@ -768,9 +728,15 @@ class OfflineSyncDatabase implements Database {
           tx,
           projectionUnchanged: projection.projectionUnchanged,
           domainBeforeUpsert: projection.domain,
-          upsertRows: updateColumns == null && projection.domain.isNotEmpty
-              ? prepared.rows
-              : const [],
+          upsertInputs: updateColumns == null && projection.domain.isNotEmpty
+              ? _recorder.upsertInputsByRow(
+                  suppliedRows: prepared.rows,
+                  databaseRows: values,
+                  updatedRows: updatedRows,
+                  conflictColumns: conflictColumns,
+                )
+              : const {},
+          upsertConflictColumns: conflictColumns.map((c) => c.columnName).toSet(),
         );
         if (noReturn) return <T>[];
         _stripStampedRows(result, prepared);
@@ -951,6 +917,7 @@ class OfflineSyncDatabase implements Database {
           columns,
           tx,
           projectionUnchanged: plannedUpdates.projectionUnchanged,
+          projectionRows: plannedUpdates.projectionRows,
         );
         return noReturn ? <T>[] : updatedRows;
       },
@@ -988,6 +955,7 @@ class OfflineSyncDatabase implements Database {
           columns,
           tx,
           projectionUnchanged: plannedUpdates.projectionUnchanged,
+          projectionRows: plannedUpdates.projectionRows,
         );
         return updatedRow;
       },
@@ -1089,28 +1057,42 @@ class OfflineSyncDatabase implements Database {
     return _runTrackedWrite(
       transaction,
       (tx) async {
-        final result = await _delegate.updateWhere<T>(
-          columnValues: columnValues,
-          where: (await _whereVisibleWithTombstone<T>(
-            where,
-            null,
-            tx,
-            membershipWide: false,
-          ))!,
+        final scopedWhere = (await _whereVisibleWithTombstone<T>(
+          where,
+          null,
+          tx,
+          membershipWide: false,
+        ))!;
+        final columns = columnValues.map((e) => e.column).toList();
+        final plan = await _recorder.planLocalUpdateWhere<T>(
+          columns,
+          scopedWhere,
+          tx,
           limit: limit,
           offset: offset,
+          orderBy: orderBy,
+          orderByList: orderByList,
+        );
+        final selectedWhere = plan == null
+            ? scopedWhere
+            : serializationManager.getTableForType(T)!.id.inSet(plan.rowIds);
+        final result = await _delegate.updateWhere<T>(
+          columnValues: columnValues,
+          where: selectedWhere,
+          limit: plan == null ? limit : null,
+          offset: plan == null ? offset : null,
           orderBy: orderBy,
           orderByList: orderByList,
           transaction: tx,
         );
 
-        final columns = columnValues.map((e) => e.column).toList();
         _recorder.validateAuthoredRows(result, columns);
         await _recorder.afterUpdate(
           result,
           columns,
           tx,
           authoredColumnValues: true,
+          projectionRows: plan?.projectionRows ?? const {},
         );
         if (noReturn) return <T>[];
         result.forEach(_stripSpaceId);
@@ -1347,6 +1329,7 @@ class OfflineSyncDatabase implements Database {
           )
           .then((memberships) => [for (final member in memberships) member.space!]),
     ]);
+
     return {
       for (final spaces in spaceGroups)
         for (final space in spaces) space.id!,
@@ -1432,81 +1415,4 @@ class OfflineSyncDatabase implements Database {
 
   @override
   Future<bool> testConnection() => _delegate.testConnection();
-}
-
-/// Collects the tables a typed watch reads: the queried [table], every table
-/// referenced by [where], [orderBy], [orderByList] and the [include] graph
-/// (relation hops included), plus [extraTables].
-///
-/// Mirrors the collection Serverpod runs for its own watches, which it does not
-/// export.
-Set<String> _watchTriggerTables(
-  Table table, {
-  Expression? where,
-  Column? orderBy,
-  List<Column>? orderByList,
-  Include? include,
-  Iterable<Table> extraTables = const [],
-}) {
-  final tables = <String>{};
-
-  void addTable(Table table) {
-    tables.add(table.unqualifiedTableName);
-    final hops = table.tableRelation?.getRelations;
-    if (hops == null) return;
-    for (final hop in hops) {
-      tables
-        ..add(hop.fieldTable.unqualifiedTableName)
-        ..add(hop.foreignTable.unqualifiedTableName);
-    }
-  }
-
-  void addColumn(Column? column) {
-    if (column == null) return;
-    if (column is Order) {
-      addColumn(column.column);
-      return;
-    }
-    addTable(column.table);
-    if (column is ColumnCount) column.innerWhere?.columns.forEach(addColumn);
-  }
-
-  void addInclude(Include? include) {
-    if (include == null) return;
-    addTable(include.table);
-    if (include is IncludeList) {
-      include.where?.columns.forEach(addColumn);
-      addColumn(include.orderBy);
-      include.orderByList?.forEach(addColumn);
-      addInclude(include.include);
-    }
-    include.includes.values.forEach(addInclude);
-  }
-
-  addTable(table);
-  where?.columns.forEach(addColumn);
-  addColumn(orderBy);
-  orderByList?.forEach(addColumn);
-  addInclude(include);
-  extraTables.forEach(addTable);
-  return tables;
-}
-
-/// Snapshots every [IncludeList.where] in [include] and returns callbacks that
-/// restore them.
-List<void Function()> _captureIncludeWheres(Include? include) {
-  final restorers = <void Function()>[];
-
-  void capture(Include? include) {
-    if (include == null) return;
-    if (include is IncludeList) {
-      final original = include.where;
-      restorers.add(() => include.where = original);
-      capture(include.include);
-    }
-    include.includes.values.forEach(capture);
-  }
-
-  capture(include);
-  return restorers;
 }

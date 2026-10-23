@@ -120,12 +120,13 @@ abstract class CrdtDataField extends _icw2tu00.BaseHlc
     DateTime? hlcDatetime,
     int? hlcCounter,
     int? rowId,
-    _icw2tu00.CrdtDataRow? row,
+    _icw2tu00.CrdtDataRow? row = const _UndefinedCrdtDataField$row(),
     int? columnId,
-    _icw2tu00.CrdtSchemaColumn? column,
+    _icw2tu00.CrdtSchemaColumn? column = const _UndefinedCrdtDataField$column(),
     int? nodeId,
-    _icw2tu00.CrdtNode? node,
-    _icw2tu00.CrdtDataAttemptedValue? attemptedValue,
+    _icw2tu00.CrdtNode? node = const _UndefinedCrdtDataField$node(),
+    _icw2tu00.CrdtDataAttemptedValue? attemptedValue =
+        const _UndefinedCrdtDataField$attemptedValue(),
   });
   @override
   Map<String, dynamic> toJson() {
@@ -202,6 +203,26 @@ abstract class CrdtDataField extends _icw2tu00.BaseHlc
 
 class _Undefined {}
 
+class _UndefinedCrdtDataField$row extends _iss.UndefinedSentinel
+    implements _icw2tu00.CrdtDataRow {
+  const _UndefinedCrdtDataField$row();
+}
+
+class _UndefinedCrdtDataField$column extends _iss.UndefinedSentinel
+    implements _icw2tu00.CrdtSchemaColumn {
+  const _UndefinedCrdtDataField$column();
+}
+
+class _UndefinedCrdtDataField$node extends _iss.UndefinedSentinel
+    implements _icw2tu00.CrdtNode {
+  const _UndefinedCrdtDataField$node();
+}
+
+class _UndefinedCrdtDataField$attemptedValue extends _iss.UndefinedSentinel
+    implements _icw2tu00.CrdtDataAttemptedValue {
+  const _UndefinedCrdtDataField$attemptedValue();
+}
+
 class _CrdtDataFieldImpl extends CrdtDataField {
   _CrdtDataFieldImpl({
     int? id,
@@ -236,28 +257,29 @@ class _CrdtDataFieldImpl extends CrdtDataField {
     DateTime? hlcDatetime,
     int? hlcCounter,
     int? rowId,
-    Object? row = _Undefined,
+    _icw2tu00.CrdtDataRow? row = const _UndefinedCrdtDataField$row(),
     int? columnId,
-    Object? column = _Undefined,
+    _icw2tu00.CrdtSchemaColumn? column = const _UndefinedCrdtDataField$column(),
     int? nodeId,
-    Object? node = _Undefined,
-    Object? attemptedValue = _Undefined,
+    _icw2tu00.CrdtNode? node = const _UndefinedCrdtDataField$node(),
+    _icw2tu00.CrdtDataAttemptedValue? attemptedValue =
+        const _UndefinedCrdtDataField$attemptedValue(),
   }) {
     return CrdtDataField(
       id: id is int? ? id : this.id,
       hlcDatetime: hlcDatetime ?? this.hlcDatetime,
       hlcCounter: hlcCounter ?? this.hlcCounter,
       rowId: rowId ?? this.rowId,
-      row: row is _icw2tu00.CrdtDataRow? ? row : this.row?.copyWith(),
+      row: row is _iss.UndefinedSentinel ? this.row?.copyWith() : row,
       columnId: columnId ?? this.columnId,
-      column: column is _icw2tu00.CrdtSchemaColumn?
-          ? column
-          : this.column?.copyWith(),
+      column: column is _iss.UndefinedSentinel
+          ? this.column?.copyWith()
+          : column,
       nodeId: nodeId ?? this.nodeId,
-      node: node is _icw2tu00.CrdtNode? ? node : this.node?.copyWith(),
-      attemptedValue: attemptedValue is _icw2tu00.CrdtDataAttemptedValue?
-          ? attemptedValue
-          : this.attemptedValue?.copyWith(),
+      node: node is _iss.UndefinedSentinel ? this.node?.copyWith() : node,
+      attemptedValue: attemptedValue is _iss.UndefinedSentinel
+          ? this.attemptedValue?.copyWith()
+          : attemptedValue,
     );
   }
 }

@@ -8,7 +8,7 @@ environment:
   sdk: '^3.12.2'
 
 dependencies:
-  serverpod: ^4.1.0-beta.1
+  serverpod: ^4.1.0-beta.3
   serverpod_offline_sync:
     path: ../../packages/serverpod_offline_sync
   serverpod_offline_sync_server:
@@ -19,8 +19,8 @@ dev_dependencies:
   offline_sync_watch_test_client:
     path: ../offline_sync_watch_test_client
   path: ^1.9.1
-  serverpod_cli: ^4.1.0-beta.1
-  serverpod_database: ^4.1.0-beta.1
-  serverpod_embedded_postgres: ^4.1.0-beta.1
-  serverpod_test: ^4.1.0-beta.1
+  serverpod_cli: ^4.1.0-beta.3
+  serverpod_database: ^4.1.0-beta.3
+  serverpod_embedded_postgres: ^4.1.0-beta.3
+  serverpod_test: ^4.1.0-beta.3
   test: ^1.25.5

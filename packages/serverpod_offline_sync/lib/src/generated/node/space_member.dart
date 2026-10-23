@@ -92,7 +92,8 @@ abstract class OfflineSyncSpaceMember
   OfflineSyncSpaceMember copyWith({
     int? id,
     int? spaceId,
-    _icw2tu00.OfflineSyncSpace? space,
+    _icw2tu00.OfflineSyncSpace? space =
+        const _UndefinedOfflineSyncSpaceMember$space(),
     _iss.UuidValue? userUuid,
     _icw2tu00.OfflineSyncSpaceRole? role,
   });
@@ -152,6 +153,11 @@ abstract class OfflineSyncSpaceMember
 
 class _Undefined {}
 
+class _UndefinedOfflineSyncSpaceMember$space extends _iss.UndefinedSentinel
+    implements _icw2tu00.OfflineSyncSpace {
+  const _UndefinedOfflineSyncSpaceMember$space();
+}
+
 class _OfflineSyncSpaceMemberImpl extends OfflineSyncSpaceMember {
   _OfflineSyncSpaceMemberImpl({
     int? id,
@@ -174,16 +180,15 @@ class _OfflineSyncSpaceMemberImpl extends OfflineSyncSpaceMember {
   OfflineSyncSpaceMember copyWith({
     Object? id = _Undefined,
     int? spaceId,
-    Object? space = _Undefined,
+    _icw2tu00.OfflineSyncSpace? space =
+        const _UndefinedOfflineSyncSpaceMember$space(),
     _iss.UuidValue? userUuid,
     _icw2tu00.OfflineSyncSpaceRole? role,
   }) {
     return OfflineSyncSpaceMember(
       id: id is int? ? id : this.id,
       spaceId: spaceId ?? this.spaceId,
-      space: space is _icw2tu00.OfflineSyncSpace?
-          ? space
-          : this.space?.copyWith(),
+      space: space is _iss.UndefinedSentinel ? this.space?.copyWith() : space,
       userUuid: userUuid ?? this.userUuid,
       role: role ?? this.role,
     );
