@@ -1,0 +1,116 @@
+name: Auth servers
+
+# 인증 서버 3개(apple · kakao · naver)의 포맷 · 분석 · 테스트(실제 PostgreSQL 통합 테스트 포함).
+#
+# 이 워크플로가 없던 때는 서버 시작 단계에서 죽는 통합 테스트가 CI 에 걸리지 않았다 —
+# serverpod 대응 PR 에서야 스냅샷(`migrations/`)이 낡아 kakao · naver 통합 테스트가 이미 깨져
+# 있다는 사실이 드러났다(#50). 업스트림 스키마가 바뀌면 스냅샷이 낡고, 그 신호가 가장 먼저
+# 나타나는 곳이 이 통합 테스트다. 스냅샷을 다시 만드는 기준은 docs/testing.md 를 본다.
+
+on:
+  pull_request:
+    paths:
+      - packages/serverpod_auth_idp_apple_client/**
+      - packages/serverpod_auth_idp_apple_server/**
+      - packages/serverpod_auth_idp_kakao_client/**
+      - packages/serverpod_auth_idp_kakao_server/**
+      - packages/serverpod_auth_idp_naver_client/**
+      - packages/serverpod_auth_idp_naver_server/**
+      - pubspec.yaml
+      - analysis_options.yaml
+      - .github/workflows/auth-servers.yml
+  push:
+    branches: [main]
+    paths:
+      - packages/serverpod_auth_idp_apple_client/**
+      - packages/serverpod_auth_idp_apple_server/**
+      - packages/serverpod_auth_idp_kakao_client/**
+      - packages/serverpod_auth_idp_kakao_server/**
+      - packages/serverpod_auth_idp_naver_client/**
+      - packages/serverpod_auth_idp_naver_server/**
+      - pubspec.yaml
+      - analysis_options.yaml
+      - .github/workflows/auth-servers.yml
+
+permissions:
+  contents: read
+
+jobs:
+  auth-servers:
+    name: apple · kakao · naver 서버
+    runs-on: ubuntu-latest
+    # 첫 실행 실측 3분(Flutter SDK 설정 1분 · 의존성 13초 · 서버 3개 합 1분 10초). 표본이 하나뿐이라
+    # 이미지 풀 지연 여유를 두고 잡았다 — 표본이 쌓이면 실측 최대 × 2 로 다시 잡는다.
+    timeout-minutes: 10
+    # 각 서버의 config/test.yaml 이 가리키는 포트 · DB 이름에 맞춘 일회용 PostgreSQL.
+    # 비밀번호는 config/passwords.yaml 에 커밋된 테스트 전용 값(DB_TEST_PASSWORD)이다.
+    services:
+      postgres_apple:
+        image: pgvector/pgvector:pg16
+        ports:
+          - 9094:5432
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: serverpod_auth_idp_apple_test
+          POSTGRES_PASSWORD: DB_TEST_PASSWORD
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      postgres_kakao:
+        image: pgvector/pgvector:pg16
+        ports:
+          - 9092:5432
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: serverpod_auth_idp_kakao_test
+          POSTGRES_PASSWORD: DB_TEST_PASSWORD
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      postgres_naver:
+        image: pgvector/pgvector:pg16
+        ports:
+          - 9090:5432
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: serverpod_auth_idp_naver_test
+          POSTGRES_PASSWORD: DB_TEST_PASSWORD
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      # 인증 패키지는 루트 workspace 멤버이고 workspace 에 Flutter 패키지(kakao_flutter · naver_flutter)
+      # 가 있어 Flutter SDK 가 있어야 해석된다. 로컬 검증과 같은 버전을 고정한다.
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.8
+          cache: true
+      - name: 의존성 (workspace)
+        run: flutter pub get
+      # 한 프로세스씩 순서대로 돈다 — DB 포트가 서버마다 다르지만, dart test 의 네이티브 에셋 번들링은
+      # 같은 .dart_tool 을 공유해 동시에 돌리면 서로 덮어쓴다.
+      - name: apple 서버
+        working-directory: packages/serverpod_auth_idp_apple_server
+        run: |
+          dart format --output=none --set-exit-if-changed .
+          dart analyze --fatal-infos
+          dart test --concurrency=1
+      - name: kakao 서버
+        working-directory: packages/serverpod_auth_idp_kakao_server
+        run: |
+          dart format --output=none --set-exit-if-changed .
+          dart analyze --fatal-infos
+          dart test --concurrency=1
+      - name: naver 서버
+        working-directory: packages/serverpod_auth_idp_naver_server
+        run: |
+          dart format --output=none --set-exit-if-changed .
+          dart analyze --fatal-infos
+          dart test --concurrency=1
