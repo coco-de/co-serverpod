@@ -83,7 +83,7 @@ cd test/offline_sync_watch_test_client && dart pub get && dart test
 ### 사전 준비 (패키지별)
 
 ```bash
-cd packages/serverpod_auth_idp_naver_server   # 또는 _kakao_server
+cd packages/serverpod_auth_idp_naver_server   # 또는 _kakao_server · _apple_server
 
 # 1. 시크릿 파일 생성 (gitignore — 로컬 전용)
 cp config/passwords.example.yaml config/passwords.yaml
@@ -93,7 +93,7 @@ dart pub get
 serverpod generate
 serverpod create-migration   # 이미 migrations/ 있으면 생략 가능
 
-# 3. 테스트 DB 기동 (naver=9090, kakao=9092)
+# 3. 테스트 DB 기동 (naver=9090, kakao=9092, apple=9094)
 docker compose up -d postgres_test
 
 # 4. 통합 테스트 실행 (withServerpod가 마이그레이션 자동 적용)
@@ -111,6 +111,37 @@ dart test test/integration
 | 이메일 미동의(Kakao) | email null 저장 |
 | 미인증 세션 getAccount | null 반환 |
 
+### 마이그레이션 스냅샷 재생성 (`serverpod create-migration --force`)
+
+세 서버(`apple` · `kakao` · `naver`)의 `migrations/` 는 `withServerpod` 가 테스트 DB 를 만들 때 적용하는
+**스키마 스냅샷**이다. 모듈 자신의 테이블뿐 아니라 업스트림 모듈(`serverpod` · `serverpod_auth_idp` ·
+`serverpod_auth_core`)의 테이블 정의까지 들어 있어서, 업스트림 스키마가 바뀌면 스냅샷이 낡고 서버가 시작
+단계에서 실패한다(예: 코어 `serverpod_future_call` 의 `scheduling` 컬럼 누락 — #50). serverpod 을 올릴 때
+테스트가 `Failed to start the serverpod instance` 로 죽으면 스냅샷부터 의심한다.
+
+```bash
+cd packages/serverpod_auth_idp_<provider>_server
+serverpod create-migration --force   # 기존 디렉토리는 두고 새 버전 디렉토리를 더한다
+```
+
+| 경고가 가리키는 테이블 | 판단 |
+|---|---|
+| **업스트림 소유** — `serverpod_auth_idp_rate_limited_request_attempt` 의 `nonce` 삭제·테이블 재생성 등 | `--force` 허용. 업스트림 자신의 마이그레이션이 한 변화를 스냅샷이 따라가는 것이다 |
+| **모듈 소유** — `serverpod_auth_idp_{kakao,naver,apple_kr}_account` 등 | `--force` 로 넘기지 않는다. 소비 측 데이터에 영향이 있을 수 있어 별도로 판단한다 |
+
+허용 근거: 소비 측 프로젝트의 `create-migration` 은 모듈의 `definition_project.json`(모듈 **자신의** 테이블만)을
+합치고 모듈 버전(마지막 마이그레이션 디렉토리 이름)만 자기 SQL 에 기록한다. 모듈의 `migration.sql` 은 소비 측
+DB 에서 실행되지 않으므로, 업스트림 테이블에 대한 `DROP` 이 들어 있어도 소비 측에는 새 DDL 이 생기지 않는다.
+
+재생성 뒤 확인:
+
+1. `git status` 에 새 `migrations/<버전>/` 디렉토리와 `migration_registry.txt` 한 줄 추가뿐이다.
+2. 새 `migration.sql` 이 건드리는 테이블에 **모듈 소유 테이블이 없다**(`grep <provider>_account migration.sql` 이 비어 있다).
+3. 서버 테스트가 통과한다 — 빈 DB 에서(스냅샷 둘을 순서대로 적용)와, 이전 스냅샷이 적용된 DB 에서(증분 적용) 모두.
+
+> 새 `definition_project.json` 은 이전 것과 표기가 다를 수 있다(`schemaVersion` 2, `columnDefault` 의
+> `gen_random_uuid_v7()` → `random_v7`, 기본 키 인덱스 항목). CLI 가 읽을 때 v1 → v2 로 정규화하므로 의미는 같다.
+
 ### 정리
 
 ```bash
@@ -124,3 +155,4 @@ docker compose down -v         # 볼륨까지 삭제(DB 초기화)
 |--------|------|------|------|
 | naver_server | 10 | 3 | 13 |
 | kakao_server | 9 | 3 | 12 |
+| apple_server | 0 | 7 | 7 |
