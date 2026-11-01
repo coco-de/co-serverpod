@@ -11,15 +11,16 @@
 // ignore_for_file: dead_code, unnecessary_null_comparison
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
-import 'package:serverpod/serverpod.dart' as _i1;
+import 'dart:async' as _ida;
+import 'package:serverpod/serverpod.dart' as _is;
 import 'package:serverpod_auth_core_server/serverpod_auth_core_server.dart'
-    as _i2;
+    as _iacs;
 import 'package:serverpod_auth_idp_kakao_server/src/generated/protocol.dart'
-    as _i3;
+    as _ickao9i8;
 
 /// A fully configured Kakao account to be used for logins.
 abstract class KakaoAccount
-    implements _i1.TableRow<_i1.UuidValue?>, _i1.ProtocolSerialization {
+    implements _is.TableRow<_is.UuidValue?>, _is.ProtocolSerialization {
   KakaoAccount._({
     this.id,
     required this.authUserId,
@@ -30,9 +31,9 @@ abstract class KakaoAccount
   }) : created = created ?? DateTime.now();
 
   factory KakaoAccount({
-    _i1.UuidValue? id,
-    required _i1.UuidValue authUserId,
-    _i2.AuthUser? authUser,
+    _is.UuidValue? id,
+    required _is.UuidValue authUserId,
+    _iacs.AuthUser? authUser,
     required String userIdentifier,
     String? email,
     DateTime? created,
@@ -42,20 +43,20 @@ abstract class KakaoAccount
     return KakaoAccount(
       id: jsonSerialization['id'] == null
           ? null
-          : _i1.UuidValueJsonExtension.fromJson(jsonSerialization['id']),
-      authUserId: _i1.UuidValueJsonExtension.fromJson(
+          : _is.UuidValueJsonExtension.fromJson(jsonSerialization['id']),
+      authUserId: _is.UuidValueJsonExtension.fromJson(
         jsonSerialization['authUserId'],
       ),
       authUser: jsonSerialization['authUser'] == null
           ? null
-          : _i3.Protocol().deserialize<_i2.AuthUser>(
+          : _ickao9i8.Protocol().deserialize<_iacs.AuthUser>(
               jsonSerialization['authUser'],
             ),
       userIdentifier: jsonSerialization['userIdentifier'] as String,
       email: jsonSerialization['email'] as String?,
       created: jsonSerialization['created'] == null
           ? null
-          : _i1.DateTimeJsonExtension.fromJson(jsonSerialization['created']),
+          : _is.DateTimeJsonExtension.fromJson(jsonSerialization['created']),
     );
   }
 
@@ -64,12 +65,12 @@ abstract class KakaoAccount
   static const db = KakaoAccountRepository._();
 
   @override
-  _i1.UuidValue? id;
+  _is.UuidValue? id;
 
-  _i1.UuidValue authUserId;
+  _is.UuidValue authUserId;
 
   /// The [AuthUser] this profile belongs to
-  _i2.AuthUser? authUser;
+  _iacs.AuthUser? authUser;
 
   /// The user identifier given by Kakao for this account.
   ///
@@ -90,15 +91,15 @@ abstract class KakaoAccount
   DateTime created;
 
   @override
-  _i1.Table<_i1.UuidValue?> get table => t;
+  _is.Table<_is.UuidValue?> get table => t;
 
   /// Returns a shallow copy of this [KakaoAccount]
   /// with some or all fields replaced by the given arguments.
-  @_i1.useResult
+  @_is.useResult
   KakaoAccount copyWith({
-    _i1.UuidValue? id,
-    _i1.UuidValue? authUserId,
-    _i2.AuthUser? authUser,
+    _is.UuidValue? id = const _is.$UndefinedUuidValue(),
+    _is.UuidValue? authUserId,
+    _iacs.AuthUser? authUser = const _UndefinedKakaoAccount$authUser(),
     String? userIdentifier,
     String? email,
     DateTime? created,
@@ -121,16 +122,16 @@ abstract class KakaoAccount
     return {};
   }
 
-  static KakaoAccountInclude include({_i2.AuthUserInclude? authUser}) {
+  static KakaoAccountInclude include({_iacs.AuthUserInclude? authUser}) {
     return KakaoAccountInclude._(authUser: authUser);
   }
 
   static KakaoAccountIncludeList includeList({
-    _i1.WhereExpressionBuilder<KakaoAccountTable>? where,
+    _is.WhereExpressionBuilder<KakaoAccountTable>? where,
     int? limit,
     int? offset,
-    _i1.OrderByBuilder<KakaoAccountTable>? orderBy,
-    _i1.OrderByListBuilder<KakaoAccountTable>? orderByList,
+    _is.OrderByBuilder<KakaoAccountTable>? orderBy,
+    _is.OrderByListBuilder<KakaoAccountTable>? orderByList,
     KakaoAccountInclude? include,
   }) {
     return KakaoAccountIncludeList._(
@@ -145,17 +146,22 @@ abstract class KakaoAccount
 
   @override
   String toString() {
-    return _i1.SerializationManager.encode(this);
+    return _is.SerializationManager.encode(this);
   }
 }
 
 class _Undefined {}
 
+class _UndefinedKakaoAccount$authUser extends _is.UndefinedSentinel
+    implements _iacs.AuthUser {
+  const _UndefinedKakaoAccount$authUser();
+}
+
 class _KakaoAccountImpl extends KakaoAccount {
   _KakaoAccountImpl({
-    _i1.UuidValue? id,
-    required _i1.UuidValue authUserId,
-    _i2.AuthUser? authUser,
+    _is.UuidValue? id,
+    required _is.UuidValue authUserId,
+    _iacs.AuthUser? authUser,
     required String userIdentifier,
     String? email,
     DateTime? created,
@@ -170,22 +176,22 @@ class _KakaoAccountImpl extends KakaoAccount {
 
   /// Returns a shallow copy of this [KakaoAccount]
   /// with some or all fields replaced by the given arguments.
-  @_i1.useResult
+  @_is.useResult
   @override
   KakaoAccount copyWith({
-    Object? id = _Undefined,
-    _i1.UuidValue? authUserId,
-    Object? authUser = _Undefined,
+    _is.UuidValue? id = const _is.$UndefinedUuidValue(),
+    _is.UuidValue? authUserId,
+    _iacs.AuthUser? authUser = const _UndefinedKakaoAccount$authUser(),
     String? userIdentifier,
     Object? email = _Undefined,
     DateTime? created,
   }) {
     return KakaoAccount(
-      id: id is _i1.UuidValue? ? id : this.id,
+      id: id is _is.UndefinedSentinel ? this.id : id,
       authUserId: authUserId ?? this.authUserId,
-      authUser: authUser is _i2.AuthUser?
-          ? authUser
-          : this.authUser?.copyWith(),
+      authUser: authUser is _is.UndefinedSentinel
+          ? this.authUser?.copyWith()
+          : authUser,
       userIdentifier: userIdentifier ?? this.userIdentifier,
       email: email is String? ? email : this.email,
       created: created ?? this.created,
@@ -193,44 +199,44 @@ class _KakaoAccountImpl extends KakaoAccount {
   }
 }
 
-class KakaoAccountUpdateTable extends _i1.UpdateTable<KakaoAccountTable> {
+class KakaoAccountUpdateTable extends _is.UpdateTable<KakaoAccountTable> {
   KakaoAccountUpdateTable(super.table);
 
-  _i1.ColumnValue<_i1.UuidValue, _i1.UuidValue> authUserId(
-    _i1.UuidValue value,
-  ) => _i1.ColumnValue(table.authUserId, value);
+  _is.ColumnValue<_is.UuidValue, _is.UuidValue> authUserId(
+    _is.UuidValue value,
+  ) => _is.ColumnValue(table.authUserId, value);
 
-  _i1.ColumnValue<String, String> userIdentifier(String value) =>
-      _i1.ColumnValue(table.userIdentifier, value);
+  _is.ColumnValue<String, String> userIdentifier(String value) =>
+      _is.ColumnValue(table.userIdentifier, value);
 
-  _i1.ColumnValue<String, String> email(String? value) =>
-      _i1.ColumnValue(table.email, value);
+  _is.ColumnValue<String, String> email(String? value) =>
+      _is.ColumnValue(table.email, value);
 
-  _i1.ColumnValue<DateTime, DateTime> created(DateTime value) =>
-      _i1.ColumnValue(table.created, value);
+  _is.ColumnValue<DateTime, DateTime> created(DateTime value) =>
+      _is.ColumnValue(table.created, value);
 }
 
-class KakaoAccountTable extends _i1.Table<_i1.UuidValue?> {
+class KakaoAccountTable extends _is.Table<_is.UuidValue?> {
   KakaoAccountTable({super.tableRelation})
     : super(tableName: 'serverpod_auth_idp_kakao_account') {
     updateTable = KakaoAccountUpdateTable(this);
-    authUserId = _i1.ColumnUuid('authUserId', this);
-    userIdentifier = _i1.ColumnString('userIdentifier', this);
-    email = _i1.ColumnString('email', this);
-    created = _i1.ColumnDateTime('created', this);
+    authUserId = _is.ColumnUuid('authUserId', this);
+    userIdentifier = _is.ColumnString('userIdentifier', this);
+    email = _is.ColumnString('email', this);
+    created = _is.ColumnDateTime('created', this);
   }
 
   late final KakaoAccountUpdateTable updateTable;
 
-  late final _i1.ColumnUuid authUserId;
+  late final _is.ColumnUuid authUserId;
 
   /// The [AuthUser] this profile belongs to
-  _i2.AuthUserTable? _authUser;
+  _iacs.AuthUserTable? _authUser;
 
   /// The user identifier given by Kakao for this account.
   ///
   /// This is the stringified value of Kakao's numeric `id`.
-  late final _i1.ColumnString userIdentifier;
+  late final _is.ColumnString userIdentifier;
 
   /// The email of the user, as received from Kakao.
   ///
@@ -240,26 +246,26 @@ class KakaoAccountTable extends _i1.Table<_i1.UuidValue?> {
   /// Stored in lower-case.
   ///
   /// This may be null if the user did not consent to share their email.
-  late final _i1.ColumnString email;
+  late final _is.ColumnString email;
 
   /// The time when this authentication was created.
-  late final _i1.ColumnDateTime created;
+  late final _is.ColumnDateTime created;
 
-  _i2.AuthUserTable get authUser {
+  _iacs.AuthUserTable get authUser {
     if (_authUser != null) return _authUser!;
-    _authUser = _i1.createRelationTable(
+    _authUser = _is.createRelationTable(
       relationFieldName: 'authUser',
       field: KakaoAccount.t.authUserId,
-      foreignField: _i2.AuthUser.t.id,
+      foreignField: _iacs.AuthUser.t.id,
       tableRelation: tableRelation,
       createTable: (foreignTableRelation) =>
-          _i2.AuthUserTable(tableRelation: foreignTableRelation),
+          _iacs.AuthUserTable(tableRelation: foreignTableRelation),
     );
     return _authUser!;
   }
 
   @override
-  List<_i1.Column> get columns => [
+  List<_is.Column> get columns => [
     id,
     authUserId,
     userIdentifier,
@@ -268,7 +274,7 @@ class KakaoAccountTable extends _i1.Table<_i1.UuidValue?> {
   ];
 
   @override
-  _i1.Table? getRelationTable(String relationField) {
+  _is.Table? getRelationTable(String relationField) {
     if (relationField == 'authUser') {
       return authUser;
     }
@@ -276,23 +282,23 @@ class KakaoAccountTable extends _i1.Table<_i1.UuidValue?> {
   }
 }
 
-class KakaoAccountInclude extends _i1.IncludeObject {
-  KakaoAccountInclude._({_i2.AuthUserInclude? authUser}) {
+class KakaoAccountInclude extends _is.IncludeObject {
+  KakaoAccountInclude._({_iacs.AuthUserInclude? authUser}) {
     _authUser = authUser;
   }
 
-  _i2.AuthUserInclude? _authUser;
+  _iacs.AuthUserInclude? _authUser;
 
   @override
-  Map<String, _i1.Include?> get includes => {'authUser': _authUser};
+  Map<String, _is.Include?> get includes => {'authUser': _authUser};
 
   @override
-  _i1.Table<_i1.UuidValue?> get table => KakaoAccount.t;
+  _is.Table<_is.UuidValue?> get table => KakaoAccount.t;
 }
 
-class KakaoAccountIncludeList extends _i1.IncludeList {
+class KakaoAccountIncludeList extends _is.IncludeList {
   KakaoAccountIncludeList._({
-    _i1.WhereExpressionBuilder<KakaoAccountTable>? where,
+    _is.WhereExpressionBuilder<KakaoAccountTable>? where,
     super.limit,
     super.offset,
     super.orderBy,
@@ -303,10 +309,10 @@ class KakaoAccountIncludeList extends _i1.IncludeList {
   }
 
   @override
-  Map<String, _i1.Include?> get includes => include?.includes ?? {};
+  Map<String, _is.Include?> get includes => include?.includes ?? {};
 
   @override
-  _i1.Table<_i1.UuidValue?> get table => KakaoAccount.t;
+  _is.Table<_is.UuidValue?> get table => KakaoAccount.t;
 }
 
 class KakaoAccountRepository {
@@ -337,16 +343,16 @@ class KakaoAccountRepository {
   /// );
   /// ```
   Future<List<KakaoAccount>> find(
-    _i1.DatabaseSession session, {
-    _i1.WhereExpressionBuilder<KakaoAccountTable>? where,
+    _is.DatabaseSession session, {
+    _is.WhereExpressionBuilder<KakaoAccountTable>? where,
     int? limit,
     int? offset,
-    _i1.OrderByBuilder<KakaoAccountTable>? orderBy,
-    _i1.OrderByListBuilder<KakaoAccountTable>? orderByList,
-    _i1.Transaction? transaction,
+    _is.OrderByBuilder<KakaoAccountTable>? orderBy,
+    _is.OrderByListBuilder<KakaoAccountTable>? orderByList,
+    _is.Transaction? transaction,
     KakaoAccountInclude? include,
-    _i1.LockMode? lockMode,
-    _i1.LockBehavior? lockBehavior,
+    _is.LockMode? lockMode,
+    _is.LockBehavior? lockBehavior,
   }) async {
     return session.db.find<KakaoAccount>(
       where: where?.call(KakaoAccount.t),
@@ -358,6 +364,71 @@ class KakaoAccountRepository {
       include: include,
       lockMode: lockMode,
       lockBehavior: lockBehavior,
+    );
+  }
+
+  /// Emits [KakaoAccount]s matching the given query parameters every time the
+  /// source tables are modified.
+  ///
+  /// Use [where] to specify which items to include in the return value.
+  /// If none is specified, all items will be returned.
+  ///
+  /// To specify the order of the items use [orderBy] or [orderByList]
+  /// when sorting by multiple columns.
+  ///
+  /// The maximum number of items can be set by [limit]. If no limit is set,
+  /// all items matching the query will be returned.
+  ///
+  /// [offset] defines how many items to skip, after which [limit] (or all)
+  /// items are read from the database.
+  ///
+  /// Use [throttle] to specify the minimum interval between queries. It can
+  /// also be set to `null`, in which case the stream will only be throttled
+  /// when its subscription is paused.
+  ///
+  /// Source tables are collected from the queried table, [where], [orderBy],
+  /// [orderByList], and the [include] graph. [alsoTriggerOnTables] is added
+  /// to that set. Pass [Table] instances such as `KakaoAccount.t`.
+  ///
+  /// Raw [Expression] SQL is not inspected. Tables referenced only in raw
+  /// SQL must be passed via [alsoTriggerOnTables].
+  ///
+  /// The stream always reads committed state and never joins an ambient
+  /// [Transaction]. Emissions for a write fire after that write commits.
+  ///
+  /// Currently only supported on SQLite. Calling this method on PostgreSQL
+  /// throws an [UnsupportedError].
+  ///
+  /// ```dart
+  /// var subscription = Persons.db.watch(
+  ///   session,
+  ///   where: (t) => t.lastName.equals('Jones'),
+  ///   orderBy: (t) => t.firstName,
+  ///   limit: 100,
+  /// ).listen((persons) {
+  ///   // Handle the latest matching rows.
+  /// });
+  /// ```
+  _ida.Stream<List<KakaoAccount>> watch(
+    _is.DatabaseSession session, {
+    _is.WhereExpressionBuilder<KakaoAccountTable>? where,
+    int? limit,
+    int? offset,
+    _is.OrderByBuilder<KakaoAccountTable>? orderBy,
+    _is.OrderByListBuilder<KakaoAccountTable>? orderByList,
+    KakaoAccountInclude? include,
+    Duration? throttle = const Duration(milliseconds: 30),
+    Iterable<_is.Table>? alsoTriggerOnTables,
+  }) {
+    return session.db.watch<KakaoAccount>(
+      where: where?.call(KakaoAccount.t),
+      orderBy: orderBy?.call(KakaoAccount.t),
+      orderByList: orderByList?.call(KakaoAccount.t),
+      limit: limit,
+      offset: offset,
+      include: include,
+      throttle: throttle,
+      alsoTriggerOnTables: alsoTriggerOnTables,
     );
   }
 
@@ -379,15 +450,15 @@ class KakaoAccountRepository {
   /// );
   /// ```
   Future<KakaoAccount?> findFirstRow(
-    _i1.DatabaseSession session, {
-    _i1.WhereExpressionBuilder<KakaoAccountTable>? where,
+    _is.DatabaseSession session, {
+    _is.WhereExpressionBuilder<KakaoAccountTable>? where,
     int? offset,
-    _i1.OrderByBuilder<KakaoAccountTable>? orderBy,
-    _i1.OrderByListBuilder<KakaoAccountTable>? orderByList,
-    _i1.Transaction? transaction,
+    _is.OrderByBuilder<KakaoAccountTable>? orderBy,
+    _is.OrderByListBuilder<KakaoAccountTable>? orderByList,
+    _is.Transaction? transaction,
     KakaoAccountInclude? include,
-    _i1.LockMode? lockMode,
-    _i1.LockBehavior? lockBehavior,
+    _is.LockMode? lockMode,
+    _is.LockBehavior? lockBehavior,
   }) async {
     return session.db.findFirstRow<KakaoAccount>(
       where: where?.call(KakaoAccount.t),
@@ -403,12 +474,12 @@ class KakaoAccountRepository {
 
   /// Finds a single [KakaoAccount] by its [id] or null if no such row exists.
   Future<KakaoAccount?> findById(
-    _i1.DatabaseSession session,
-    _i1.UuidValue id, {
-    _i1.Transaction? transaction,
+    _is.DatabaseSession session,
+    _is.UuidValue id, {
+    _is.Transaction? transaction,
     KakaoAccountInclude? include,
-    _i1.LockMode? lockMode,
-    _i1.LockBehavior? lockBehavior,
+    _is.LockMode? lockMode,
+    _is.LockBehavior? lockBehavior,
   }) async {
     return session.db.findById<KakaoAccount>(
       id,
@@ -434,9 +505,9 @@ class KakaoAccountRepository {
   /// the database and an empty list is returned. This avoids the overhead of
   /// transferring and deserializing the rows when the result is not needed.
   Future<List<KakaoAccount>> insert(
-    _i1.DatabaseSession session,
+    _is.DatabaseSession session,
     List<KakaoAccount> rows, {
-    _i1.Transaction? transaction,
+    _is.Transaction? transaction,
     bool ignoreConflicts = false,
     bool noReturn = false,
   }) async {
@@ -452,9 +523,9 @@ class KakaoAccountRepository {
   ///
   /// The returned [KakaoAccount] will have its `id` field set.
   Future<KakaoAccount> insertRow(
-    _i1.DatabaseSession session,
+    _is.DatabaseSession session,
     KakaoAccount row, {
-    _i1.Transaction? transaction,
+    _is.Transaction? transaction,
   }) async {
     return session.db.insertRow<KakaoAccount>(row, transaction: transaction);
   }
@@ -480,12 +551,12 @@ class KakaoAccountRepository {
   /// the database and an empty list is returned. This avoids the overhead of
   /// transferring and deserializing the rows when the result is not needed.
   Future<List<KakaoAccount>> upsert(
-    _i1.DatabaseSession session,
+    _is.DatabaseSession session,
     List<KakaoAccount> rows, {
-    required _i1.ColumnSelections<KakaoAccountTable> conflictColumns,
-    _i1.ColumnSelections<KakaoAccountTable>? updateColumns,
-    _i1.WhereExpressionBuilder<KakaoAccountTable>? updateWhere,
-    _i1.Transaction? transaction,
+    required _is.ColumnSelections<KakaoAccountTable> conflictColumns,
+    _is.ColumnSelections<KakaoAccountTable>? updateColumns,
+    _is.WhereExpressionBuilder<KakaoAccountTable>? updateWhere,
+    _is.Transaction? transaction,
     bool noReturn = false,
   }) async {
     return session.db.upsert<KakaoAccount>(
@@ -512,12 +583,12 @@ class KakaoAccountRepository {
   ///
   /// The returned [KakaoAccount] will have its `id` field set.
   Future<KakaoAccount?> upsertRow(
-    _i1.DatabaseSession session,
+    _is.DatabaseSession session,
     KakaoAccount row, {
-    required _i1.ColumnSelections<KakaoAccountTable> conflictColumns,
-    _i1.ColumnSelections<KakaoAccountTable>? updateColumns,
-    _i1.WhereExpressionBuilder<KakaoAccountTable>? updateWhere,
-    _i1.Transaction? transaction,
+    required _is.ColumnSelections<KakaoAccountTable> conflictColumns,
+    _is.ColumnSelections<KakaoAccountTable>? updateColumns,
+    _is.WhereExpressionBuilder<KakaoAccountTable>? updateWhere,
+    _is.Transaction? transaction,
   }) async {
     return session.db.upsertRow<KakaoAccount>(
       row,
@@ -538,10 +609,10 @@ class KakaoAccountRepository {
   /// the database and an empty list is returned. This avoids the overhead of
   /// transferring and deserializing the rows when the result is not needed.
   Future<List<KakaoAccount>> update(
-    _i1.DatabaseSession session,
+    _is.DatabaseSession session,
     List<KakaoAccount> rows, {
-    _i1.ColumnSelections<KakaoAccountTable>? columns,
-    _i1.Transaction? transaction,
+    _is.ColumnSelections<KakaoAccountTable>? columns,
+    _is.Transaction? transaction,
     bool noReturn = false,
   }) async {
     return session.db.update<KakaoAccount>(
@@ -556,10 +627,10 @@ class KakaoAccountRepository {
   /// Optionally, a list of [columns] can be provided to only update those
   /// columns. Defaults to all columns.
   Future<KakaoAccount> updateRow(
-    _i1.DatabaseSession session,
+    _is.DatabaseSession session,
     KakaoAccount row, {
-    _i1.ColumnSelections<KakaoAccountTable>? columns,
-    _i1.Transaction? transaction,
+    _is.ColumnSelections<KakaoAccountTable>? columns,
+    _is.Transaction? transaction,
   }) async {
     return session.db.updateRow<KakaoAccount>(
       row,
@@ -571,10 +642,10 @@ class KakaoAccountRepository {
   /// Updates a single [KakaoAccount] by its [id] with the specified [columnValues].
   /// Returns the updated row or null if no row with the given id exists.
   Future<KakaoAccount?> updateById(
-    _i1.DatabaseSession session,
-    _i1.UuidValue id, {
-    required _i1.ColumnValueListBuilder<KakaoAccountUpdateTable> columnValues,
-    _i1.Transaction? transaction,
+    _is.DatabaseSession session,
+    _is.UuidValue id, {
+    required _is.ColumnValueListBuilder<KakaoAccountUpdateTable> columnValues,
+    _is.Transaction? transaction,
   }) async {
     return session.db.updateById<KakaoAccount>(
       id,
@@ -590,14 +661,14 @@ class KakaoAccountRepository {
   /// the database and an empty list is returned. This avoids the overhead of
   /// transferring and deserializing the rows when the result is not needed.
   Future<List<KakaoAccount>> updateWhere(
-    _i1.DatabaseSession session, {
-    required _i1.ColumnValueListBuilder<KakaoAccountUpdateTable> columnValues,
-    required _i1.WhereExpressionBuilder<KakaoAccountTable> where,
+    _is.DatabaseSession session, {
+    required _is.ColumnValueListBuilder<KakaoAccountUpdateTable> columnValues,
+    required _is.WhereExpressionBuilder<KakaoAccountTable> where,
     int? limit,
     int? offset,
-    _i1.OrderByBuilder<KakaoAccountTable>? orderBy,
-    _i1.OrderByListBuilder<KakaoAccountTable>? orderByList,
-    _i1.Transaction? transaction,
+    _is.OrderByBuilder<KakaoAccountTable>? orderBy,
+    _is.OrderByListBuilder<KakaoAccountTable>? orderByList,
+    _is.Transaction? transaction,
     bool noReturn = false,
   }) async {
     return session.db.updateWhere<KakaoAccount>(
@@ -624,11 +695,11 @@ class KakaoAccountRepository {
   /// the database and an empty list is returned. This avoids the overhead of
   /// transferring and deserializing the rows when the result is not needed.
   Future<List<KakaoAccount>> delete(
-    _i1.DatabaseSession session,
+    _is.DatabaseSession session,
     List<KakaoAccount> rows, {
-    _i1.OrderByBuilder<KakaoAccountTable>? orderBy,
-    _i1.OrderByListBuilder<KakaoAccountTable>? orderByList,
-    _i1.Transaction? transaction,
+    _is.OrderByBuilder<KakaoAccountTable>? orderBy,
+    _is.OrderByListBuilder<KakaoAccountTable>? orderByList,
+    _is.Transaction? transaction,
     bool noReturn = false,
   }) async {
     return session.db.delete<KakaoAccount>(
@@ -642,9 +713,9 @@ class KakaoAccountRepository {
 
   /// Deletes a single [KakaoAccount].
   Future<KakaoAccount> deleteRow(
-    _i1.DatabaseSession session,
+    _is.DatabaseSession session,
     KakaoAccount row, {
-    _i1.Transaction? transaction,
+    _is.Transaction? transaction,
   }) async {
     return session.db.deleteRow<KakaoAccount>(row, transaction: transaction);
   }
@@ -658,11 +729,11 @@ class KakaoAccountRepository {
   /// the database and an empty list is returned. This avoids the overhead of
   /// transferring and deserializing the rows when the result is not needed.
   Future<List<KakaoAccount>> deleteWhere(
-    _i1.DatabaseSession session, {
-    required _i1.WhereExpressionBuilder<KakaoAccountTable> where,
-    _i1.OrderByBuilder<KakaoAccountTable>? orderBy,
-    _i1.OrderByListBuilder<KakaoAccountTable>? orderByList,
-    _i1.Transaction? transaction,
+    _is.DatabaseSession session, {
+    required _is.WhereExpressionBuilder<KakaoAccountTable> where,
+    _is.OrderByBuilder<KakaoAccountTable>? orderBy,
+    _is.OrderByListBuilder<KakaoAccountTable>? orderByList,
+    _is.Transaction? transaction,
     bool noReturn = false,
   }) async {
     return session.db.deleteWhere<KakaoAccount>(
@@ -677,10 +748,10 @@ class KakaoAccountRepository {
   /// Counts the number of rows matching the [where] expression. If omitted,
   /// will return the count of all rows in the table.
   Future<int> count(
-    _i1.DatabaseSession session, {
-    _i1.WhereExpressionBuilder<KakaoAccountTable>? where,
+    _is.DatabaseSession session, {
+    _is.WhereExpressionBuilder<KakaoAccountTable>? where,
     int? limit,
-    _i1.Transaction? transaction,
+    _is.Transaction? transaction,
   }) async {
     return session.db.count<KakaoAccount>(
       where: where?.call(KakaoAccount.t),
@@ -691,11 +762,11 @@ class KakaoAccountRepository {
 
   /// Acquires row-level locks on [KakaoAccount] rows matching the [where] expression.
   Future<void> lockRows(
-    _i1.DatabaseSession session, {
-    required _i1.WhereExpressionBuilder<KakaoAccountTable> where,
-    required _i1.LockMode lockMode,
-    required _i1.Transaction transaction,
-    _i1.LockBehavior lockBehavior = _i1.LockBehavior.wait,
+    _is.DatabaseSession session, {
+    required _is.WhereExpressionBuilder<KakaoAccountTable> where,
+    required _is.LockMode lockMode,
+    required _is.Transaction transaction,
+    _is.LockBehavior lockBehavior = _is.LockBehavior.wait,
   }) async {
     return session.db.lockRows<KakaoAccount>(
       where: where(KakaoAccount.t),
@@ -712,10 +783,10 @@ class KakaoAccountAttachRowRepository {
   /// Creates a relation between the given [KakaoAccount] and [AuthUser]
   /// by setting the [KakaoAccount]'s foreign key `authUserId` to refer to the [AuthUser].
   Future<void> authUser(
-    _i1.DatabaseSession session,
+    _is.DatabaseSession session,
     KakaoAccount kakaoAccount,
-    _i2.AuthUser authUser, {
-    _i1.Transaction? transaction,
+    _iacs.AuthUser authUser, {
+    _is.Transaction? transaction,
   }) async {
     if (kakaoAccount.id == null) {
       throw ArgumentError.notNull('kakaoAccount.id');

@@ -10,80 +10,80 @@
 // ignore_for_file: invalid_use_of_internal_member
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
-import 'package:serverpod/serverpod.dart' as _i1;
-import '../endpoints/naver_idp_endpoint.dart' as _i2;
-import 'package:serverpod_auth_idp_server/serverpod_auth_idp_server.dart'
-    as _i3;
+import 'package:serverpod/serverpod.dart' as _is;
 import 'package:serverpod_auth_core_server/serverpod_auth_core_server.dart'
-    as _i4;
+    as _iacs;
+import 'package:serverpod_auth_idp_server/serverpod_auth_idp_server.dart'
+    as _iais;
+import '../endpoints/naver_idp_endpoint.dart' as _id3vmzfj;
 
-class Endpoints extends _i1.EndpointDispatch {
+class Endpoints extends _is.EndpointDispatch {
   @override
-  void initializeEndpoints(_i1.Server server) {
-    var endpoints = <String, _i1.Endpoint>{
-      'naverIdp': _i2.NaverIdpEndpoint()
+  void initializeEndpoints(_is.Server server) {
+    var endpoints = <String, _is.Endpoint>{
+      'naverIdp': _id3vmzfj.NaverIdpEndpoint()
         ..initialize(server, 'naverIdp', 'serverpod_auth_idp_naver'),
     };
-    connectors['naverIdp'] = _i1.EndpointConnector(
+    connectors['naverIdp'] = _is.EndpointConnector(
       name: 'naverIdp',
       endpoint: endpoints['naverIdp']!,
       methodConnectors: {
-        'login': _i1.MethodConnector(
+        'login': _is.MethodConnector(
           name: 'login',
           params: {
-            'code': _i1.ParameterDescription(
+            'code': _is.ParameterDescription(
               name: 'code',
-              type: _i1.getType<String>(),
+              type: _is.getType<String>(),
               nullable: false,
             ),
-            'codeVerifier': _i1.ParameterDescription(
+            'codeVerifier': _is.ParameterDescription(
               name: 'codeVerifier',
-              type: _i1.getType<String?>(),
+              type: _is.getType<String?>(),
               nullable: true,
             ),
-            'redirectUri': _i1.ParameterDescription(
+            'redirectUri': _is.ParameterDescription(
               name: 'redirectUri',
-              type: _i1.getType<String>(),
+              type: _is.getType<String>(),
               nullable: false,
             ),
           },
-          call: (_i1.Session session, Map<String, dynamic> params) async =>
-              (endpoints['naverIdp'] as _i2.NaverIdpEndpoint).login(
+          call: (_is.Session session, Map<String, dynamic> params) async =>
+              (endpoints['naverIdp'] as _id3vmzfj.NaverIdpEndpoint).login(
                 session,
                 code: params['code'],
                 codeVerifier: params['codeVerifier'],
                 redirectUri: params['redirectUri'],
               ),
         ),
-        'loginWithAccessToken': _i1.MethodConnector(
+        'loginWithAccessToken': _is.MethodConnector(
           name: 'loginWithAccessToken',
           params: {
-            'accessToken': _i1.ParameterDescription(
+            'accessToken': _is.ParameterDescription(
               name: 'accessToken',
-              type: _i1.getType<String>(),
+              type: _is.getType<String>(),
               nullable: false,
             ),
           },
-          call: (_i1.Session session, Map<String, dynamic> params) async =>
-              (endpoints['naverIdp'] as _i2.NaverIdpEndpoint)
+          call: (_is.Session session, Map<String, dynamic> params) async =>
+              (endpoints['naverIdp'] as _id3vmzfj.NaverIdpEndpoint)
                   .loginWithAccessToken(
                     session,
                     accessToken: params['accessToken'],
                   ),
         ),
-        'hasAccount': _i1.MethodConnector(
+        'hasAccount': _is.MethodConnector(
           name: 'hasAccount',
           params: {},
-          call: (_i1.Session session, Map<String, dynamic> params) async =>
-              (endpoints['naverIdp'] as _i2.NaverIdpEndpoint).hasAccount(
+          call: (_is.Session session, Map<String, dynamic> params) async =>
+              (endpoints['naverIdp'] as _id3vmzfj.NaverIdpEndpoint).hasAccount(
                 session,
               ),
         ),
       },
     );
-    modules['serverpod_auth_idp'] = _i3.Endpoints()
+    modules['serverpod_auth_idp'] = _iais.Endpoints()
       ..initializeEndpoints(server);
-    modules['serverpod_auth_core'] = _i4.Endpoints()
+    modules['serverpod_auth_core'] = _iacs.Endpoints()
       ..initializeEndpoints(server);
   }
 }

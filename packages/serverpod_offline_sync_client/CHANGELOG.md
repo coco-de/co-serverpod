@@ -1,5 +1,9 @@
 ## 0.0.11+co.1 (co-serverpod fork)
 
+- chore: Require Serverpod `^4.1.0` (stable) instead of `^4.1.0-beta.3`, and
+  regenerate the protocol code with CLI 4.1.0. The regenerated code needs the
+  4.1.0 `serverpod_serialization` runtime. No model change.
+
 - chore: Update to the shared `0.0.11+co.1` fork and Serverpod
   `^4.1.0-beta.3`; regenerate protocol code with the matching CLI. Preserve
   sibling path dependencies and all fork-specific public APIs.

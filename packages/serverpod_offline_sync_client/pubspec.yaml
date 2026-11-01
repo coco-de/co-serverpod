@@ -13,8 +13,8 @@ environment:
 dependencies:
   clock: ^1.1.2
   meta: ^1.18.0
-  serverpod_client: ^4.1.0-beta.3
-  serverpod_database: ^4.1.0-beta.3
+  serverpod_client: ^4.1.0
+  serverpod_database: ^4.1.0
   serverpod_offline_sync:
     path: ../serverpod_offline_sync
 
