@@ -39,8 +39,9 @@ jobs:
   auth-servers:
     name: apple · kakao · naver 서버
     runs-on: ubuntu-latest
-    # 첫 실행 표본이 쌓이면 실측 최대 × 2 로 다시 잡는다.
-    timeout-minutes: 25
+    # 첫 실행 실측 3분(Flutter SDK 설정 1분 · 의존성 13초 · 서버 3개 합 1분 10초). 표본이 하나뿐이라
+    # 이미지 풀 지연 여유를 두고 잡았다 — 표본이 쌓이면 실측 최대 × 2 로 다시 잡는다.
+    timeout-minutes: 10
     # 각 서버의 config/test.yaml 이 가리키는 포트 · DB 이름에 맞춘 일회용 PostgreSQL.
     # 비밀번호는 config/passwords.yaml 에 커밋된 테스트 전용 값(DB_TEST_PASSWORD)이다.
     services:
