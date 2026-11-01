@@ -10,10 +10,10 @@
 // ignore_for_file: invalid_use_of_internal_member
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
-import 'package:serverpod_client/serverpod_client.dart' as _i1;
-import 'dart:async' as _i2;
+import 'dart:async' as _ida;
 import 'package:serverpod_auth_core_client/serverpod_auth_core_client.dart'
-    as _i3;
+    as _iacc;
+import 'package:serverpod_client/serverpod_client.dart' as _isc;
 
 /// Endpoint for Naver Account-based authentication.
 ///
@@ -28,8 +28,8 @@ import 'package:serverpod_auth_core_client/serverpod_auth_core_client.dart'
 /// If you would like to modify the authentication flow, consider extending
 /// this class and overriding the relevant methods.
 /// {@category Endpoint}
-class EndpointNaverIdp extends _i1.EndpointRef {
-  EndpointNaverIdp(_i1.EndpointCaller caller) : super(caller);
+class EndpointNaverIdp extends _isc.EndpointRef {
+  EndpointNaverIdp(_isc.EndpointCaller caller) : super(caller);
 
   @override
   String get name => 'serverpod_auth_idp_naver.naverIdp';
@@ -44,11 +44,11 @@ class EndpointNaverIdp extends _i1.EndpointRef {
   /// If a new user is created an associated `UserProfile` is also created.
   ///
   /// [codeVerifier] is optional because Naver does not document PKCE support.
-  _i2.Future<_i3.AuthSuccess> login({
+  _ida.Future<_iacc.AuthSuccess> login({
     required String code,
     String? codeVerifier,
     required String redirectUri,
-  }) => caller.callServerEndpoint<_i3.AuthSuccess>(
+  }) => caller.callServerEndpoint<_iacc.AuthSuccess>(
     'serverpod_auth_idp_naver.naverIdp',
     'login',
     {
@@ -64,31 +64,31 @@ class EndpointNaverIdp extends _i1.EndpointRef {
   /// Unlike [login], this skips the authorization-code exchange and calls
   /// Naver's user info API directly with the supplied token. If a new user is
   /// created an associated `UserProfile` is also created.
-  _i2.Future<_i3.AuthSuccess> loginWithAccessToken({
+  _ida.Future<_iacc.AuthSuccess> loginWithAccessToken({
     required String accessToken,
-  }) => caller.callServerEndpoint<_i3.AuthSuccess>(
+  }) => caller.callServerEndpoint<_iacc.AuthSuccess>(
     'serverpod_auth_idp_naver.naverIdp',
     'loginWithAccessToken',
     {'accessToken': accessToken},
   );
 
   /// Determines whether the current session has an associated Naver account.
-  _i2.Future<bool> hasAccount() => caller.callServerEndpoint<bool>(
+  _ida.Future<bool> hasAccount() => caller.callServerEndpoint<bool>(
     'serverpod_auth_idp_naver.naverIdp',
     'hasAccount',
     {},
   );
 }
 
-class Caller extends _i1.ModuleEndpointCaller {
-  Caller(_i1.ServerpodClientShared client) : super(client) {
+class Caller extends _isc.ModuleEndpointCaller {
+  Caller(_isc.ServerpodClientShared client) : super(client) {
     naverIdp = EndpointNaverIdp(this);
   }
 
   late final EndpointNaverIdp naverIdp;
 
   @override
-  Map<String, _i1.EndpointRef> get endpointRefLookup => {
+  Map<String, _isc.EndpointRef> get endpointRefLookup => {
     'serverpod_auth_idp_naver.naverIdp': naverIdp,
   };
 }

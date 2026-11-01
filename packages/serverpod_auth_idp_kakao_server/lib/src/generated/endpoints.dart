@@ -10,80 +10,80 @@
 // ignore_for_file: invalid_use_of_internal_member
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
-import 'package:serverpod/serverpod.dart' as _i1;
-import '../endpoints/kakao_idp_endpoint.dart' as _i2;
-import 'package:serverpod_auth_idp_server/serverpod_auth_idp_server.dart'
-    as _i3;
+import 'package:serverpod/serverpod.dart' as _is;
 import 'package:serverpod_auth_core_server/serverpod_auth_core_server.dart'
-    as _i4;
+    as _iacs;
+import 'package:serverpod_auth_idp_server/serverpod_auth_idp_server.dart'
+    as _iais;
+import '../endpoints/kakao_idp_endpoint.dart' as _iey60ljx;
 
-class Endpoints extends _i1.EndpointDispatch {
+class Endpoints extends _is.EndpointDispatch {
   @override
-  void initializeEndpoints(_i1.Server server) {
-    var endpoints = <String, _i1.Endpoint>{
-      'kakaoIdp': _i2.KakaoIdpEndpoint()
+  void initializeEndpoints(_is.Server server) {
+    var endpoints = <String, _is.Endpoint>{
+      'kakaoIdp': _iey60ljx.KakaoIdpEndpoint()
         ..initialize(server, 'kakaoIdp', 'serverpod_auth_idp_kakao'),
     };
-    connectors['kakaoIdp'] = _i1.EndpointConnector(
+    connectors['kakaoIdp'] = _is.EndpointConnector(
       name: 'kakaoIdp',
       endpoint: endpoints['kakaoIdp']!,
       methodConnectors: {
-        'login': _i1.MethodConnector(
+        'login': _is.MethodConnector(
           name: 'login',
           params: {
-            'code': _i1.ParameterDescription(
+            'code': _is.ParameterDescription(
               name: 'code',
-              type: _i1.getType<String>(),
+              type: _is.getType<String>(),
               nullable: false,
             ),
-            'codeVerifier': _i1.ParameterDescription(
+            'codeVerifier': _is.ParameterDescription(
               name: 'codeVerifier',
-              type: _i1.getType<String>(),
+              type: _is.getType<String>(),
               nullable: false,
             ),
-            'redirectUri': _i1.ParameterDescription(
+            'redirectUri': _is.ParameterDescription(
               name: 'redirectUri',
-              type: _i1.getType<String>(),
+              type: _is.getType<String>(),
               nullable: false,
             ),
           },
-          call: (_i1.Session session, Map<String, dynamic> params) async =>
-              (endpoints['kakaoIdp'] as _i2.KakaoIdpEndpoint).login(
+          call: (_is.Session session, Map<String, dynamic> params) async =>
+              (endpoints['kakaoIdp'] as _iey60ljx.KakaoIdpEndpoint).login(
                 session,
                 code: params['code'],
                 codeVerifier: params['codeVerifier'],
                 redirectUri: params['redirectUri'],
               ),
         ),
-        'loginWithAccessToken': _i1.MethodConnector(
+        'loginWithAccessToken': _is.MethodConnector(
           name: 'loginWithAccessToken',
           params: {
-            'accessToken': _i1.ParameterDescription(
+            'accessToken': _is.ParameterDescription(
               name: 'accessToken',
-              type: _i1.getType<String>(),
+              type: _is.getType<String>(),
               nullable: false,
             ),
           },
-          call: (_i1.Session session, Map<String, dynamic> params) async =>
-              (endpoints['kakaoIdp'] as _i2.KakaoIdpEndpoint)
+          call: (_is.Session session, Map<String, dynamic> params) async =>
+              (endpoints['kakaoIdp'] as _iey60ljx.KakaoIdpEndpoint)
                   .loginWithAccessToken(
                     session,
                     accessToken: params['accessToken'],
                   ),
         ),
-        'hasAccount': _i1.MethodConnector(
+        'hasAccount': _is.MethodConnector(
           name: 'hasAccount',
           params: {},
-          call: (_i1.Session session, Map<String, dynamic> params) async =>
-              (endpoints['kakaoIdp'] as _i2.KakaoIdpEndpoint).hasAccount(
+          call: (_is.Session session, Map<String, dynamic> params) async =>
+              (endpoints['kakaoIdp'] as _iey60ljx.KakaoIdpEndpoint).hasAccount(
                 session,
               ),
         ),
       },
     );
-    modules['serverpod_auth_idp'] = _i3.Endpoints()
+    modules['serverpod_auth_idp'] = _iais.Endpoints()
       ..initializeEndpoints(server);
-    modules['serverpod_auth_core'] = _i4.Endpoints()
+    modules['serverpod_auth_core'] = _iacs.Endpoints()
       ..initializeEndpoints(server);
   }
 }

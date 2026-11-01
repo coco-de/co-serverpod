@@ -11,15 +11,16 @@
 // ignore_for_file: dead_code, unnecessary_null_comparison
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
-import 'package:serverpod/serverpod.dart' as _i1;
+import 'dart:async' as _ida;
+import 'package:serverpod/serverpod.dart' as _is;
 import 'package:serverpod_auth_core_server/serverpod_auth_core_server.dart'
-    as _i2;
+    as _iacs;
 import 'package:serverpod_auth_idp_naver_server/src/generated/protocol.dart'
-    as _i3;
+    as _ihs70h4p;
 
 /// A fully configured Naver account to be used for logins.
 abstract class NaverAccount
-    implements _i1.TableRow<_i1.UuidValue?>, _i1.ProtocolSerialization {
+    implements _is.TableRow<_is.UuidValue?>, _is.ProtocolSerialization {
   NaverAccount._({
     this.id,
     required this.authUserId,
@@ -30,9 +31,9 @@ abstract class NaverAccount
   }) : created = created ?? DateTime.now();
 
   factory NaverAccount({
-    _i1.UuidValue? id,
-    required _i1.UuidValue authUserId,
-    _i2.AuthUser? authUser,
+    _is.UuidValue? id,
+    required _is.UuidValue authUserId,
+    _iacs.AuthUser? authUser,
     required String userIdentifier,
     String? email,
     DateTime? created,
@@ -42,20 +43,20 @@ abstract class NaverAccount
     return NaverAccount(
       id: jsonSerialization['id'] == null
           ? null
-          : _i1.UuidValueJsonExtension.fromJson(jsonSerialization['id']),
-      authUserId: _i1.UuidValueJsonExtension.fromJson(
+          : _is.UuidValueJsonExtension.fromJson(jsonSerialization['id']),
+      authUserId: _is.UuidValueJsonExtension.fromJson(
         jsonSerialization['authUserId'],
       ),
       authUser: jsonSerialization['authUser'] == null
           ? null
-          : _i3.Protocol().deserialize<_i2.AuthUser>(
+          : _ihs70h4p.Protocol().deserialize<_iacs.AuthUser>(
               jsonSerialization['authUser'],
             ),
       userIdentifier: jsonSerialization['userIdentifier'] as String,
       email: jsonSerialization['email'] as String?,
       created: jsonSerialization['created'] == null
           ? null
-          : _i1.DateTimeJsonExtension.fromJson(jsonSerialization['created']),
+          : _is.DateTimeJsonExtension.fromJson(jsonSerialization['created']),
     );
   }
 
@@ -64,12 +65,12 @@ abstract class NaverAccount
   static const db = NaverAccountRepository._();
 
   @override
-  _i1.UuidValue? id;
+  _is.UuidValue? id;
 
-  _i1.UuidValue authUserId;
+  _is.UuidValue authUserId;
 
   /// The [AuthUser] this profile belongs to
-  _i2.AuthUser? authUser;
+  _iacs.AuthUser? authUser;
 
   /// The user identifier given by Naver for this account.
   String userIdentifier;
@@ -88,15 +89,15 @@ abstract class NaverAccount
   DateTime created;
 
   @override
-  _i1.Table<_i1.UuidValue?> get table => t;
+  _is.Table<_is.UuidValue?> get table => t;
 
   /// Returns a shallow copy of this [NaverAccount]
   /// with some or all fields replaced by the given arguments.
-  @_i1.useResult
+  @_is.useResult
   NaverAccount copyWith({
-    _i1.UuidValue? id,
-    _i1.UuidValue? authUserId,
-    _i2.AuthUser? authUser,
+    _is.UuidValue? id = const _is.$UndefinedUuidValue(),
+    _is.UuidValue? authUserId,
+    _iacs.AuthUser? authUser = const _UndefinedNaverAccount$authUser(),
     String? userIdentifier,
     String? email,
     DateTime? created,
@@ -119,16 +120,16 @@ abstract class NaverAccount
     return {};
   }
 
-  static NaverAccountInclude include({_i2.AuthUserInclude? authUser}) {
+  static NaverAccountInclude include({_iacs.AuthUserInclude? authUser}) {
     return NaverAccountInclude._(authUser: authUser);
   }
 
   static NaverAccountIncludeList includeList({
-    _i1.WhereExpressionBuilder<NaverAccountTable>? where,
+    _is.WhereExpressionBuilder<NaverAccountTable>? where,
     int? limit,
     int? offset,
-    _i1.OrderByBuilder<NaverAccountTable>? orderBy,
-    _i1.OrderByListBuilder<NaverAccountTable>? orderByList,
+    _is.OrderByBuilder<NaverAccountTable>? orderBy,
+    _is.OrderByListBuilder<NaverAccountTable>? orderByList,
     NaverAccountInclude? include,
   }) {
     return NaverAccountIncludeList._(
@@ -143,17 +144,22 @@ abstract class NaverAccount
 
   @override
   String toString() {
-    return _i1.SerializationManager.encode(this);
+    return _is.SerializationManager.encode(this);
   }
 }
 
 class _Undefined {}
 
+class _UndefinedNaverAccount$authUser extends _is.UndefinedSentinel
+    implements _iacs.AuthUser {
+  const _UndefinedNaverAccount$authUser();
+}
+
 class _NaverAccountImpl extends NaverAccount {
   _NaverAccountImpl({
-    _i1.UuidValue? id,
-    required _i1.UuidValue authUserId,
-    _i2.AuthUser? authUser,
+    _is.UuidValue? id,
+    required _is.UuidValue authUserId,
+    _iacs.AuthUser? authUser,
     required String userIdentifier,
     String? email,
     DateTime? created,
@@ -168,22 +174,22 @@ class _NaverAccountImpl extends NaverAccount {
 
   /// Returns a shallow copy of this [NaverAccount]
   /// with some or all fields replaced by the given arguments.
-  @_i1.useResult
+  @_is.useResult
   @override
   NaverAccount copyWith({
-    Object? id = _Undefined,
-    _i1.UuidValue? authUserId,
-    Object? authUser = _Undefined,
+    _is.UuidValue? id = const _is.$UndefinedUuidValue(),
+    _is.UuidValue? authUserId,
+    _iacs.AuthUser? authUser = const _UndefinedNaverAccount$authUser(),
     String? userIdentifier,
     Object? email = _Undefined,
     DateTime? created,
   }) {
     return NaverAccount(
-      id: id is _i1.UuidValue? ? id : this.id,
+      id: id is _is.UndefinedSentinel ? this.id : id,
       authUserId: authUserId ?? this.authUserId,
-      authUser: authUser is _i2.AuthUser?
-          ? authUser
-          : this.authUser?.copyWith(),
+      authUser: authUser is _is.UndefinedSentinel
+          ? this.authUser?.copyWith()
+          : authUser,
       userIdentifier: userIdentifier ?? this.userIdentifier,
       email: email is String? ? email : this.email,
       created: created ?? this.created,
@@ -191,42 +197,42 @@ class _NaverAccountImpl extends NaverAccount {
   }
 }
 
-class NaverAccountUpdateTable extends _i1.UpdateTable<NaverAccountTable> {
+class NaverAccountUpdateTable extends _is.UpdateTable<NaverAccountTable> {
   NaverAccountUpdateTable(super.table);
 
-  _i1.ColumnValue<_i1.UuidValue, _i1.UuidValue> authUserId(
-    _i1.UuidValue value,
-  ) => _i1.ColumnValue(table.authUserId, value);
+  _is.ColumnValue<_is.UuidValue, _is.UuidValue> authUserId(
+    _is.UuidValue value,
+  ) => _is.ColumnValue(table.authUserId, value);
 
-  _i1.ColumnValue<String, String> userIdentifier(String value) =>
-      _i1.ColumnValue(table.userIdentifier, value);
+  _is.ColumnValue<String, String> userIdentifier(String value) =>
+      _is.ColumnValue(table.userIdentifier, value);
 
-  _i1.ColumnValue<String, String> email(String? value) =>
-      _i1.ColumnValue(table.email, value);
+  _is.ColumnValue<String, String> email(String? value) =>
+      _is.ColumnValue(table.email, value);
 
-  _i1.ColumnValue<DateTime, DateTime> created(DateTime value) =>
-      _i1.ColumnValue(table.created, value);
+  _is.ColumnValue<DateTime, DateTime> created(DateTime value) =>
+      _is.ColumnValue(table.created, value);
 }
 
-class NaverAccountTable extends _i1.Table<_i1.UuidValue?> {
+class NaverAccountTable extends _is.Table<_is.UuidValue?> {
   NaverAccountTable({super.tableRelation})
     : super(tableName: 'serverpod_auth_idp_naver_account') {
     updateTable = NaverAccountUpdateTable(this);
-    authUserId = _i1.ColumnUuid('authUserId', this);
-    userIdentifier = _i1.ColumnString('userIdentifier', this);
-    email = _i1.ColumnString('email', this);
-    created = _i1.ColumnDateTime('created', this);
+    authUserId = _is.ColumnUuid('authUserId', this);
+    userIdentifier = _is.ColumnString('userIdentifier', this);
+    email = _is.ColumnString('email', this);
+    created = _is.ColumnDateTime('created', this);
   }
 
   late final NaverAccountUpdateTable updateTable;
 
-  late final _i1.ColumnUuid authUserId;
+  late final _is.ColumnUuid authUserId;
 
   /// The [AuthUser] this profile belongs to
-  _i2.AuthUserTable? _authUser;
+  _iacs.AuthUserTable? _authUser;
 
   /// The user identifier given by Naver for this account.
-  late final _i1.ColumnString userIdentifier;
+  late final _is.ColumnString userIdentifier;
 
   /// The verified email of the user, as received from Naver.
   ///
@@ -236,26 +242,26 @@ class NaverAccountTable extends _i1.Table<_i1.UuidValue?> {
   /// Stored in lower-case.
   ///
   /// This may be null if the user did not consent to share their email.
-  late final _i1.ColumnString email;
+  late final _is.ColumnString email;
 
   /// The time when this authentication was created.
-  late final _i1.ColumnDateTime created;
+  late final _is.ColumnDateTime created;
 
-  _i2.AuthUserTable get authUser {
+  _iacs.AuthUserTable get authUser {
     if (_authUser != null) return _authUser!;
-    _authUser = _i1.createRelationTable(
+    _authUser = _is.createRelationTable(
       relationFieldName: 'authUser',
       field: NaverAccount.t.authUserId,
-      foreignField: _i2.AuthUser.t.id,
+      foreignField: _iacs.AuthUser.t.id,
       tableRelation: tableRelation,
       createTable: (foreignTableRelation) =>
-          _i2.AuthUserTable(tableRelation: foreignTableRelation),
+          _iacs.AuthUserTable(tableRelation: foreignTableRelation),
     );
     return _authUser!;
   }
 
   @override
-  List<_i1.Column> get columns => [
+  List<_is.Column> get columns => [
     id,
     authUserId,
     userIdentifier,
@@ -264,7 +270,7 @@ class NaverAccountTable extends _i1.Table<_i1.UuidValue?> {
   ];
 
   @override
-  _i1.Table? getRelationTable(String relationField) {
+  _is.Table? getRelationTable(String relationField) {
     if (relationField == 'authUser') {
       return authUser;
     }
@@ -272,23 +278,23 @@ class NaverAccountTable extends _i1.Table<_i1.UuidValue?> {
   }
 }
 
-class NaverAccountInclude extends _i1.IncludeObject {
-  NaverAccountInclude._({_i2.AuthUserInclude? authUser}) {
+class NaverAccountInclude extends _is.IncludeObject {
+  NaverAccountInclude._({_iacs.AuthUserInclude? authUser}) {
     _authUser = authUser;
   }
 
-  _i2.AuthUserInclude? _authUser;
+  _iacs.AuthUserInclude? _authUser;
 
   @override
-  Map<String, _i1.Include?> get includes => {'authUser': _authUser};
+  Map<String, _is.Include?> get includes => {'authUser': _authUser};
 
   @override
-  _i1.Table<_i1.UuidValue?> get table => NaverAccount.t;
+  _is.Table<_is.UuidValue?> get table => NaverAccount.t;
 }
 
-class NaverAccountIncludeList extends _i1.IncludeList {
+class NaverAccountIncludeList extends _is.IncludeList {
   NaverAccountIncludeList._({
-    _i1.WhereExpressionBuilder<NaverAccountTable>? where,
+    _is.WhereExpressionBuilder<NaverAccountTable>? where,
     super.limit,
     super.offset,
     super.orderBy,
@@ -299,10 +305,10 @@ class NaverAccountIncludeList extends _i1.IncludeList {
   }
 
   @override
-  Map<String, _i1.Include?> get includes => include?.includes ?? {};
+  Map<String, _is.Include?> get includes => include?.includes ?? {};
 
   @override
-  _i1.Table<_i1.UuidValue?> get table => NaverAccount.t;
+  _is.Table<_is.UuidValue?> get table => NaverAccount.t;
 }
 
 class NaverAccountRepository {
@@ -333,16 +339,16 @@ class NaverAccountRepository {
   /// );
   /// ```
   Future<List<NaverAccount>> find(
-    _i1.DatabaseSession session, {
-    _i1.WhereExpressionBuilder<NaverAccountTable>? where,
+    _is.DatabaseSession session, {
+    _is.WhereExpressionBuilder<NaverAccountTable>? where,
     int? limit,
     int? offset,
-    _i1.OrderByBuilder<NaverAccountTable>? orderBy,
-    _i1.OrderByListBuilder<NaverAccountTable>? orderByList,
-    _i1.Transaction? transaction,
+    _is.OrderByBuilder<NaverAccountTable>? orderBy,
+    _is.OrderByListBuilder<NaverAccountTable>? orderByList,
+    _is.Transaction? transaction,
     NaverAccountInclude? include,
-    _i1.LockMode? lockMode,
-    _i1.LockBehavior? lockBehavior,
+    _is.LockMode? lockMode,
+    _is.LockBehavior? lockBehavior,
   }) async {
     return session.db.find<NaverAccount>(
       where: where?.call(NaverAccount.t),
@@ -354,6 +360,71 @@ class NaverAccountRepository {
       include: include,
       lockMode: lockMode,
       lockBehavior: lockBehavior,
+    );
+  }
+
+  /// Emits [NaverAccount]s matching the given query parameters every time the
+  /// source tables are modified.
+  ///
+  /// Use [where] to specify which items to include in the return value.
+  /// If none is specified, all items will be returned.
+  ///
+  /// To specify the order of the items use [orderBy] or [orderByList]
+  /// when sorting by multiple columns.
+  ///
+  /// The maximum number of items can be set by [limit]. If no limit is set,
+  /// all items matching the query will be returned.
+  ///
+  /// [offset] defines how many items to skip, after which [limit] (or all)
+  /// items are read from the database.
+  ///
+  /// Use [throttle] to specify the minimum interval between queries. It can
+  /// also be set to `null`, in which case the stream will only be throttled
+  /// when its subscription is paused.
+  ///
+  /// Source tables are collected from the queried table, [where], [orderBy],
+  /// [orderByList], and the [include] graph. [alsoTriggerOnTables] is added
+  /// to that set. Pass [Table] instances such as `NaverAccount.t`.
+  ///
+  /// Raw [Expression] SQL is not inspected. Tables referenced only in raw
+  /// SQL must be passed via [alsoTriggerOnTables].
+  ///
+  /// The stream always reads committed state and never joins an ambient
+  /// [Transaction]. Emissions for a write fire after that write commits.
+  ///
+  /// Currently only supported on SQLite. Calling this method on PostgreSQL
+  /// throws an [UnsupportedError].
+  ///
+  /// ```dart
+  /// var subscription = Persons.db.watch(
+  ///   session,
+  ///   where: (t) => t.lastName.equals('Jones'),
+  ///   orderBy: (t) => t.firstName,
+  ///   limit: 100,
+  /// ).listen((persons) {
+  ///   // Handle the latest matching rows.
+  /// });
+  /// ```
+  _ida.Stream<List<NaverAccount>> watch(
+    _is.DatabaseSession session, {
+    _is.WhereExpressionBuilder<NaverAccountTable>? where,
+    int? limit,
+    int? offset,
+    _is.OrderByBuilder<NaverAccountTable>? orderBy,
+    _is.OrderByListBuilder<NaverAccountTable>? orderByList,
+    NaverAccountInclude? include,
+    Duration? throttle = const Duration(milliseconds: 30),
+    Iterable<_is.Table>? alsoTriggerOnTables,
+  }) {
+    return session.db.watch<NaverAccount>(
+      where: where?.call(NaverAccount.t),
+      orderBy: orderBy?.call(NaverAccount.t),
+      orderByList: orderByList?.call(NaverAccount.t),
+      limit: limit,
+      offset: offset,
+      include: include,
+      throttle: throttle,
+      alsoTriggerOnTables: alsoTriggerOnTables,
     );
   }
 
@@ -375,15 +446,15 @@ class NaverAccountRepository {
   /// );
   /// ```
   Future<NaverAccount?> findFirstRow(
-    _i1.DatabaseSession session, {
-    _i1.WhereExpressionBuilder<NaverAccountTable>? where,
+    _is.DatabaseSession session, {
+    _is.WhereExpressionBuilder<NaverAccountTable>? where,
     int? offset,
-    _i1.OrderByBuilder<NaverAccountTable>? orderBy,
-    _i1.OrderByListBuilder<NaverAccountTable>? orderByList,
-    _i1.Transaction? transaction,
+    _is.OrderByBuilder<NaverAccountTable>? orderBy,
+    _is.OrderByListBuilder<NaverAccountTable>? orderByList,
+    _is.Transaction? transaction,
     NaverAccountInclude? include,
-    _i1.LockMode? lockMode,
-    _i1.LockBehavior? lockBehavior,
+    _is.LockMode? lockMode,
+    _is.LockBehavior? lockBehavior,
   }) async {
     return session.db.findFirstRow<NaverAccount>(
       where: where?.call(NaverAccount.t),
@@ -399,12 +470,12 @@ class NaverAccountRepository {
 
   /// Finds a single [NaverAccount] by its [id] or null if no such row exists.
   Future<NaverAccount?> findById(
-    _i1.DatabaseSession session,
-    _i1.UuidValue id, {
-    _i1.Transaction? transaction,
+    _is.DatabaseSession session,
+    _is.UuidValue id, {
+    _is.Transaction? transaction,
     NaverAccountInclude? include,
-    _i1.LockMode? lockMode,
-    _i1.LockBehavior? lockBehavior,
+    _is.LockMode? lockMode,
+    _is.LockBehavior? lockBehavior,
   }) async {
     return session.db.findById<NaverAccount>(
       id,
@@ -430,9 +501,9 @@ class NaverAccountRepository {
   /// the database and an empty list is returned. This avoids the overhead of
   /// transferring and deserializing the rows when the result is not needed.
   Future<List<NaverAccount>> insert(
-    _i1.DatabaseSession session,
+    _is.DatabaseSession session,
     List<NaverAccount> rows, {
-    _i1.Transaction? transaction,
+    _is.Transaction? transaction,
     bool ignoreConflicts = false,
     bool noReturn = false,
   }) async {
@@ -448,9 +519,9 @@ class NaverAccountRepository {
   ///
   /// The returned [NaverAccount] will have its `id` field set.
   Future<NaverAccount> insertRow(
-    _i1.DatabaseSession session,
+    _is.DatabaseSession session,
     NaverAccount row, {
-    _i1.Transaction? transaction,
+    _is.Transaction? transaction,
   }) async {
     return session.db.insertRow<NaverAccount>(row, transaction: transaction);
   }
@@ -476,12 +547,12 @@ class NaverAccountRepository {
   /// the database and an empty list is returned. This avoids the overhead of
   /// transferring and deserializing the rows when the result is not needed.
   Future<List<NaverAccount>> upsert(
-    _i1.DatabaseSession session,
+    _is.DatabaseSession session,
     List<NaverAccount> rows, {
-    required _i1.ColumnSelections<NaverAccountTable> conflictColumns,
-    _i1.ColumnSelections<NaverAccountTable>? updateColumns,
-    _i1.WhereExpressionBuilder<NaverAccountTable>? updateWhere,
-    _i1.Transaction? transaction,
+    required _is.ColumnSelections<NaverAccountTable> conflictColumns,
+    _is.ColumnSelections<NaverAccountTable>? updateColumns,
+    _is.WhereExpressionBuilder<NaverAccountTable>? updateWhere,
+    _is.Transaction? transaction,
     bool noReturn = false,
   }) async {
     return session.db.upsert<NaverAccount>(
@@ -508,12 +579,12 @@ class NaverAccountRepository {
   ///
   /// The returned [NaverAccount] will have its `id` field set.
   Future<NaverAccount?> upsertRow(
-    _i1.DatabaseSession session,
+    _is.DatabaseSession session,
     NaverAccount row, {
-    required _i1.ColumnSelections<NaverAccountTable> conflictColumns,
-    _i1.ColumnSelections<NaverAccountTable>? updateColumns,
-    _i1.WhereExpressionBuilder<NaverAccountTable>? updateWhere,
-    _i1.Transaction? transaction,
+    required _is.ColumnSelections<NaverAccountTable> conflictColumns,
+    _is.ColumnSelections<NaverAccountTable>? updateColumns,
+    _is.WhereExpressionBuilder<NaverAccountTable>? updateWhere,
+    _is.Transaction? transaction,
   }) async {
     return session.db.upsertRow<NaverAccount>(
       row,
@@ -534,10 +605,10 @@ class NaverAccountRepository {
   /// the database and an empty list is returned. This avoids the overhead of
   /// transferring and deserializing the rows when the result is not needed.
   Future<List<NaverAccount>> update(
-    _i1.DatabaseSession session,
+    _is.DatabaseSession session,
     List<NaverAccount> rows, {
-    _i1.ColumnSelections<NaverAccountTable>? columns,
-    _i1.Transaction? transaction,
+    _is.ColumnSelections<NaverAccountTable>? columns,
+    _is.Transaction? transaction,
     bool noReturn = false,
   }) async {
     return session.db.update<NaverAccount>(
@@ -552,10 +623,10 @@ class NaverAccountRepository {
   /// Optionally, a list of [columns] can be provided to only update those
   /// columns. Defaults to all columns.
   Future<NaverAccount> updateRow(
-    _i1.DatabaseSession session,
+    _is.DatabaseSession session,
     NaverAccount row, {
-    _i1.ColumnSelections<NaverAccountTable>? columns,
-    _i1.Transaction? transaction,
+    _is.ColumnSelections<NaverAccountTable>? columns,
+    _is.Transaction? transaction,
   }) async {
     return session.db.updateRow<NaverAccount>(
       row,
@@ -567,10 +638,10 @@ class NaverAccountRepository {
   /// Updates a single [NaverAccount] by its [id] with the specified [columnValues].
   /// Returns the updated row or null if no row with the given id exists.
   Future<NaverAccount?> updateById(
-    _i1.DatabaseSession session,
-    _i1.UuidValue id, {
-    required _i1.ColumnValueListBuilder<NaverAccountUpdateTable> columnValues,
-    _i1.Transaction? transaction,
+    _is.DatabaseSession session,
+    _is.UuidValue id, {
+    required _is.ColumnValueListBuilder<NaverAccountUpdateTable> columnValues,
+    _is.Transaction? transaction,
   }) async {
     return session.db.updateById<NaverAccount>(
       id,
@@ -586,14 +657,14 @@ class NaverAccountRepository {
   /// the database and an empty list is returned. This avoids the overhead of
   /// transferring and deserializing the rows when the result is not needed.
   Future<List<NaverAccount>> updateWhere(
-    _i1.DatabaseSession session, {
-    required _i1.ColumnValueListBuilder<NaverAccountUpdateTable> columnValues,
-    required _i1.WhereExpressionBuilder<NaverAccountTable> where,
+    _is.DatabaseSession session, {
+    required _is.ColumnValueListBuilder<NaverAccountUpdateTable> columnValues,
+    required _is.WhereExpressionBuilder<NaverAccountTable> where,
     int? limit,
     int? offset,
-    _i1.OrderByBuilder<NaverAccountTable>? orderBy,
-    _i1.OrderByListBuilder<NaverAccountTable>? orderByList,
-    _i1.Transaction? transaction,
+    _is.OrderByBuilder<NaverAccountTable>? orderBy,
+    _is.OrderByListBuilder<NaverAccountTable>? orderByList,
+    _is.Transaction? transaction,
     bool noReturn = false,
   }) async {
     return session.db.updateWhere<NaverAccount>(
@@ -620,11 +691,11 @@ class NaverAccountRepository {
   /// the database and an empty list is returned. This avoids the overhead of
   /// transferring and deserializing the rows when the result is not needed.
   Future<List<NaverAccount>> delete(
-    _i1.DatabaseSession session,
+    _is.DatabaseSession session,
     List<NaverAccount> rows, {
-    _i1.OrderByBuilder<NaverAccountTable>? orderBy,
-    _i1.OrderByListBuilder<NaverAccountTable>? orderByList,
-    _i1.Transaction? transaction,
+    _is.OrderByBuilder<NaverAccountTable>? orderBy,
+    _is.OrderByListBuilder<NaverAccountTable>? orderByList,
+    _is.Transaction? transaction,
     bool noReturn = false,
   }) async {
     return session.db.delete<NaverAccount>(
@@ -638,9 +709,9 @@ class NaverAccountRepository {
 
   /// Deletes a single [NaverAccount].
   Future<NaverAccount> deleteRow(
-    _i1.DatabaseSession session,
+    _is.DatabaseSession session,
     NaverAccount row, {
-    _i1.Transaction? transaction,
+    _is.Transaction? transaction,
   }) async {
     return session.db.deleteRow<NaverAccount>(row, transaction: transaction);
   }
@@ -654,11 +725,11 @@ class NaverAccountRepository {
   /// the database and an empty list is returned. This avoids the overhead of
   /// transferring and deserializing the rows when the result is not needed.
   Future<List<NaverAccount>> deleteWhere(
-    _i1.DatabaseSession session, {
-    required _i1.WhereExpressionBuilder<NaverAccountTable> where,
-    _i1.OrderByBuilder<NaverAccountTable>? orderBy,
-    _i1.OrderByListBuilder<NaverAccountTable>? orderByList,
-    _i1.Transaction? transaction,
+    _is.DatabaseSession session, {
+    required _is.WhereExpressionBuilder<NaverAccountTable> where,
+    _is.OrderByBuilder<NaverAccountTable>? orderBy,
+    _is.OrderByListBuilder<NaverAccountTable>? orderByList,
+    _is.Transaction? transaction,
     bool noReturn = false,
   }) async {
     return session.db.deleteWhere<NaverAccount>(
@@ -673,10 +744,10 @@ class NaverAccountRepository {
   /// Counts the number of rows matching the [where] expression. If omitted,
   /// will return the count of all rows in the table.
   Future<int> count(
-    _i1.DatabaseSession session, {
-    _i1.WhereExpressionBuilder<NaverAccountTable>? where,
+    _is.DatabaseSession session, {
+    _is.WhereExpressionBuilder<NaverAccountTable>? where,
     int? limit,
-    _i1.Transaction? transaction,
+    _is.Transaction? transaction,
   }) async {
     return session.db.count<NaverAccount>(
       where: where?.call(NaverAccount.t),
@@ -687,11 +758,11 @@ class NaverAccountRepository {
 
   /// Acquires row-level locks on [NaverAccount] rows matching the [where] expression.
   Future<void> lockRows(
-    _i1.DatabaseSession session, {
-    required _i1.WhereExpressionBuilder<NaverAccountTable> where,
-    required _i1.LockMode lockMode,
-    required _i1.Transaction transaction,
-    _i1.LockBehavior lockBehavior = _i1.LockBehavior.wait,
+    _is.DatabaseSession session, {
+    required _is.WhereExpressionBuilder<NaverAccountTable> where,
+    required _is.LockMode lockMode,
+    required _is.Transaction transaction,
+    _is.LockBehavior lockBehavior = _is.LockBehavior.wait,
   }) async {
     return session.db.lockRows<NaverAccount>(
       where: where(NaverAccount.t),
@@ -708,10 +779,10 @@ class NaverAccountAttachRowRepository {
   /// Creates a relation between the given [NaverAccount] and [AuthUser]
   /// by setting the [NaverAccount]'s foreign key `authUserId` to refer to the [AuthUser].
   Future<void> authUser(
-    _i1.DatabaseSession session,
+    _is.DatabaseSession session,
     NaverAccount naverAccount,
-    _i2.AuthUser authUser, {
-    _i1.Transaction? transaction,
+    _iacs.AuthUser authUser, {
+    _is.Transaction? transaction,
   }) async {
     if (naverAccount.id == null) {
       throw ArgumentError.notNull('naverAccount.id');

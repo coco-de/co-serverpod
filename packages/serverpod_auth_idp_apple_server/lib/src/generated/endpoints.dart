@@ -10,60 +10,60 @@
 // ignore_for_file: invalid_use_of_internal_member
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
-import 'package:serverpod/serverpod.dart' as _i1;
-import '../endpoints/apple_idp_endpoint.dart' as _i2;
-import 'package:serverpod_auth_idp_server/serverpod_auth_idp_server.dart'
-    as _i3;
+import 'package:serverpod/serverpod.dart' as _is;
 import 'package:serverpod_auth_core_server/serverpod_auth_core_server.dart'
-    as _i4;
+    as _iacs;
+import 'package:serverpod_auth_idp_server/serverpod_auth_idp_server.dart'
+    as _iais;
+import '../endpoints/apple_idp_endpoint.dart' as _i3mgbwnw;
 
-class Endpoints extends _i1.EndpointDispatch {
+class Endpoints extends _is.EndpointDispatch {
   @override
-  void initializeEndpoints(_i1.Server server) {
-    var endpoints = <String, _i1.Endpoint>{
-      'appleIdp': _i2.AppleIdpEndpoint()
+  void initializeEndpoints(_is.Server server) {
+    var endpoints = <String, _is.Endpoint>{
+      'appleIdp': _i3mgbwnw.AppleIdpEndpoint()
         ..initialize(server, 'appleIdp', 'serverpod_auth_idp_apple'),
     };
-    connectors['appleIdp'] = _i1.EndpointConnector(
+    connectors['appleIdp'] = _is.EndpointConnector(
       name: 'appleIdp',
       endpoint: endpoints['appleIdp']!,
       methodConnectors: {
-        'login': _i1.MethodConnector(
+        'login': _is.MethodConnector(
           name: 'login',
           params: {
-            'identityToken': _i1.ParameterDescription(
+            'identityToken': _is.ParameterDescription(
               name: 'identityToken',
-              type: _i1.getType<String>(),
+              type: _is.getType<String>(),
               nullable: false,
             ),
-            'authorizationCode': _i1.ParameterDescription(
+            'authorizationCode': _is.ParameterDescription(
               name: 'authorizationCode',
-              type: _i1.getType<String>(),
+              type: _is.getType<String>(),
               nullable: false,
             ),
-            'isNativeApplePlatformSignIn': _i1.ParameterDescription(
+            'isNativeApplePlatformSignIn': _is.ParameterDescription(
               name: 'isNativeApplePlatformSignIn',
-              type: _i1.getType<bool>(),
+              type: _is.getType<bool>(),
               nullable: false,
             ),
-            'nonce': _i1.ParameterDescription(
+            'nonce': _is.ParameterDescription(
               name: 'nonce',
-              type: _i1.getType<String?>(),
+              type: _is.getType<String?>(),
               nullable: true,
             ),
-            'firstName': _i1.ParameterDescription(
+            'firstName': _is.ParameterDescription(
               name: 'firstName',
-              type: _i1.getType<String?>(),
+              type: _is.getType<String?>(),
               nullable: true,
             ),
-            'lastName': _i1.ParameterDescription(
+            'lastName': _is.ParameterDescription(
               name: 'lastName',
-              type: _i1.getType<String?>(),
+              type: _is.getType<String?>(),
               nullable: true,
             ),
           },
-          call: (_i1.Session session, Map<String, dynamic> params) async =>
-              (endpoints['appleIdp'] as _i2.AppleIdpEndpoint).login(
+          call: (_is.Session session, Map<String, dynamic> params) async =>
+              (endpoints['appleIdp'] as _i3mgbwnw.AppleIdpEndpoint).login(
                 session,
                 identityToken: params['identityToken'],
                 authorizationCode: params['authorizationCode'],
@@ -74,19 +74,19 @@ class Endpoints extends _i1.EndpointDispatch {
                 lastName: params['lastName'],
               ),
         ),
-        'hasAccount': _i1.MethodConnector(
+        'hasAccount': _is.MethodConnector(
           name: 'hasAccount',
           params: {},
-          call: (_i1.Session session, Map<String, dynamic> params) async =>
-              (endpoints['appleIdp'] as _i2.AppleIdpEndpoint).hasAccount(
+          call: (_is.Session session, Map<String, dynamic> params) async =>
+              (endpoints['appleIdp'] as _i3mgbwnw.AppleIdpEndpoint).hasAccount(
                 session,
               ),
         ),
       },
     );
-    modules['serverpod_auth_idp'] = _i3.Endpoints()
+    modules['serverpod_auth_idp'] = _iais.Endpoints()
       ..initializeEndpoints(server);
-    modules['serverpod_auth_core'] = _i4.Endpoints()
+    modules['serverpod_auth_core'] = _iacs.Endpoints()
       ..initializeEndpoints(server);
   }
 }

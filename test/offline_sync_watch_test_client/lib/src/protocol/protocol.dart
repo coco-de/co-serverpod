@@ -55,6 +55,13 @@ class Protocol extends _isd.DatabaseSerializationManager
           _isc.getType<List<_io8vvye9.Note>?>,
         ],
         modules: const [_ipulbpi2.Protocol.new],
+        classNames: const [
+          'Attachment',
+          'Folder',
+          'LocalDraft',
+          'Note',
+          'Stroke',
+        ],
       );
 
   static List<_isd.TableDefinition> get targetTableDefinitions => [
@@ -343,17 +350,14 @@ class Protocol extends _isd.DatabaseSerializationManager
         : [],
   ];
 
-  static String? getClassNameFromObjectJson(dynamic data) {
-    if (data is! Map) return null;
-    final className = data['__className__'] as String?;
-    return className;
-  }
+  static String? getClassNameFromObjectJson(dynamic data) =>
+      _isc.ProtocolDeserialization.readClassName(data);
 
   @override
   T deserialize<T>(dynamic data, [Type? t]) {
     t ??= T;
-
-    final dataClassName = getClassNameFromObjectJson(data);
+    final rawDataClassName = _isc.ProtocolDeserialization.readClassName(data);
+    final dataClassName = rawDataClassName;
     if (dataClassName != null && dataClassName != getClassNameForType(t)) {
       try {
         return deserializeByClassName({
@@ -409,9 +413,10 @@ class Protocol extends _isd.DatabaseSerializationManager
               : null)
           as T;
     }
-    final modules = dataClassName == null
-        ? deserializationMetadata.modulesForType(t)
-        : deserializationMetadata.modules;
+    final modules = deserializationMetadata.modulesForDeserialization(
+      t,
+      className: rawDataClassName,
+    );
     for (final module in modules) {
       try {
         return module.deserialize<T>(data, t);
@@ -487,8 +492,10 @@ class Protocol extends _isd.DatabaseSerializationManager
       return deserialize<_ikjj7mbr.Stroke>(data['data']);
     }
     if (dataClassName.startsWith('serverpod_offline_sync.')) {
-      data['className'] = dataClassName.substring(23);
-      return _ipulbpi2.Protocol().deserializeByClassName(data);
+      return _ipulbpi2.Protocol().deserializeByClassName({
+        ...data,
+        'className': dataClassName.substring(23),
+      });
     }
     return super.deserializeByClassName(data);
   }

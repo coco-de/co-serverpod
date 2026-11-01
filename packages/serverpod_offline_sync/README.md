@@ -37,7 +37,7 @@ drift의 `watch()`처럼 로컬 쓰기와 동기화 병합을 화면에 자동�
 
 기준은 최신 배포 버전 `0.0.11`의
 [`e0598c1`](https://github.com/marcelomendoncasoares/serverpod_offline_sync/commit/e0598c1577db2d55c9af7d0d165be6332256910d)입니다.
-세 패키지 버전은 `0.0.11+co.1`, Serverpod 의존성은 `^4.1.0-beta.3`입니다.
+세 패키지 버전은 `0.0.11+co.1`, Serverpod 의존성은 `^4.1.0`입니다.
 `0.0.9`~`0.0.11`의 체크포인트 복구·upsert 기본값·병합 배치·watch/include 수정을 반영했습니다.
 포크의 공간별 서버 노드, 시계 허용치, 실패 분류, 상태, 배치 예산·행 격리, 스키마·설정 API,
 ByteData 보존과 FK 도달 행의 payload 읽기 축소를 유지합니다. 도메인 값과 외래 키 의존을 포함한
@@ -53,8 +53,8 @@ ByteData 보존과 FK 도달 행의 payload 읽기 축소를 유지합니다. �
 | 대상 | 변경 |
 |---|---|
 | `lib/src/database/database.dart`·`watch.dart`·`includes.dart` | watch·include 처리는 업스트림 0.0.11 구현을 사용. 직렬화 결과가 같은 발행은 구독별로 걸러 기존 포크 동작을 유지. 아래 포크 API·설정과 함께 연결 |
-| `lib/src/generated/**` | CLI 4.1.0-beta.3로 재생성. 아래 새 모델 2개(`sync/failure_code.dart`·`sync/remote_exception.dart`)와 그 `protocol.dart` 등록(import·export·역직렬화 분기)도 재생성 산출물 |
-| 세 패키지 `pubspec.yaml` | Serverpod `^4.1.0-beta.3`, 형제 path 의존, 워크스페이스 해제, `publish_to: none` |
+| `lib/src/generated/**` | CLI 4.1.0으로 재생성. 아래 새 모델 2개(`sync/failure_code.dart`·`sync/remote_exception.dart`)와 그 `protocol.dart` 등록(import·export·역직렬화 분기)도 재생성 산출물 |
+| 세 패키지 `pubspec.yaml` | Serverpod `^4.1.0`, 형제 path 의존, 워크스페이스 해제, `publish_to: none` |
 | 세 패키지 `analysis_options.yaml` | 업스트림 루트 린트를 `analysis_options.upstream.yaml`로 옮겨 include |
 | `README.md`·`CHANGELOG.md` | 업스트림 루트를 가리키던 심볼릭 링크를 실제 파일로 교체 |
 | `lib/src/hlc/hlc.dart` | 시계 오차 허용치: 업스트림의 1분 고정(`_maxDrift` + `increment` 의 `Duration(minutes: 1)` 리터럴)을 `Hlc.defaultMaxDrift`(**1시간**)와 `increment`·`merge` 의 `maxDrift` 인자로 교체. 검사 구조(로컬 역행 검사 포함)는 그대로. 자기 노드 스탬프를 같은 한도로 받는 `adoptOwn` 신설 ([시계 오차](#시계-오차-허용치와-동기화-실패-분류)) |
@@ -88,13 +88,13 @@ ByteData 보존과 FK 도달 행의 payload 읽기 축소를 유지합니다. �
 
 ## 설치
 
-앱 서버와 클라이언트 모두 Serverpod와 CLI를 **4.1.0-beta.3**로 맞춥니다. `ref`는 검증한 커밋 SHA로
+앱 서버와 클라이언트 모두 Serverpod와 CLI를 **4.1.0**으로 맞춥니다. `ref`는 검증한 커밋 SHA로
 고정하세요. 형제 패키지 `serverpod_offline_sync`는 같은 저장소·커밋에서 path 의존으로 따라옵니다.
 
 ```yaml
 # my_app_server/pubspec.yaml
 dependencies:
-  serverpod: ^4.1.0-beta.3
+  serverpod: ^4.1.0
   serverpod_offline_sync_server:
     git:
       url: https://github.com/coco-de/co-serverpod.git
@@ -105,7 +105,7 @@ dependencies:
 ```yaml
 # my_app_client/pubspec.yaml
 dependencies:
-  serverpod_client: ^4.1.0-beta.3
+  serverpod_client: ^4.1.0
   serverpod_offline_sync_client:
     git:
       url: https://github.com/coco-de/co-serverpod.git
@@ -135,7 +135,7 @@ fields:
   archived: bool, default=false
 ```
 
-CLI 4.1.0-beta.3로 `serverpod generate`를 실행하면 모든 테이블 모델에 `watch`가 생깁니다.
+CLI 4.1.0으로 `serverpod generate`를 실행하면 모든 테이블 모델에 `watch`가 생깁니다.
 
 ## 사용법
 
@@ -373,7 +373,7 @@ await session.db.initialize();
   서버는 `unknown` 을 보내지 않습니다.
 - ⚠️ **`unknown` 은 모르는 코드만 막습니다 — 모르는 클래스는 못 막습니다.** `OfflineSyncRemoteException` 이 생기기
   전의 포크로 빌드한 앱은 이 클래스 자체를 복호하지 못해 같은 `UnknownMessageException` 이 나고 연결 전체가
-  닫힙니다(`serverpod_client` 4.1.0-beta.3 `client_method_stream_manager.dart` 의 `UnknownMessageException`
+  닫힙니다(`serverpod_client` 4.1.0 `client_method_stream_manager.dart` 의 `UnknownMessageException`
   catch → rethrow → 연결 종료). 이 포크에 의존해 배포된 앱이 없으면 영향이 없습니다(unibook 은 2026-09-24
   기준 의존하지 않음). 앞으로 기기로 보내는 **새 직렬화 클래스**(예외든 이벤트든)를 더할 때는 그 클래스를 아는
   앱을 먼저 배포하고 서버가 나중에 보내기 시작하게 하거나, 핸드셰이크에서 기기가 아는지 확인해 게이트하세요.
@@ -669,8 +669,8 @@ await store.release((tableName: 'note', rowId: noteId)); // 격리에서 빼고 
   (`createSyncSession`은 초기화를 수행합니다).
 - **SQLite 전용**: 서버(Postgres)에서 호출하면 `UnsupportedError`입니다. 커밋된 상태만 읽고, 롤백된
   트랜잭션은 내보내지 않습니다.
-- **버전 범위**: Serverpod CLI는 `^4.1.0-beta.3` 같은 범위보다 정확한 버전 고정을 권장한다고 경고합니다.
-  4.1 정식 이후 버전 차이로 생성 코드가 어긋나면 정확한 버전으로 고정하세요.
+- **버전 범위**: Serverpod CLI는 `^4.1.0` 같은 범위보다 정확한 버전 고정을 권장한다고 경고합니다.
+  4.1.x 패치 간 버전 차이로 생성 코드가 어긋나면 정확한 버전으로 고정하세요.
 - **웹**: 웹 빌드는 검증하지 않았습니다.
 
 ## 테스트

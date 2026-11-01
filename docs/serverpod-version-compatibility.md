@@ -2,11 +2,16 @@
 
 ## 요약
 
+현재 지원 범위는 **Serverpod `^4.1.0`** 입니다. 인증 패키지 8개와 `serverpod_offline_sync` 포크 3개가 모두 같은 범위를 씁니다.
+
 | | 버전 | 비고 |
 |---|------|------|
-| 본 패키지 의존 | `serverpod ^3.4.0`, `serverpod_auth_idp_server ^3.4.8`, `serverpod_auth_core_server ^3.4.8` (pub.dev stable) | 독립 개발/배포 기준 |
-| 본 패키지 검증 | serverpod_cli **3.4.8** 로 `dart pub get` + `serverpod generate` + `dart analyze`(0 issue) + `dart test`(19 green) | ✅ |
-| 소비처(kobic) | serverpod **3.5.0-beta.9** (git ref `435fb29`) | dependency_overrides로 통합 |
+| 본 패키지 의존 | `serverpod ^4.1.0`, `serverpod_auth_idp_server ^4.1.0`, `serverpod_auth_core_server ^4.1.0` (pub.dev stable) | 독립 개발/배포 기준 |
+| 본 패키지 검증 | serverpod_cli **4.1.0** 로 `dart pub get` + `serverpod generate`(재실행 드리프트 0) + `dart analyze --fatal-infos`(0 issue) + 단위 테스트(19 green) | ✅ |
+| 소비처(kobic) | serverpod **3.5.0-beta.9** (git ref `435fb29`) | dependency_overrides로 통합 — 2026-06 당시 기록 |
+
+> 이 아래 본문은 3.x 시기(Kakao/Naver 최초 도입)에 남긴 호환성 검증 기록이라 그대로 보존합니다.
+> 현재 지원 범위는 위 요약을 따릅니다.
 
 ## 왜 3.4.8(stable)을 타깃하는가
 

@@ -25,7 +25,7 @@ Apple 은 공식 provider 를 포팅하되, 공식이 검증하지 않는 `id_to
 Serverpod ORM 모델(`database: sync`)을 그대로 오프라인 동기화하려면
 [`serverpod_offline_sync` 포크](packages/serverpod_offline_sync/README.md)를 사용합니다. 생성된
 `Model.db.watch(session, ...)`가 로컬 쓰기·삭제·동기화 병합을 화면에 자동 반영합니다.
-Serverpod **4.1.0-beta.1**이 필요하며, 인증 패키지는 기존 Serverpod 4.0 범위를 유지합니다.
+Serverpod **4.1.0** 이상(`^4.1.0`)이 필요하며, 인증 패키지도 같은 범위를 씁니다.
 
 ## 인증 방식
 
@@ -121,13 +121,14 @@ melos run test
 ```
 
 동기화 패키지인 `serverpod_offline_sync` 포크 3개와 watch fixture(`test/offline_sync_watch_test_*`)는
-위 인증 workspace와 독립적으로 resolve합니다(Serverpod 4.1.0-beta.1). 루트 bootstrap만으로는 의존성이
+위 인증 workspace와 독립적으로 resolve합니다(Serverpod `^4.1.0`). 루트 bootstrap만으로는 의존성이
 설치되지 않으므로, 각 패키지에서 `dart pub get` 후 루트에서
 `melos run serverpod-offline-sync:analyze`와 `melos run serverpod-offline-sync:test`를 실행합니다.
 생성 코드는 `melos run serverpod-offline-sync:generate`로 다시 만듭니다.
 
 > 포크를 루트 `workspace:`에 넣지 않은 이유: pub workspace는 모든 멤버를 한 번에 해석합니다.
-> - 포크를 넣으면 인증 패키지까지 Serverpod 4.1.0-beta.1로 올라갑니다.
+> - 지금은 포크와 인증 패키지가 같은 Serverpod `^4.1.0` 범위를 쓰지만, 범위가 다시 갈라지면 포크를 넣을 때
+>   인증 패키지의 해석도 함께 움직입니다.
 > - `melos run generate`(`*_server`, 전역 CLI)가 포크 모듈을 다른 CLI 버전으로 재생성하는 것도 막습니다.
 
 ## Graft code graph

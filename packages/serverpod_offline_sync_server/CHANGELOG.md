@@ -1,5 +1,11 @@
 ## 0.0.11+co.1 (co-serverpod fork)
 
+- chore: Require Serverpod `^4.1.0` (stable) instead of `^4.1.0-beta.3`,
+  including the `serverpod_cli`, `serverpod_test` and
+  `serverpod_embedded_postgres` dev dependencies, and regenerate the protocol
+  code with CLI 4.1.0. `serverpod create-migration` reports no schema change,
+  so no migration is added.
+
 - chore: Update to the shared `0.0.11+co.1` fork and Serverpod
   `^4.1.0-beta.3`; regenerate protocol code with the matching CLI. Preserve
   sibling path dependencies and all fork-specific public APIs.
