@@ -62,13 +62,13 @@ jobs:
           echo "::error title=릴리스 App 자격증명 없음::RELEASE_APP_ID / RELEASE_APP_PRIVATE_KEY 가 비어 있다. coco-de 조직은 GITHUB_TOKEN 의 PR 생성을 막아 두므로 App 토큰 없이 진행할 수 없다. coco-de-coui-release App 을 이 레포에 설치하고 두 시크릿을 coui 에서 복사한다. 추적: coco-de/co-serverpod#18"
           exit 1
 
-      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: app-token
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
-      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
