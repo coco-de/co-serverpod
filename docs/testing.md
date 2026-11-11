@@ -85,8 +85,9 @@ cd test/offline_sync_watch_test_client && dart pub get && dart test
 ```bash
 cd packages/serverpod_auth_idp_naver_server   # 또는 _kakao_server · _apple_server
 
-# 1. 시크릿 파일 생성 (gitignore — 로컬 전용)
-cp config/passwords.example.yaml config/passwords.yaml
+# 1. config/passwords.yaml — 테스트 전용 플레이스홀더(DB_TEST_PASSWORD 등)만 담은 파일이 저장소에 이미 있다.
+#    CI 가 이 파일을 쓴다. 운영 값은 절대 넣지 않는다. 파일이 없을 때만 예시에서 복사한다.
+[ -f config/passwords.yaml ] || cp config/passwords.example.yaml config/passwords.yaml
 
 # 2. serverpod 코드 생성 + 마이그레이션 (최초 1회)
 dart pub get

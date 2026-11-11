@@ -6,6 +6,11 @@ pubspec_overrides.yaml
 build/
 .melos_tool/
 
+# Flutter 가 `pub get` 때 로컬에 만드는 파일 — 개발자 PC 의 경로가 들어 있어 커밋하지 않는다.
+# 슬래시가 없는 패턴이라 하위 패키지와 example 앱까지 모두 가린다.
+.flutter-plugins
+.flutter-plugins-dependencies
+
 # Serverpod generated (체크인 정책에 따라 조정)
 # generated/ 는 커밋 — 모델/엔드포인트 코드는 패키지 사용자에게 필요
 
@@ -18,8 +23,15 @@ build/
 .DS_Store
 
 # Secrets
-config/passwords.yaml
+# 슬래시가 든 패턴은 이 파일 기준 상대 경로라서, 하위 패키지의 config/ 까지 가리려면 `**/` 가 필요하다.
+**/config/passwords.yaml
 *.env
+# Apple 로그인 개인 키 · 인증서
+*.p8
+*.pem
+# 예외: 인증 서버 3개의 config/passwords.yaml 은 테스트 전용 플레이스홀더(`DB_TEST_PASSWORD` 등)만
+# 담고 CI 가 쓰므로 이미 추적 중이다(ignore 규칙은 추적 중인 파일에 적용되지 않는다). 새 패키지에 같은
+# 파일을 더할 때는 플레이스홀더만 넣고 `git add -f` 한다. 운영 값은 절대 넣지 않는다.
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
