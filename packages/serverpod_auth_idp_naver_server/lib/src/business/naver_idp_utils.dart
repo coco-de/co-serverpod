@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -80,7 +81,7 @@ class NaverIdpUtils {
   /// using Naver-specific configuration.
   ///
   /// Throws [NaverAccessTokenVerificationException] if the token exchange
-  /// fails.
+  /// fails or takes longer than [NaverIdpConfig.httpTimeout].
   Future<String> exchangeCodeForToken(
     final Session session, {
     required final String code,
@@ -88,12 +89,18 @@ class NaverIdpUtils {
     required final String redirectUri,
   }) async {
     try {
-      final tokenResponse = await _oauth2Util.exchangeCodeForToken(
-        code: code,
-        codeVerifier: codeVerifier,
-        redirectUri: redirectUri,
-      );
+      final tokenResponse = await _oauth2Util
+          .exchangeCodeForToken(
+            code: code,
+            codeVerifier: codeVerifier,
+            redirectUri: redirectUri,
+          )
+          .timeout(config.httpTimeout);
       return tokenResponse.accessToken;
+    } on TimeoutException {
+      session.logAndThrow(
+        'Naver token exchange timed out after ${config.httpTimeout}',
+      );
     } on OAuth2Exception catch (e) {
       session.log(e.toString(), level: LogLevel.debug);
       throw const NaverAccessTokenVerificationException();
@@ -179,17 +186,26 @@ class NaverIdpUtils {
   /// This method calls Naver's user info API.
   ///
   /// Throws [NaverAccessTokenVerificationException] if the user info retrieval
-  /// fails.
+  /// fails or takes longer than [NaverIdpConfig.httpTimeout].
   Future<NaverAccountDetails> fetchAccountDetails(
     final Session session, {
     required final String accessToken,
   }) async {
     // More info on the user info API:
     // https://developers.naver.com/docs/login/profile/profile.md
-    final response = await _httpClient.get(
-      Uri.parse('https://openapi.naver.com/v1/nid/me'),
-      headers: {'Authorization': 'Bearer $accessToken'},
-    );
+    final http.Response response;
+    try {
+      response = await _httpClient
+          .get(
+            Uri.parse('https://openapi.naver.com/v1/nid/me'),
+            headers: {'Authorization': 'Bearer $accessToken'},
+          )
+          .timeout(config.httpTimeout);
+    } on TimeoutException {
+      session.logAndThrow(
+        'Request to Naver user info timed out after ${config.httpTimeout}',
+      );
+    }
 
     if (response.statusCode != 200) {
       session.logAndThrow(

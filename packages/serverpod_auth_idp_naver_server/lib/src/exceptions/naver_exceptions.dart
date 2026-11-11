@@ -12,6 +12,20 @@ class NaverAccessTokenVerificationException implements Exception {
       'access token.';
 }
 
+/// Exception thrown when a client asks to log in with a Naver access token
+/// while access-token login is turned off.
+///
+/// See `NaverIdpConfig.allowAccessTokenLogin`.
+class NaverAccessTokenLoginDisabledException implements Exception {
+  /// Creates a new [NaverAccessTokenLoginDisabledException].
+  const NaverAccessTokenLoginDisabledException();
+
+  @override
+  String toString() =>
+      'NaverAccessTokenLoginDisabledException: Logging in with a Naver '
+      'access token is turned off. Use the authorization code login.';
+}
+
 /// Exception thrown when the user info from Naver is missing required data.
 ///
 /// Naver requires the `id` field to be present. If it is missing — or if a
