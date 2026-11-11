@@ -32,8 +32,9 @@ jobs:
     # CI 표본이 쌓이면 실측 최대 × 2 로 재산정한다.
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dart-lang/setup-dart@v1
+      # 외부 액션은 커밋 SHA 로 고정한다(고정되지 않은 참조는 pinned-actions.yml 이 막는다).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d # v1.8.1
         with:
           sdk: stable
       - name: Engine
