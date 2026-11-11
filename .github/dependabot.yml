@@ -1,0 +1,43 @@
+# Dependabot 버전 업데이트 설정.
+#
+# - github-actions: 워크플로의 외부 액션은 커밋 SHA 로 고정돼 있다(pinned-actions.yml 이 검사).
+#   Dependabot 은 줄 끝의 `# vX.Y.Z` 주석을 읽어 SHA 와 주석을 함께 올린다.
+# - pub: Dart 패키지 의존. 루트(`/`)는 pub workspace 루트라 workspace 멤버 8개를 한 번에 해석한다.
+#   나머지는 workspace 밖에서 따로 해석하는 serverpod_offline_sync 포크 3개와 watch fixture 2개다.
+#   serverpod 계열은 버전을 올리면 생성 코드와 migrations 스냅샷도 다시 만들어야 해서
+#   (docs/testing.md) 자동 PR 대상에서 빼고 수동 대응 PR 로 올린다.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: pub
+    directories:
+      - /
+      - /packages/serverpod_offline_sync
+      - /packages/serverpod_offline_sync_client
+      - /packages/serverpod_offline_sync_server
+      - /test/offline_sync_watch_test_server
+      - /test/offline_sync_watch_test_client
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
+    ignore:
+      - dependency-name: serverpod
+      - dependency-name: "serverpod_*"
+    groups:
+      pub-minor-and-patch:
+        update-types:
+          - minor
+          - patch

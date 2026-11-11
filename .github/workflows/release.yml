@@ -32,9 +32,9 @@ on:
   push:
     branches: [main]
 
+# 최상위 기본값은 읽기 전용이다. 쓰기 권한은 필요한 잡에만 잡 수준에서 준다.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -44,6 +44,9 @@ jobs:
   release-please:
     name: Release PR / Tag
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     # 실패 run 실측 ~15s. 성공 표본 없음(B-2). hosted release-please 는 보통 <2m 이라
     # 과대추정 15m (B-3). 성공 표본이 쌓이면 B-1(실측 최대 × 2) 로 재산정할 것.
     timeout-minutes: 15
@@ -59,13 +62,13 @@ jobs:
           echo "::error title=릴리스 App 자격증명 없음::RELEASE_APP_ID / RELEASE_APP_PRIVATE_KEY 가 비어 있다. coco-de 조직은 GITHUB_TOKEN 의 PR 생성을 막아 두므로 App 토큰 없이 진행할 수 없다. coco-de-coui-release App 을 이 레포에 설치하고 두 시크릿을 coui 에서 복사한다. 추적: coco-de/co-serverpod#18"
           exit 1
 
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
         id: app-token
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
         with:
           token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
