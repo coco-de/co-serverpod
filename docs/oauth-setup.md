@@ -8,20 +8,30 @@
 
 ## 0. 인증 플로우 선택 (중요)
 
-서버 provider는 **OAuth2 Authorization Code 교환 플로우**로 구현되어 있습니다:
+서버 provider 는 두 가지 로그인을 모두 제공합니다.
 
 ```
-client → (브라우저/SDK로 authorization code 획득)
-       → endpoint.login(code, codeVerifier, redirectUri)
-       → server: code → access_token 교환 → userinfo 조회 → AuthUser/세션
+A. client → (브라우저/SDK로 authorization code 획득)
+          → endpoint.login(code, codeVerifier, redirectUri)
+          → server: code → access_token 교환 → userinfo 조회 → AuthUser/세션
+
+B. client → (네이티브 SDK 가 access token 을 직접 반환)
+          → endpoint.loginWithAccessToken(accessToken)
+          → server: userinfo 조회 → AuthUser/세션
 ```
 
 | 플로우 | 클라이언트가 서버로 보내는 것 | 서버 동작 | 적합 |
 |--------|------------------------------|-----------|------|
-| **A. Authorization Code (현재 구현)** | `code` + `codeVerifier` + `redirectUri` | code→token 교환 + userinfo | 웹 OAuth, PKCE, REST 흐름 |
-| **B. Access Token (후속 옵션)** | `accessToken` (네이티브 SDK가 직접 반환) | userinfo만 조회 | `kakao_flutter_sdk`, `flutter_naver_login` 네이티브 로그인 |
+| **A. Authorization Code** (`login`) | `code` + `codeVerifier` + `redirectUri` | 서버가 자기 클라이언트 자격 증명으로 code→token 교환 + userinfo | 웹 OAuth, PKCE, REST 흐름. **가능하면 이쪽을 권장** |
+| **B. Access Token** (`loginWithAccessToken`) | `accessToken` (네이티브 SDK가 직접 반환) | userinfo 로 토큰 확인 | `kakao_flutter_sdk`, `flutter_naver_login` 네이티브 로그인 (flutter 패키지가 이 플로우를 씁니다) |
 
-**주의**: `kakao_flutter_sdk_user`·`flutter_naver_login` 네이티브 로그인은 보통 **access token을 직접 반환**(플로우 B)합니다. 현재 서버는 플로우 A(code 교환)만 지원하므로, 네이티브 SDK를 쓰려면 서버에 `loginWithAccessToken(accessToken)` 메서드를 추가해야 합니다(userinfo 조회 로직은 이미 `*IdpUtils.fetchAccountDetails`로 분리되어 재사용 가능). → flutter 패키지 구현(#6514/#6515) 시 결정.
+`kakao_flutter_sdk_user` · `flutter_naver_login` 네이티브 로그인은 보통 access token 을 직접 반환하므로 플로우 B 를 씁니다.
+플로우 B 를 쓰지 않는 앱은 provider 별 선택 설정으로 범위를 좁힐 수 있습니다.
+
+| provider | 설정 | 기본값 | 효과 |
+|---|---|---|---|
+| Kakao | `expectedAppId` (`passwords.yaml` 의 `kakaoAppId`) | `null` (끔) | 플로우 B 에서 Kakao 토큰 정보 API(`/v1/user/access_token_info`)의 `app_id` 가 이 값과 같을 때만 진행 |
+| Naver | `allowAccessTokenLogin` | `true` | `false` 면 플로우 B 를 거부하고 플로우 A 만 허용 |
 
 아래 redirect URI 설정은 **플로우 A** 기준입니다. 플로우 B만 쓸 경우 redirect URI는 SDK 기본값을 따릅니다.
 
@@ -34,6 +44,7 @@ client → (브라우저/SDK로 authorization code 획득)
 ### 1-1. 앱 생성
 1. **내 애플리케이션 → 애플리케이션 추가하기** → 앱 이름/회사명 입력.
 2. **요약 정보 → 앱 키**에서 **REST API 키** 확인 → 서버 `kakaoClientId`로 사용.
+3. (선택) **요약 정보**의 **앱 ID**(숫자) → 서버 `kakaoAppId`로 사용. 설정하면 `loginWithAccessToken` 이 이 앱에 발급된 토큰만 받습니다. REST API 키와 다른 값입니다.
 
 ### 1-2. 카카오 로그인 활성화
 1. **카카오 로그인 → 활성화 설정 ON**.
@@ -94,13 +105,14 @@ client → (브라우저/SDK로 authorization code 획득)
 # Kakao
 kakaoClientId: '<카카오 REST API 키>'
 kakaoClientSecret: '<카카오 Client Secret>'   # Client Secret 활성화한 경우만
+kakaoAppId: '<카카오 앱 ID(숫자)>'             # 선택 — 플로우 B 의 발급 앱 확인. 생략하면 확인 안 함
 
 # Naver
 naverClientId: '<네이버 Client ID>'
 naverClientSecret: '<네이버 Client Secret>'
 ```
 
-> `passwords.yaml`은 `.gitignore`로 커밋 제외. 프로덕션은 SSM/Secrets Manager 등으로 주입.
+> 실제 값이 든 `passwords.yaml` 은 커밋하지 않습니다. 프로덕션은 SSM/Secrets Manager 등으로 주입.
 
 ## 4. 서버 등록 코드
 
@@ -124,4 +136,4 @@ AuthServices.set(
 - [ ] Naver Callback URL 등록
 - [ ] `passwords.yaml`에 4개 키 입력 (프로덕션은 시크릿 매니저)
 - [ ] redirect URI = 클라이언트 `login(redirectUri:)` 값과 일치
-- [ ] (플로우 B 사용 시) 서버에 `loginWithAccessToken` 추가 결정
+- [ ] (플로우 B 사용 시) Kakao 앱 ID 를 `kakaoAppId` 로 넣을지, Naver 에서 플로우 B 를 막을지(`allowAccessTokenLogin`) 결정
