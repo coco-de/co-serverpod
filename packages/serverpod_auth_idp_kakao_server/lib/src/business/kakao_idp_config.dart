@@ -40,6 +40,9 @@ typedef AfterKakaoAccountCreatedFunction =
 
 /// Configuration for the Kakao identity provider.
 class KakaoIdpConfig extends IdentityProviderBuilder<KakaoIdp> {
+  /// Default value of [httpTimeout].
+  static const Duration defaultHttpTimeout = Duration(seconds: 30);
+
   /// The REST API key (client ID) from your Kakao Developers application.
   final String clientId;
 
@@ -93,6 +96,28 @@ class KakaoIdpConfig extends IdentityProviderBuilder<KakaoIdp> {
   /// account has been created and linked.
   final AfterKakaoAccountCreatedFunction? onAfterKakaoAccountCreated;
 
+  /// Optional: the numeric Kakao app id that [KakaoIdp.loginWithAccessToken]
+  /// accepts access tokens for. It is the "App ID" of your application in the
+  /// Kakao Developers console (not the REST API key).
+  ///
+  /// When set, [KakaoIdp.loginWithAccessToken] first calls Kakao's access token
+  /// information API (`GET /v1/user/access_token_info`) and continues only if
+  /// the `app_id` it returns equals this value. If the call fails or the
+  /// response carries no usable `app_id`, the login is rejected.
+  ///
+  /// When `null` (the default) no such call is made and access tokens are
+  /// validated by the user info API only, as before. The check is not used by
+  /// [KakaoIdp.login]: there the server exchanges the authorization code with
+  /// its own client credentials.
+  final int? expectedAppId;
+
+  /// How long a single call to a Kakao API may take before it is given up and
+  /// the login fails with [KakaoAccessTokenVerificationException].
+  ///
+  /// Applies to the token exchange, the user info call and the access token
+  /// information call. Defaults to [defaultHttpTimeout].
+  final Duration httpTimeout;
+
   /// Creates a new instance of [KakaoIdpConfig].
   KakaoIdpConfig({
     required this.clientId,
@@ -100,6 +125,8 @@ class KakaoIdpConfig extends IdentityProviderBuilder<KakaoIdp> {
     this.kakaoAccountDetailsValidation = validateKakaoAccountDetails,
     this.getExtraKakaoInfoCallback,
     this.onAfterKakaoAccountCreated,
+    this.expectedAppId,
+    this.httpTimeout = defaultHttpTimeout,
   }) : oauth2Config = OAuth2PkceServerConfig(
          tokenEndpointUrl: Uri.https('kauth.kakao.com', '/oauth/token'),
          clientId: clientId,
@@ -123,6 +150,26 @@ class KakaoIdpConfig extends IdentityProviderBuilder<KakaoIdp> {
     if (accountDetails.userIdentifier.isEmpty) {
       throw const KakaoUserInfoMissingDataException();
     }
+  }
+
+  /// Parses the optional app id setting (for example the `kakaoAppId` password)
+  /// into a value for [expectedAppId].
+  ///
+  /// Returns `null` when [value] is `null`, which leaves the check off. A value
+  /// that is not a positive integer throws a [StateError]: a malformed setting
+  /// must stop the server at start-up instead of silently turning the check
+  /// off.
+  static int? parseExpectedAppId(final String? value) {
+    if (value == null) return null;
+    final appId = int.tryParse(value.trim());
+    if (appId == null || appId <= 0) {
+      throw StateError(
+        'The Kakao app id setting must be a positive integer (the "App ID" in '
+        'the Kakao Developers console). Remove the setting to turn the app '
+        'check off.',
+      );
+    }
+    return appId;
   }
 
   @override
@@ -149,21 +196,34 @@ class KakaoIdpConfig extends IdentityProviderBuilder<KakaoIdp> {
 /// - `kakaoClientId` (required): The REST API key from your Kakao application.
 /// - `kakaoClientSecret` (optional): The client secret, only required when the
 ///   "Client Secret" feature is enabled in the Kakao Developers console.
+/// - `kakaoAppId` (optional): The numeric app id for [expectedAppId]. Leave it
+///   out to keep the app check off. A value that is not a positive integer
+///   throws a [StateError].
 ///
 /// Example `passwords.yaml`:
 /// ```yaml
 /// kakaoClientId: 'your-kakao-rest-api-key'
 /// kakaoClientSecret: 'your-kakao-client-secret'
+/// kakaoAppId: '123456'
 /// ```
 class KakaoIdpConfigFromPasswords extends KakaoIdpConfig {
   /// Creates a new [KakaoIdpConfigFromPasswords] instance.
+  ///
+  /// [expectedAppId] overrides the `kakaoAppId` password when given.
   KakaoIdpConfigFromPasswords({
     super.kakaoAccountDetailsValidation,
     super.getExtraKakaoInfoCallback,
     super.onAfterKakaoAccountCreated,
+    super.httpTimeout,
+    final int? expectedAppId,
   }) : super(
          clientId: _requirePassword('kakaoClientId'),
          clientSecret: Serverpod.instance.getPassword('kakaoClientSecret'),
+         expectedAppId:
+             expectedAppId ??
+             KakaoIdpConfig.parseExpectedAppId(
+               Serverpod.instance.getPassword('kakaoAppId'),
+             ),
        );
 
   /// Reads a required [key] from the `passwords.yaml` file via the public

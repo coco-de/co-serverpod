@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -81,7 +82,7 @@ class KakaoIdpUtils {
   /// using Kakao-specific configuration.
   ///
   /// Throws [KakaoAccessTokenVerificationException] if the token exchange
-  /// fails.
+  /// fails or takes longer than [KakaoIdpConfig.httpTimeout].
   Future<String> exchangeCodeForToken(
     final Session session, {
     required final String code,
@@ -89,12 +90,18 @@ class KakaoIdpUtils {
     required final String redirectUri,
   }) async {
     try {
-      final tokenResponse = await _oauth2Util.exchangeCodeForToken(
-        code: code,
-        codeVerifier: codeVerifier,
-        redirectUri: redirectUri,
-      );
+      final tokenResponse = await _oauth2Util
+          .exchangeCodeForToken(
+            code: code,
+            codeVerifier: codeVerifier,
+            redirectUri: redirectUri,
+          )
+          .timeout(config.httpTimeout);
       return tokenResponse.accessToken;
+    } on TimeoutException {
+      session.logAndThrow(
+        'Kakao token exchange timed out after ${config.httpTimeout}',
+      );
     } on OAuth2Exception catch (e) {
       session.log(e.toString(), level: LogLevel.debug);
       throw const KakaoAccessTokenVerificationException();
@@ -180,16 +187,17 @@ class KakaoIdpUtils {
   /// This method calls Kakao's `/v2/user/me` API.
   ///
   /// Throws [KakaoAccessTokenVerificationException] if the user info retrieval
-  /// fails.
+  /// fails or takes longer than [KakaoIdpConfig.httpTimeout].
   Future<KakaoAccountDetails> fetchAccountDetails(
     final Session session, {
     required final String accessToken,
   }) async {
     // More info on the user API:
     // https://developers.kakao.com/docs/latest/en/kakaologin/rest-api#req-user-info
-    final response = await _httpClient.get(
+    final response = await _get(
+      session,
       Uri.https('kapi.kakao.com', '/v2/user/me'),
-      headers: {'Authorization': 'Bearer $accessToken'},
+      accessToken: accessToken,
     );
 
     if (response.statusCode != 200) {
@@ -217,6 +225,84 @@ class KakaoIdpUtils {
     }
 
     return details;
+  }
+
+  /// Verifies that [accessToken] was issued to the app configured in
+  /// [KakaoIdpConfig.expectedAppId].
+  ///
+  /// Does nothing, and makes no request, when [KakaoIdpConfig.expectedAppId]
+  /// is `null`.
+  ///
+  /// Otherwise this calls Kakao's access token information API
+  /// (`GET /v1/user/access_token_info`) and compares the `app_id` of the
+  /// response with the configured id.
+  ///
+  /// Throws [KakaoAccessTokenVerificationException] if the ids differ, if the
+  /// response carries no usable `app_id`, if the call fails or if it takes
+  /// longer than [KakaoIdpConfig.httpTimeout].
+  Future<void> verifyAccessTokenApp(
+    final Session session, {
+    required final String accessToken,
+  }) async {
+    final expectedAppId = config.expectedAppId;
+    if (expectedAppId == null) return;
+
+    // More info on the access token information API:
+    // https://developers.kakao.com/docs/latest/en/kakaologin/rest-api#get-token-info
+    final response = await _get(
+      session,
+      Uri.https('kapi.kakao.com', '/v1/user/access_token_info'),
+      accessToken: accessToken,
+    );
+
+    if (response.statusCode != 200) {
+      session.logAndThrow(
+        'Failed to read the access token info from Kakao: '
+        '${response.statusCode}',
+      );
+    }
+
+    Object? appId;
+    try {
+      appId = (jsonDecode(response.body) as Map<String, dynamic>)['app_id'];
+    } catch (e) {
+      session.logAndThrow('Invalid access token info from Kakao: $e');
+    }
+
+    // `app_id` is an integer in Kakao's documentation. A numeric string is
+    // accepted too; anything else cannot be compared and is rejected.
+    final tokenAppId = switch (appId) {
+      final int value => value,
+      final String value => int.tryParse(value.trim()),
+      _ => null,
+    };
+    if (tokenAppId == null) {
+      session.logAndThrow('The access token info from Kakao has no app_id.');
+    }
+    if (tokenAppId != expectedAppId) {
+      session.logAndThrow(
+        'The Kakao access token was issued to app $tokenAppId, '
+        'not to the configured app $expectedAppId.',
+      );
+    }
+  }
+
+  /// Sends an authenticated `GET` to a Kakao API and gives up after
+  /// [KakaoIdpConfig.httpTimeout].
+  Future<http.Response> _get(
+    final Session session,
+    final Uri url, {
+    required final String accessToken,
+  }) async {
+    try {
+      return await _httpClient
+          .get(url, headers: {'Authorization': 'Bearer $accessToken'})
+          .timeout(config.httpTimeout);
+    } on TimeoutException {
+      session.logAndThrow(
+        'Request to Kakao ${url.path} timed out after ${config.httpTimeout}',
+      );
+    }
   }
 
   /// Adds a Kakao authentication to the given [authUserId].

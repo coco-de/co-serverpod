@@ -37,6 +37,9 @@ typedef AfterNaverAccountCreatedFunction =
 
 /// Configuration for the Naver identity provider.
 class NaverIdpConfig extends IdentityProviderBuilder<NaverIdp> {
+  /// Default value of [httpTimeout].
+  static const Duration defaultHttpTimeout = Duration(seconds: 30);
+
   /// The client ID from your Naver application (애플리케이션 Client ID).
   final String clientId;
 
@@ -91,6 +94,26 @@ class NaverIdpConfig extends IdentityProviderBuilder<NaverIdp> {
   /// account has been created and linked.
   final AfterNaverAccountCreatedFunction? onAfterNaverAccountCreated;
 
+  /// Whether [NaverIdp.loginWithAccessToken] is available. Defaults to `true`.
+  ///
+  /// With `false`, [NaverIdp.loginWithAccessToken] (and the endpoint method
+  /// that calls it) throws [NaverAccessTokenLoginDisabledException] without
+  /// calling Naver. Only the authorization code login ([NaverIdp.login]) is
+  /// then available; there the server exchanges the code with its own client
+  /// credentials.
+  ///
+  /// Turn it off when your clients do not use a native Naver SDK to obtain an
+  /// access token. The setting does not affect [NaverIdpUtils.authenticate],
+  /// which custom flows may still call directly.
+  final bool allowAccessTokenLogin;
+
+  /// How long a single call to a Naver API may take before it is given up and
+  /// the login fails with [NaverAccessTokenVerificationException].
+  ///
+  /// Applies to the token exchange and the user info call. Defaults to
+  /// [defaultHttpTimeout].
+  final Duration httpTimeout;
+
   /// Creates a new instance of [NaverIdpConfig].
   NaverIdpConfig({
     required this.clientId,
@@ -98,6 +121,8 @@ class NaverIdpConfig extends IdentityProviderBuilder<NaverIdp> {
     this.naverAccountDetailsValidation = validateNaverAccountDetails,
     this.getExtraNaverInfoCallback,
     this.onAfterNaverAccountCreated,
+    this.allowAccessTokenLogin = true,
+    this.httpTimeout = defaultHttpTimeout,
   }) : oauth2Config = OAuth2PkceServerConfig(
          tokenEndpointUrl: Uri.https('nid.naver.com', '/oauth2.0/token'),
          clientId: clientId,
@@ -155,6 +180,8 @@ class NaverIdpConfigFromPasswords extends NaverIdpConfig {
     super.naverAccountDetailsValidation,
     super.getExtraNaverInfoCallback,
     super.onAfterNaverAccountCreated,
+    super.allowAccessTokenLogin,
+    super.httpTimeout,
   }) : super(
          clientId: _requirePassword('naverClientId'),
          clientSecret: _requirePassword('naverClientSecret'),

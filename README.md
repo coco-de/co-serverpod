@@ -32,11 +32,33 @@ Serverpod **4.1.0** 이상(`^4.1.0`)이 필요하며, 인증 패키지도 같은
 | | Kakao | Naver | Apple |
 |---|---|---|---|
 | 표준 OIDC `id_token` | ✅ 지원(옵션) | ❌ 미지원 | ✅ **필수** — 서버가 서명·audience·issuer·만료·**nonce** 검증 |
-| **본 패키지 채택 방식** | **OAuth2 code → token → userinfo** | **OAuth2 code → token → userinfo** | **id_token 검증 (nonce 포함)** |
+| **본 패키지 채택 방식** | **OAuth2 code → token → userinfo** (`login`) · 네이티브 SDK 액세스 토큰 → userinfo (`loginWithAccessToken`) | **OAuth2 code → token → userinfo** (`login`) · 네이티브 SDK 액세스 토큰 → userinfo (`loginWithAccessToken`) | **id_token 검증 (nonce 포함)** |
 | token endpoint | `https://kauth.kakao.com/oauth/token` | `https://nid.naver.com/oauth2.0/token` | `https://appleid.apple.com/auth/token` (authorization code 교환 — 실패해도 `id_token` 검증이 끝났으면 로그인 진행) |
 | userinfo | `https://kapi.kakao.com/v2/user/me` | `https://openapi.naver.com/v1/nid/me` | — (`id_token` claim 사용) |
 
 > Kakao도 OAuth2 code flow로 통일하여 두 provider가 동일한 공개 API(`OAuth2PkceUtil`)만 사용합니다. Kakao OIDC `id_token` 직접 검증 경로는 `IdTokenVerifierConfig`가 idp 내부 비공개라 현재 미채택(향후 upstream export 시 옵션 추가 가능).
+
+### 로그인 방식과 선택 설정
+
+Kakao · Naver 서버 provider 는 두 가지 로그인을 제공합니다.
+
+| | `login` (authorization code) | `loginWithAccessToken` (네이티브 SDK 액세스 토큰) |
+|---|---|---|
+| 클라이언트가 보내는 것 | `code` + `codeVerifier` + `redirectUri` | SDK 가 돌려준 `accessToken` |
+| 서버 동작 | 서버가 자기 클라이언트 자격 증명으로 code 를 교환한 뒤 사용자 정보를 조회 | 사용자 정보 API 로 토큰을 확인 |
+| 권장 | 가능하면 이쪽 | 네이티브 SDK 흐름이 필요할 때 |
+
+아래 선택 설정은 모두 **기본값이 기존 동작과 같습니다.**
+
+| provider | 설정 | 기본값 | 효과 |
+|---|---|---|---|
+| Kakao | `expectedAppId` (passwords: `kakaoAppId`) | `null` (끔) | `loginWithAccessToken` 에서 Kakao 토큰 정보 API(`/v1/user/access_token_info`)가 돌려주는 `app_id` 가 이 값과 같을 때만 진행. 앱 ID 는 Kakao Developers 콘솔의 「앱 ID」(REST API 키가 아님) |
+| Naver | `allowAccessTokenLogin` | `true` | `false` 면 `loginWithAccessToken` 을 `NaverAccessTokenLoginDisabledException` 으로 거부하고 code 로그인만 쓴다 |
+| Apple | `requireNonce` | `false` | `true` 면 nonce 없는 로그인을 Apple 호출 전에 `AppleNonceRequiredException` 으로 거부 |
+| Apple | `maxRequestBodyBytes` | 524288 (512 KiB) | 알림 · 콜백 라우트가 읽는 요청 본문 상한. 넘으면 `413` |
+| 공통 | `httpTimeout` | 30초 | 공급자 API 호출 한 번을 기다리는 최대 시간. 넘으면 그 호출을 포기하고 로그인을 실패시킨다(Apple 은 `TimeoutException`). 최선 노력인 Apple 의 인증 코드 교환 · 철회 호출은 시간이 넘어도 로그인과 세션 정리가 계속된다 |
+
+`kakaoAppId` 가 숫자가 아니면 서버가 시작 단계에서 `StateError` 로 멈춥니다(잘못된 값이 확인을 조용히 끄지 않도록).
 
 ## 서버 등록
 
@@ -103,7 +125,7 @@ await client.modules.appleIdp.appleIdp.login(
 );
 ```
 
-- `nonce` 를 생략(`null`)하면 claim 검증을 건너뜁니다 — 마이그레이션 호환용이며, 신규 클라이언트는 **항상** 보내야 합니다.
+- `nonce` 를 생략(`null`)하면 claim 검증을 건너뜁니다 — 마이그레이션 호환용이며, 신규 클라이언트는 **항상** 보내야 합니다. 모든 클라이언트가 nonce 를 보내게 되면 `AppleIdpConfig(requireNonce: true)` 로 생략을 거부할 수 있습니다(기본값 `false`).
 - `nonce` 불일치 시 `sign_in_with_apple_server` 가 예외를 던져 로그인이 거부됩니다(계정 생성 전에 차단).
 - 네이티브(iOS/macOS)·웹·Android·데스크톱 모두 동일하게 `nonce` 를 왕복합니다. 데스크톱은 플러그인이 없어 서버 콜백(`/auth/apple/callback`) bounce 로 `id_token` 을 받습니다.
 - `authorizationCode` 교환은 refresh token 확보용 **best-effort** 입니다 — 웹의 구조적 `redirect_uri` 불일치(Apple JS SDK `usePopup` 제약) 등으로 실패해도 `id_token` 검증이 끝났으면 로그인은 진행됩니다.

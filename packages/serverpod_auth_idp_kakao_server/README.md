@@ -53,6 +53,45 @@ final authSuccess = await client.kakaoIdp.login(
 );
 ```
 
+## Access token login (native SDK)
+
+A client that signs in with the native Kakao SDK sends the SDK's access token to
+`loginWithAccessToken`; the server resolves the Kakao user with the user info API.
+Where the client can use the authorization code flow above, prefer it: the server
+then exchanges the code with its own client credentials.
+
+```dart
+final authSuccess = await client.kakaoIdp.loginWithAccessToken(
+  accessToken: accessToken,
+);
+```
+
+### Check the app a token was issued to (optional)
+
+Set `expectedAppId` (the numeric **App ID** from the Kakao Developers console,
+not the REST API key) to accept only access tokens issued to your app:
+
+```dart
+KakaoIdpConfig(clientId: clientId, expectedAppId: 123456);
+// or: KakaoIdpConfigFromPasswords() with `kakaoAppId: '123456'` in passwords.yaml
+```
+
+`loginWithAccessToken` then calls Kakao's access token information API
+(`GET https://kapi.kakao.com/v1/user/access_token_info`) before anything else and
+continues only if the `app_id` in its response equals `expectedAppId`. A mismatch,
+an error response or a response without a usable `app_id` rejects the login with
+`KakaoAccessTokenVerificationException`.
+
+The default is `null`: no extra call is made and the login behaves as before. The
+check does not apply to `login`. A `kakaoAppId` password that is not a positive
+integer stops the server at start-up with a `StateError`.
+
+### Call timeout
+
+`httpTimeout` (default 30 seconds) is how long one call to a Kakao API may take
+(token exchange, user info, token information). Past it, the login fails with
+`KakaoAccessTokenVerificationException`.
+
 ## Kakao specifics
 
 | Item | Value |
@@ -62,6 +101,7 @@ final authSuccess = await client.kakaoIdp.login(
 | User info endpoint | `GET https://kapi.kakao.com/v2/user/me` |
 | Credentials location | request body |
 | PKCE | supported (`codeVerifier` required) |
+| Token info endpoint (optional app check) | `GET https://kapi.kakao.com/v1/user/access_token_info` |
 
 User info is parsed from `id` (numeric → string), `kakao_account.email`,
 `kakao_account.profile.nickname`, and

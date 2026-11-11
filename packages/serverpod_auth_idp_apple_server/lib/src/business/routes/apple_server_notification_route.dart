@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:serverpod/serverpod.dart';
 
 import '../apple_idp_utils.dart';
+import '../apple_request_body.dart';
 
 sealed class _SignInWithAppleRoute extends Route {
   final AppleIdpUtils _utils;
@@ -63,16 +64,30 @@ final class AppleWebAuthenticationCallbackRoute extends _SignInWithAppleRoute {
        super(utils, methods: {Method.post});
 
   @override
-  Future<Result> handleCall(
-    final Session session,
-    final Request request,
+  Future<Result> handleCall(final Session session, final Request request) =>
+      respondToCallback(request.headers, request.body);
+
+  /// Answers a callback that arrived with [headers] and [body].
+  ///
+  /// [handleCall] hands the request's headers and body to this method. A [body]
+  /// larger than the configured `maxRequestBodyBytes` is answered with
+  /// `413 Content Too Large` without being processed.
+  Future<Result> respondToCallback(
+    final Headers headers,
+    final Body body,
   ) async {
-    return _isUserAgentAndroid(request.headers)
-        ? _handleAndroidRedirection(request)
-        : _handleWebRedirection(request);
+    try {
+      return _isUserAgentAndroid(headers)
+          ? await _handleAndroidRedirection(body)
+          : await _handleWebRedirection(body);
+    } on MaxBodySizeExceeded {
+      return Response.contentTooLarge(
+        body: Body.fromString('Request body too large.'),
+      );
+    }
   }
 
-  Future<Result> _handleAndroidRedirection(final Request request) async {
+  Future<Result> _handleAndroidRedirection(final Body body) async {
     if (_androidPackageIdentifier == null) {
       return Response.internalServerError(
         body: Body.fromString(
@@ -82,7 +97,7 @@ final class AppleWebAuthenticationCallbackRoute extends _SignInWithAppleRoute {
       );
     }
 
-    final queryString = await _convertRequestBodyToQueryString(request);
+    final queryString = await _convertRequestBodyToQueryString(body);
 
     final intentUri =
         'intent://callback$queryString#Intent;'
@@ -98,7 +113,7 @@ final class AppleWebAuthenticationCallbackRoute extends _SignInWithAppleRoute {
     return Response(307, headers: headers, body: Body.empty());
   }
 
-  Future<Result> _handleWebRedirection(final Request request) async {
+  Future<Result> _handleWebRedirection(final Body body) async {
     if (_webRedirectUri == null) {
       return Response.internalServerError(
         body: Body.fromString(
@@ -108,7 +123,7 @@ final class AppleWebAuthenticationCallbackRoute extends _SignInWithAppleRoute {
       );
     }
 
-    final queryString = await _convertRequestBodyToQueryString(request);
+    final queryString = await _convertRequestBodyToQueryString(body);
 
     final headers = Headers.build((final h) {
       h['Location'] = ['$_webRedirectUri$queryString'];
@@ -125,11 +140,14 @@ final class AppleWebAuthenticationCallbackRoute extends _SignInWithAppleRoute {
     return userAgent.toLowerCase().contains('android');
   }
 
-  Future<String> _convertRequestBodyToQueryString(final Request request) async {
-    final body = await request.readAsString();
-    if (body.isEmpty) return '';
+  Future<String> _convertRequestBodyToQueryString(final Body body) async {
+    final text = await readBodyWithLimit(
+      body,
+      maxBytes: _utils.maxRequestBodyBytes,
+    );
+    if (text.isEmpty) return '';
 
-    final params = Uri.splitQueryString(body);
+    final params = Uri.splitQueryString(text);
     final query = params.entries
         .map(
           (final e) =>

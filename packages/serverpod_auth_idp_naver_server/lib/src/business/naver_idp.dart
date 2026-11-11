@@ -1,6 +1,7 @@
 import 'package:serverpod/serverpod.dart';
 import 'package:serverpod_auth_idp_server/core.dart';
 
+import '../exceptions/naver_exceptions.dart';
 import 'naver_idp_admin.dart';
 import 'naver_idp_config.dart';
 import 'naver_idp_utils.dart';
@@ -96,11 +97,21 @@ class NaverIdp implements IdentityProvider {
   /// Use this when the client already obtained a Naver `access token` (e.g.
   /// via the native Naver login SDK). The server skips the authorization-code
   /// exchange and authenticates directly with the supplied token.
+  ///
+  /// Where the client can use the authorization code flow, prefer [login]: the
+  /// server then exchanges the code with its own client credentials. This
+  /// method can be turned off with [NaverIdpConfig.allowAccessTokenLogin], in
+  /// which case it throws [NaverAccessTokenLoginDisabledException] before
+  /// calling Naver or touching the database.
   Future<AuthSuccess> loginWithAccessToken(
     final Session session, {
     required final String accessToken,
     final Transaction? transaction,
   }) async {
+    if (!config.allowAccessTokenLogin) {
+      throw const NaverAccessTokenLoginDisabledException();
+    }
+
     return await DatabaseUtil.runInTransactionOrSavepoint(
       session.db,
       transaction,
