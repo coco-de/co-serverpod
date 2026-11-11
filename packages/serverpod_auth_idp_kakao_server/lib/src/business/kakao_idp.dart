@@ -100,11 +100,18 @@ class KakaoIdp implements IdentityProvider {
   /// obtained on the client via the native Kakao SDK. Skips the
   /// authorization-code exchange and calls Kakao's user API directly.
   /// {@endtemplate}
+  ///
+  /// When [KakaoIdpConfig.expectedAppId] is set, the token must also have been
+  /// issued to that app (see [KakaoIdpUtils.verifyAccessTokenApp]); that check
+  /// runs before the user info is requested and before any database work. With
+  /// the default configuration it is skipped and behaviour is unchanged.
   Future<AuthSuccess> loginWithAccessToken(
     final Session session, {
     required final String accessToken,
     final Transaction? transaction,
   }) async {
+    await utils.verifyAccessTokenApp(session, accessToken: accessToken);
+
     return await DatabaseUtil.runInTransactionOrSavepoint(
       session.db,
       transaction,
