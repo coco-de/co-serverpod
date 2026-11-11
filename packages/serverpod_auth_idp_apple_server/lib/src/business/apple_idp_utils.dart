@@ -6,7 +6,9 @@ import 'package:serverpod/serverpod.dart';
 import 'package:serverpod_auth_idp_server/core.dart';
 import 'package:sign_in_with_apple_server/sign_in_with_apple_server.dart';
 
+import '../exceptions/apple_exceptions.dart';
 import 'apple_idp_config.dart';
+import 'apple_request_body.dart';
 
 // AppleKrAccount 는 `serverpod generate` 후 생성되는 모델이다.
 import '../generated/protocol.dart';
@@ -62,6 +64,28 @@ class AppleIdpUtils {
        _signInWithApple = signInWithApple,
        _authUsers = authUsers;
 
+  /// The largest request body the Apple routes read, in bytes.
+  ///
+  /// [AppleIdpConfig.maxRequestBodyBytes], or its default without a config.
+  int get maxRequestBodyBytes =>
+      config?.maxRequestBodyBytes ?? AppleIdpConfig.defaultMaxRequestBodyBytes;
+
+  /// Waits for [call] and gives up with a [TimeoutException] after
+  /// [AppleIdpConfig.httpTimeout] (or its default without a config).
+  ///
+  /// [action] says what was being done, for the exception message. The
+  /// underlying request is not cancelled; the caller just stops waiting for it.
+  Future<T> _withTimeout<T>(final Future<T> call, final String action) {
+    final timeout = config?.httpTimeout ?? AppleIdpConfig.defaultHttpTimeout;
+    return call.timeout(
+      timeout,
+      onTimeout: () => throw TimeoutException(
+        'Apple: $action timed out after $timeout',
+        timeout,
+      ),
+    );
+  }
+
   /// Authenticates a user using an [identityToken] and [authorizationCode].
   ///
   /// If the external user ID is not yet known in the system, a new `AuthUser`
@@ -74,7 +98,13 @@ class AppleIdpUtils {
   /// standard `sign_in_with_apple` pattern, that is `SHA256(rawNonce)`. A
   /// mismatch throws (from `sign_in_with_apple_server`). When [nonce] is null,
   /// the nonce claim is ignored (backwards-compatible with the official
-  /// provider), so existing clients keep working during the migration.
+  /// provider), so existing clients keep working during the migration, unless
+  /// [AppleIdpConfig.requireNonce] is on: then a null [nonce] throws
+  /// [AppleNonceRequiredException] before Apple is contacted.
+  ///
+  /// Calls to Apple give up after [AppleIdpConfig.httpTimeout] with a
+  /// [TimeoutException]; only the authorization code exchange, which is best
+  /// effort, lets the sign-in carry on without its result.
   Future<AppleAuthSuccess> authenticate(
     final Session session, {
     required final String identityToken,
@@ -89,10 +119,17 @@ class AppleIdpUtils {
     final String? lastName,
     required final Transaction? transaction,
   }) async {
-    final verifiedIdentityToken = await _signInWithApple.verifyIdentityToken(
-      identityToken,
-      useBundleIdentifier: isNativeApplePlatformSignIn,
-      nonce: nonce,
+    if (nonce == null && (config?.requireNonce ?? false)) {
+      throw const AppleNonceRequiredException();
+    }
+
+    final verifiedIdentityToken = await _withTimeout(
+      _signInWithApple.verifyIdentityToken(
+        identityToken,
+        useBundleIdentifier: isNativeApplePlatformSignIn,
+        nonce: nonce,
+      ),
+      'identity token verification',
     );
 
     // TODO(https://github.com/serverpod/serverpod/issues/4105):
@@ -157,9 +194,12 @@ class AppleIdpUtils {
       // sentinel is handled) instead of failing the whole authentication.
       String refreshToken;
       try {
-        final response = await _signInWithApple.exchangeAuthorizationCode(
-          authorizationCode,
-          useBundleIdentifier: isNativeApplePlatformSignIn,
+        final response = await _withTimeout(
+          _signInWithApple.exchangeAuthorizationCode(
+            authorizationCode,
+            useBundleIdentifier: isNativeApplePlatformSignIn,
+          ),
+          'authorization code exchange',
         );
         refreshToken = response.refreshToken;
       } on Exception catch (error, stackTrace) {
@@ -254,10 +294,13 @@ class AppleIdpUtils {
     if (appleAccount.refreshToken.isEmpty) return;
 
     try {
-      await _signInWithApple.validateRefreshToken(
-        appleAccount.refreshToken,
-        useBundleIdentifier:
-            appleAccount.refreshTokenRequestedWithBundleIdentifier,
+      await _withTimeout(
+        _signInWithApple.validateRefreshToken(
+          appleAccount.refreshToken,
+          useBundleIdentifier:
+              appleAccount.refreshTokenRequestedWithBundleIdentifier,
+        ),
+        'refresh token validation',
       );
     } on RevokedTokenException catch (_) {
       onExpiredUserAuthentication(appleAccount.authUserId);
@@ -270,15 +313,40 @@ class AppleIdpUtils {
   /// If the notification is of type [AppleServerNotificationConsentRevoked] or
   /// [AppleServerNotificationAccountDelete], all sessions based on the Apple
   /// authentication for that account will be revoked.
+  ///
+  /// A request body larger than [maxRequestBodyBytes] is answered with
+  /// `413 Content Too Large` without being processed.
   Future<Result> serverNotificationHandler(
     final Session session,
     final Request req,
-  ) async {
-    final body = await utf8.decodeStream(req.body.read());
-    final payload = (jsonDecode(body) as Map)['payload'] as String;
+  ) => handleServerNotificationBody(session, req.body);
 
-    final notification = await _signInWithApple.decodeAppleServerNotification(
-      payload,
+  /// Handles the [body] of a server-to-server notification from Apple.
+  ///
+  /// [serverNotificationHandler] hands the request body to this method. A [body]
+  /// larger than [maxRequestBodyBytes] is answered with `413 Content Too Large`
+  /// without being processed.
+  Future<Result> handleServerNotificationBody(
+    final Session session,
+    final Body body,
+  ) async {
+    final String text;
+    try {
+      text = await readBodyWithLimit(
+        body,
+        maxBytes: maxRequestBodyBytes,
+        encoding: utf8,
+      );
+    } on MaxBodySizeExceeded {
+      return Response.contentTooLarge(
+        body: Body.fromString('Request body too large.'),
+      );
+    }
+    final payload = (jsonDecode(text) as Map)['payload'] as String;
+
+    final notification = await _withTimeout(
+      _signInWithApple.decodeAppleServerNotification(payload),
+      'server notification decoding',
     );
 
     final userIdentifier = switch (notification) {
@@ -303,10 +371,13 @@ class AppleIdpUtils {
         // would leave the user signed in *after* they revoked consent.
         if (appleAccount.refreshToken.isNotEmpty) {
           try {
-            await _signInWithApple.revokeAuthorization(
-              refreshToken: appleAccount.refreshToken,
-              useBundleIdentifier:
-                  appleAccount.refreshTokenRequestedWithBundleIdentifier,
+            await _withTimeout(
+              _signInWithApple.revokeAuthorization(
+                refreshToken: appleAccount.refreshToken,
+                useBundleIdentifier:
+                    appleAccount.refreshTokenRequestedWithBundleIdentifier,
+              ),
+              'authorization revocation',
             );
           } on Exception catch (error, stackTrace) {
             session.log(
