@@ -15,7 +15,7 @@ dependencies:
     path: ../../packages/serverpod_offline_sync_server
 
 dev_dependencies:
-  lints: ^5.0.0
+  lints: ^6.1.0
   offline_sync_watch_test_client:
     path: ../offline_sync_watch_test_client
   path: ^1.9.1
