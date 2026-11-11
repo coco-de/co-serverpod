@@ -1,0 +1,12 @@
+# 코드 소유자. 보호 규칙에서 "코드 소유자 리뷰 필요"를 켜면 아래 경로를 바꾸는 PR 에 소유자 리뷰가
+# 요구된다. 뒤에 나온 규칙이 앞의 규칙보다 우선한다.
+
+# CI · 릴리스 설정
+/.github/                       @goccd
+/release-please-config.json     @goccd
+/.release-please-manifest.json  @goccd
+
+# 인증 공급자 서버 패키지
+/packages/serverpod_auth_idp_apple_server/  @goccd
+/packages/serverpod_auth_idp_kakao_server/  @goccd
+/packages/serverpod_auth_idp_naver_server/  @goccd
