@@ -34,7 +34,7 @@ jobs:
     # 다시 잡는다.
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: 검사기 단위 테스트
         run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
       - name: 고정되지 않은 참조 검사
